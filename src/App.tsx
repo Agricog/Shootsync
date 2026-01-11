@@ -34,9 +34,6 @@ import BeaterDashboard from './pages/beater/BeaterDashboard'
 import MyBookings from './pages/beater/MyBookings'
 import MyEarnings from './pages/beater/MyEarnings'
 
-// Guest pages
-import GuestAccept from './pages/guest/GuestAccept'
-
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import { PublicOnlyRoute } from './components/auth/ProtectedRoute'
@@ -68,10 +65,6 @@ export default function App() {
                 </PublicOnlyRoute>
               }
             />
-
-            {/* Guest route (public with token) */}
-            <Route path="/guest/accept/:token" element={<GuestAccept />} />
-            <Route path="/guest/accept" element={<GuestAccept />} />
 
             {/* Captain routes */}
             <Route
