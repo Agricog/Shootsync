@@ -17,6 +17,8 @@ import CaptainDashboard from './pages/captain/Dashboard'
 import Members from './pages/captain/Members'
 import Beaters from './pages/captain/Beaters'
 import Shoots from './pages/captain/Shoots'
+import ShootCreate from './pages/captain/ShootCreate'
+import BagRecord from './pages/captain/BagRecord'
 import Finances from './pages/captain/Finances'
 import Settings from './pages/captain/Settings'
 
@@ -94,6 +96,26 @@ export default function App() {
               element={
                 <ProtectedRoute>
                   <Shoots />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/shoots/new"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['captain']}>
+                    <ShootCreate />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/bags/record"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['captain', 'gun']}>
+                    <BagRecord />
+                  </RoleGuard>
                 </ProtectedRoute>
               }
             />
