@@ -20,6 +20,16 @@ import Shoots from './pages/captain/Shoots'
 import Finances from './pages/captain/Finances'
 import Settings from './pages/captain/Settings'
 
+// Gun pages
+import GunDashboard from './pages/gun/GunDashboard'
+import MyPegs from './pages/gun/MyPegs'
+import MyPayments from './pages/gun/MyPayments'
+
+// Beater pages
+import BeaterDashboard from './pages/beater/BeaterDashboard'
+import MyBookings from './pages/beater/MyBookings'
+import MyEarnings from './pages/beater/MyEarnings'
+
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import { PublicOnlyRoute } from './components/auth/ProtectedRoute'
@@ -50,7 +60,7 @@ export default function App() {
               }
             />
 
-            {/* Protected routes - Captain only */}
+            {/* Captain routes */}
             <Route
               path="/dashboard"
               element={
@@ -103,6 +113,70 @@ export default function App() {
                 <ProtectedRoute>
                   <RoleGuard allowedRoles={['captain']}>
                     <Settings />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Gun routes */}
+            <Route
+              path="/gun/dashboard"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['gun', 'captain']}>
+                    <GunDashboard />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-pegs"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['gun', 'captain']}>
+                    <MyPegs />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/my-payments"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['gun', 'captain']}>
+                    <MyPayments />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+
+            {/* Beater routes */}
+            <Route
+              path="/beater/dashboard"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['beater']}>
+                    <BeaterDashboard />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beater/bookings"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['beater']}>
+                    <MyBookings />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beater/earnings"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['beater']}>
+                    <MyEarnings />
                   </RoleGuard>
                 </ProtectedRoute>
               }
