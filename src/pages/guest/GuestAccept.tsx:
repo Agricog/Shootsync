@@ -1,0 +1,264 @@
+/**
+ * Guest Accept Page - ShootSync
+ * Guest RSVP, waiver, and payment flow
+ */
+
+import { useState } from 'react'
+import { Helmet } from 'react-helmet-async'
+import Card, { CardHeader, CardContent } from '../../components/common/Card'
+import Button from '../../components/common/Button'
+import Input from '../../components/common/Input'
+import { formatCurrency } from '../../config/stripe'
+import { formatLongDate } from '../../utils/dateHelpers'
+import { validateRequired, validateInput } from '../../utils/validation'
+
+type Step = 'details' | 'waiver' | 'payment' | 'confirmed'
+
+const MOCK_INVITE = {
+  guestId: 'g1',
+  guestName: 'Mike Guest',
+  guestEmail: 'mike@example.com',
+  shootId: 's1',
+  shootName: 'Beatrice Farm',
+  shootDate: '2026-01-18',
+  meetTime: '08:30',
+  locationPostcode: 'OX15 4AB',
+  syndicateName: 'Beatrice Pheasant Syndicate',
+  invitedBy: 'John Smith',
+  dayFee: 5000,
+}
+
+export default function GuestAccept() {
+  const [step, setStep] = useState<Step>('details')
+  const [isProcessing, setIsProcessing] = useState(false)
+  const [waiverData, setWaiverData] = useState({
+    emergencyContactName: '',
+    emergencyContactPhone: '',
+  })
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [hasAcceptedWaiver, setHasAcceptedWaiver] = useState(false)
+
+  const invite = MOCK_INVITE
+
+  const handleAcceptInvite = () => {
+    setStep('waiver')
+  }
+
+  const handleDeclineInvite = async () => {
+    console.log('[GuestAccept] Declining invite')
+  }
+
+  const handleWaiverSubmit = async () => {
+    const newErrors: Record<string, string> = {}
+
+    const nameError = validateRequired(waiverData.emergencyContactName, 'Emergency contact name')
+    if (nameError) newErrors.emergencyContactName = nameError
+
+    const phoneValidation = validateInput(waiverData.emergencyContactPhone, 'phone')
+    if (!phoneValidation.isValid) {
+      newErrors.emergencyContactPhone = 'Valid phone number is required'
+    }
+
+    if (!hasAcceptedWaiver) {
+      newErrors.acceptance = 'You must accept the waiver to continue'
+    }
+
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors)
+      return
+    }
+
+    setStep('payment')
+  }
+
+  const handlePayment = async () => {
+    setIsProcessing(true)
+    try {
+      console.log('[GuestAccept] Processing payment')
+      await new Promise(resolve => setTimeout(resolve, 1500))
+      setStep('confirmed')
+    } finally {
+      setIsProcessing(false)
+    }
+  }
+
+  return (
+    <>
+      <Helmet>
+        <title>Guest Invitation - ShootSync</title>
+        <meta name="robots" content="noindex, nofollow" />
+      </Helmet>
+
+      <div className="min-h-screen bg-slate-900 py-12 px-4">
+        <div className="max-w-lg mx-auto">
+          <div className="flex items-center justify-center gap-2 mb-8">
+            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
+              <span className="text-white font-bold">SS</span>
+            </div>
+            <span className="text-white font-semibold text-xl">ShootSync</span>
+          </div>
+
+          {step === 'details' && (
+            <Card>
+              <CardHeader
+                title="You're Invited!"
+                subtitle={`${invite.invitedBy} has invited you to shoot`}
+              />
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="p-4 bg-slate-800 rounded-lg space-y-3">
+                    <InfoRow label="Shoot" value={invite.shootName} />
+                    <InfoRow label="Date" value={formatLongDate(invite.shootDate)} />
+                    <InfoRow label="Meet Time" value={invite.meetTime} />
+                    <InfoRow label="Location" value={invite.locationPostcode} />
+                    <InfoRow label="Syndicate" value={invite.syndicateName} />
+                  </div>
+
+                  <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-slate-300">Guest Day Fee</span>
+                      <span className="text-white font-bold text-lg">
+                        {formatCurrency(invite.dayFee)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-3">
+                    <Button onClick={handleAcceptInvite} fullWidth>
+                      Accept Invitation
+                    </Button>
+                    <Button variant="ghost" onClick={handleDeclineInvite} fullWidth>
+                      Decline
+                    </Button>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 'waiver' && (
+            <Card>
+              <CardHeader title="Liability Waiver" subtitle={`${invite.shootName} - ${formatLongDate(invite.shootDate)}`} />
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="h-48 overflow-y-auto p-4 bg-slate-800 border border-slate-700 rounded-lg text-slate-300 text-sm">
+                    <p className="mb-4">By accepting this waiver, I confirm that:</p>
+                    <ol className="list-decimal list-inside space-y-2">
+                      <li>I am a competent shot and hold appropriate insurance for game shooting.</li>
+                      <li>I understand and accept the inherent risks associated with game shooting.</li>
+                      <li>I agree to follow all safety instructions given by the shoot captain.</li>
+                      <li>I release the syndicate from liability except in cases of gross negligence.</li>
+                      <li>I confirm that I am physically fit to participate.</li>
+                      <li>I agree to respect the countryside code.</li>
+                    </ol>
+                  </div>
+
+                  <div className="space-y-4">
+                    <Input
+                      label="Emergency Contact Name"
+                      value={waiverData.emergencyContactName}
+                      onChange={(e) => setWaiverData(prev => ({ ...prev, emergencyContactName: e.target.value }))}
+                      error={errors.emergencyContactName}
+                      required
+                    />
+                    <Input
+                      type="tel"
+                      label="Emergency Contact Phone"
+                      value={waiverData.emergencyContactPhone}
+                      onChange={(e) => setWaiverData(prev => ({ ...prev, emergencyContactPhone: e.target.value }))}
+                      error={errors.emergencyContactPhone}
+                      required
+                    />
+                  </div>
+
+                  <label className="flex items-start gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={hasAcceptedWaiver}
+                      onChange={(e) => setHasAcceptedWaiver(e.target.checked)}
+                      className="mt-1 w-4 h-4 rounded border-slate-600 bg-slate-700 text-green-600 focus:ring-green-500"
+                    />
+                    <span className="text-sm text-white">
+                      I have read and accept the waiver terms
+                    </span>
+                  </label>
+                  {errors.acceptance && (
+                    <p className="text-red-500 text-sm">{errors.acceptance}</p>
+                  )}
+
+                  <Button onClick={handleWaiverSubmit} disabled={!hasAcceptedWaiver} fullWidth>
+                    Continue to Payment
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 'payment' && (
+            <Card>
+              <CardHeader title="Payment" subtitle="Complete your booking" />
+              <CardContent>
+                <div className="space-y-6">
+                  <div className="p-4 bg-slate-800 rounded-lg">
+                    <div className="flex items-center justify-between mb-4">
+                      <span className="text-slate-400">Guest Day Fee</span>
+                      <span className="text-white font-bold">{formatCurrency(invite.dayFee)}</span>
+                    </div>
+                    <div className="pt-4 border-t border-slate-700">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white font-medium">Total</span>
+                        <span className="text-green-500 font-bold text-xl">{formatCurrency(invite.dayFee)}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <Button onClick={handlePayment} isLoading={isProcessing} fullWidth>
+                    Pay with Card
+                  </Button>
+
+                  <p className="text-slate-500 text-xs text-center">
+                    Secure payment powered by Stripe
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          {step === 'confirmed' && (
+            <Card>
+              <CardContent>
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 mx-auto mb-4 bg-green-500/10 rounded-full flex items-center justify-center">
+                    <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                  </div>
+                  <h2 className="text-2xl font-bold text-white mb-2">You're All Set!</h2>
+                  <p className="text-slate-400 mb-6">
+                    Your booking for {invite.shootName} on {formatLongDate(invite.shootDate)} is confirmed.
+                  </p>
+                  <div className="p-4 bg-slate-800 rounded-lg text-left space-y-2">
+                    <p className="text-slate-400 text-sm"><span className="text-white">Meet:</span> {invite.meetTime}</p>
+                    <p className="text-slate-400 text-sm"><span className="text-white">Location:</span> {invite.locationPostcode}</p>
+                  </div>
+                  <p className="text-slate-500 text-sm mt-6">
+                    A confirmation email has been sent to {invite.guestEmail}
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-slate-400 text-sm">{label}</p>
+      <p className="text-white">{value}</p>
+    </div>
+  )
+}
