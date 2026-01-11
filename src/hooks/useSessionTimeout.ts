@@ -20,9 +20,9 @@ export function useSessionTimeout(options: UseSessionTimeoutOptions = {}) {
   const { signOut, isSignedIn } = useAuth()
   const { onTimeout, onWarning, enabled = true } = options
 
-  const sessionTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const idleTimeoutRef = useRef<NodeJS.Timeout | null>(null)
-  const warningTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastActivityRef = useRef<number>(Date.now())
 
   const handleTimeout = useCallback(async () => {
@@ -75,15 +75,12 @@ export function useSessionTimeout(options: UseSessionTimeoutOptions = {}) {
       return
     }
 
-    // Set absolute session timeout
     sessionTimeoutRef.current = setTimeout(() => {
       handleTimeout()
     }, SESSION_TIMEOUT)
 
-    // Set initial idle timeout
     resetIdleTimeout()
 
-    // Track user activity
     const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove']
     
     const handleActivity = () => {
@@ -114,8 +111,6 @@ export function useIdleWarning() {
   const showWarning = useCallback((secondsRemaining: number) => {
     if (warningShownRef.current) return
     warningShownRef.current = true
-
-    // Could trigger a modal or toast here
     console.warn(`[ShootSync] Session will expire in ${secondsRemaining} seconds due to inactivity`)
   }, [])
 
