@@ -19,10 +19,7 @@ interface ErrorBoundaryState {
   errorInfo: string | null
 }
 
-export default class ErrorBoundary extends Component
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
+export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: ErrorBoundaryProps) {
     super(props)
     this.state = {
@@ -30,32 +27,23 @@ export default class ErrorBoundary extends Component
       error: null,
       errorInfo: null,
     }
+    this.handleReset = this.handleReset.bind(this)
   }
 
   static getDerivedStateFromError(error: Error): Partial<ErrorBoundaryState> {
-    return {
-      hasError: true,
-      error,
-    }
+    return { hasError: true, error }
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    captureError(error, 'ErrorBoundary', {
-      component: errorInfo.componentStack || undefined,
-    })
-
-    this.setState({
-      errorInfo: errorInfo.componentStack || null,
-    })
+    captureError(error, 'ErrorBoundary')
+    this.setState({ errorInfo: errorInfo.componentStack || null })
   }
 
-  handleReset = (): void => {
-    this.setState({
-      hasError: false,
-      error: null,
-      errorInfo: null,
-    })
-    this.props.onReset?.()
+  handleReset(): void {
+    this.setState({ hasError: false, error: null, errorInfo: null })
+    if (this.props.onReset) {
+      this.props.onReset()
+    }
   }
 
   render(): ReactNode {
@@ -83,32 +71,13 @@ export default class ErrorBoundary extends Component
                 />
               </svg>
             </div>
-
-            <h2 className="text-xl font-semibold text-white mb-2">
-              Something went wrong
-            </h2>
-            <p className="text-slate-400 mb-6">
-              We've encountered an unexpected error. Our team has been notified.
-            </p>
-
-            {this.state.error && (
-              <details className="mb-6 text-left">
-                <summary className="text-sm text-slate-500 cursor-pointer hover:text-slate-400">
-                  Technical details
-                </summary>
-                <pre className="mt-2 p-3 bg-slate-800 rounded-lg text-xs text-red-400 overflow-auto max-h-32">
-                  {this.state.error.message}
-                </pre>
-              </details>
-            )}
-
+            <h2 className="text-xl font-semibold text-white mb-2">Something went wrong</h2>
+            <p className="text-slate-400 mb-6">We have encountered an unexpected error. Our team has been notified.</p>
             <div className="flex items-center justify-center gap-3">
               <Button variant="secondary" onClick={() => window.location.reload()}>
                 Refresh Page
               </Button>
-              <Button onClick={this.handleReset}>
-                Try Again
-              </Button>
+              <Button onClick={this.handleReset}>Try Again</Button>
             </div>
           </div>
         </div>
