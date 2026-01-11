@@ -14,10 +14,16 @@ import Signup from './pages/public/Signup'
 
 // Captain pages
 import CaptainDashboard from './pages/captain/Dashboard'
+import Members from './pages/captain/Members'
+import Beaters from './pages/captain/Beaters'
+import Shoots from './pages/captain/Shoots'
+import Finances from './pages/captain/Finances'
+import Settings from './pages/captain/Settings'
 
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import { PublicOnlyRoute } from './components/auth/ProtectedRoute'
+import RoleGuard from './components/auth/RoleGuard'
 
 export default function App() {
   return (
@@ -44,12 +50,60 @@ export default function App() {
               }
             />
 
-            {/* Protected routes */}
+            {/* Protected routes - Captain only */}
             <Route
               path="/dashboard"
               element={
                 <ProtectedRoute>
                   <CaptainDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/members"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['captain']}>
+                    <Members />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/beaters"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['captain']}>
+                    <Beaters />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/shoots"
+              element={
+                <ProtectedRoute>
+                  <Shoots />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/finances"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['captain']}>
+                    <Finances />
+                  </RoleGuard>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <RoleGuard allowedRoles={['captain']}>
+                    <Settings />
+                  </RoleGuard>
                 </ProtectedRoute>
               }
             />
