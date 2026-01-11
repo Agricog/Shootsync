@@ -7,7 +7,7 @@ import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import DashboardLayout from '../../components/layout/DashboardLayout'
-import Card, { CardHeader, CardContent } from '../../components/common/Card'
+import Card, { CardContent } from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import type { ShootDay } from '../../types/shoot'
 
