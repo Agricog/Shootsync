@@ -5,7 +5,7 @@
 
 import { useCallback } from 'react'
 import { useAuth } from './useAuth'
-import { SMARTSUITE_CONFIG, SMARTSUITE_TABLES, type SmartSuiteTable } from '../config/smartsuite'
+import { SMARTSUITE_TABLES, type SmartSuiteTable } from '../config/smartsuite'
 import { captureError } from '../utils/errorTracking'
 import type { ApiResponse, SmartSuiteQueryOptions } from '../types/api'
 
