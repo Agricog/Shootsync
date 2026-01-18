@@ -222,7 +222,7 @@ export default function Beaters() {
         {beaters.length === 0 ? (
           <Card>
             <div className="text-center py-8">
-              <p className="text-white mb-4">No beaters added yet.</p>
+              <p className="text-gray-900 mb-4">No beaters added yet.</p>
               <Button onClick={() => setShowAddForm(true)}>Add Your First Beater</Button>
             </div>
           </Card>
@@ -232,12 +232,11 @@ export default function Beaters() {
               <Card key={beater.id} hover>
                 <div className="flex justify-between items-start">
                   <div>
-                    <div>
-  <h3 className="text-lg font-semibold text-gray-900">{beater.name}</h3>
-  <p className="text-amber-600">£{beater.dayRate}/day</p>
-  {beater.phone && <p className="text-gray-700 text-sm mt-1">{beater.phone}</p>}
-  {beater.email && <p className="text-gray-700 text-sm">{beater.email}</p>}
-</div>
+                    <h3 className="text-lg font-semibold text-gray-900">{beater.name}</h3>
+                    <p className="text-amber-600">£{beater.dayRate}/day</p>
+                    {beater.phone && <p className="text-gray-700 text-sm mt-1">{beater.phone}</p>}
+                    {beater.email && <p className="text-gray-700 text-sm">{beater.email}</p>}
+                  </div>
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(beater.status)}`}>
                       {beater.status}
