@@ -1,0 +1,315 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================================
+// CORE ENTITIES
+// ============================================
+
+model Syndicate {
+  id                  String   @id @default(cuid())
+  name                String
+  captainClerkId      String   @map("captain_clerk_id")
+  seasonStart         DateTime @map("season_start")
+  seasonEnd           DateTime @map("season_end")
+  subscriptionAmount  Int      @default(0) @map("subscription_amount")
+  subscriptionType    SubscriptionType @default(ANNUAL) @map("subscription_type")
+  defaultBeaterRate   Int      @default(40) @map("default_beater_rate")
+  pegRotationRule     PegRotationRule @default(FAIR_ROTATION) @map("peg_rotation_rule")
+  status              SyndicateStatus @default(ACTIVE)
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  members             Member[]
+  beaters             Beater[]
+  shootDays           ShootDay[]
+  beaterPayments      BeaterPayment[]
+  memberPayments      MemberPayment[]
+  beaterBookings      BeaterBooking[]
+  activityLogs        ActivityLog[]
+
+  @@map("syndicates")
+}
+
+model Member {
+  id                    String   @id @default(cuid())
+  syndicateId           String   @map("syndicate_id")
+  clerkUserId           String   @map("clerk_user_id")
+  email                 String
+  name                  String
+  phone                 String?
+  role                  MemberRole @default(GUN)
+  bascNumber            String?  @map("basc_number")
+  insuranceExpiry       DateTime? @map("insurance_expiry")
+  insuranceDocument     String?  @map("insurance_document")
+  emergencyContactName  String?  @map("emergency_contact_name")
+  emergencyContactPhone String?  @map("emergency_contact_phone")
+  subscriptionStatus    PaymentStatus @default(PENDING) @map("subscription_status")
+  subscriptionPaidDate  DateTime? @map("subscription_paid_date")
+  invitedAt             DateTime? @map("invited_at")
+  acceptedAt            DateTime? @map("accepted_at")
+  status                MemberStatus @default(PENDING)
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  syndicate             Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  shootAttendances      ShootAttendance[]
+  guestsInvited         GuestGun[] @relation("InvitedBy")
+  bagRecords            BagRecord[]
+  memberPayments        MemberPayment[]
+  activityLogs          ActivityLog[]
+
+  @@unique([syndicateId, clerkUserId])
+  @@map("members")
+}
+
+model Beater {
+  id                String   @id @default(cuid())
+  syndicateId       String   @map("syndicate_id")
+  name              String
+  email             String?
+  phone             String?
+  dayRate           Int      @default(40) @map("day_rate")
+  bankName          String?  @map("bank_name")
+  bankSortCode      String?  @map("bank_sort_code")
+  bankAccountNumber String?  @map("bank_account_number")
+  status            BeaterStatus @default(ACTIVE)
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  syndicate         Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  payments          BeaterPayment[]
+  bookings          BeaterBooking[]
+
+  @@map("beaters")
+}
+
+// ============================================
+// SHOOT DAY ENTITIES
+// ============================================
+
+model ShootDay {
+  id                String   @id @default(cuid())
+  syndicateId       String   @map("syndicate_id")
+  date              DateTime
+  locationName      String   @map("location_name")
+  locationAddress   String?  @map("location_address")
+  locationPostcode  String?  @map("location_postcode")
+  locationWhat3Words String? @map("location_what3words")
+  meetTime          String   @default("08:30") @map("meet_time")
+  drivesPlanned     Int      @default(4) @map("drives_planned")
+  expectedBag       Int?     @map("expected_bag")
+  status            ShootStatus @default(SCHEDULED)
+  weatherNotes      String?  @map("weather_notes")
+  captainNotes      String?  @map("captain_notes")
+  briefingGenerated Boolean  @default(false) @map("briefing_generated")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  syndicate         Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  attendances       ShootAttendance[]
+  guestGuns         GuestGun[]
+  bagRecords        BagRecord[]
+  beaterPayments    BeaterPayment[]
+  beaterBookings    BeaterBooking[]
+
+  @@map("shoot_days")
+}
+
+model ShootAttendance {
+  id            String   @id @default(cuid())
+  shootId       String   @map("shoot_id")
+  memberId      String   @map("member_id")
+  roleOnDay     MemberRole @default(GUN) @map("role_on_day")
+  pegNumber     Int?     @map("peg_number")
+  confirmed     Boolean  @default(false)
+  attended      Boolean  @default(false)
+  checkedInAt   DateTime? @map("checked_in_at")
+  notes         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  shootDay      ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
+  member        Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([shootId, memberId])
+  @@map("shoot_attendances")
+}
+
+model GuestGun {
+  id                    String   @id @default(cuid())
+  shootId               String   @map("shoot_id")
+  invitedByMemberId     String   @map("invited_by_member_id")
+  name                  String
+  email                 String
+  phone                 String?
+  emergencyContactName  String?  @map("emergency_contact_name")
+  emergencyContactPhone String?  @map("emergency_contact_phone")
+  pegNumber             Int?     @map("peg_number")
+  dayFee                Int      @default(50) @map("day_fee")
+  paymentStatus         PaymentStatus @default(PENDING) @map("payment_status")
+  stripePaymentId       String?  @map("stripe_payment_id")
+  waiverAccepted        Boolean  @default(false) @map("waiver_accepted")
+  waiverAcceptedAt      DateTime? @map("waiver_accepted_at")
+  rsvpStatus            RsvpStatus @default(PENDING) @map("rsvp_status")
+  notes                 String?
+  createdAt             DateTime @default(now()) @map("created_at")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  shootDay              ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
+  invitedBy             Member   @relation("InvitedBy", fields: [invitedByMemberId], references: [id], onDelete: Cascade)
+
+  @@map("guest_guns")
+}
+
+// ============================================
+// BAG RECORDS
+// ============================================
+
+model BagRecord {
+  id                String   @id @default(cuid())
+  shootId           String   @map("shoot_id")
+  driveNumber       Int      @map("drive_number")
+  pheasant          Int      @default(0)
+  partridge         Int      @default(0)
+  duck              Int      @default(0)
+  woodcock          Int      @default(0)
+  other             Int      @default(0)
+  otherDescription  String?  @map("other_description")
+  recordedByMemberId String  @map("recorded_by_member_id")
+  recordedAt        DateTime @default(now()) @map("recorded_at")
+  notes             String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  shootDay          ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
+  recordedBy        Member   @relation(fields: [recordedByMemberId], references: [id], onDelete: Cascade)
+
+  @@map("bag_records")
+}
+
+// ============================================
+// PAYMENTS
+// ============================================
+
+model BeaterPayment {
+  id               String   @id @default(cuid())
+  syndicateId      String   @map("syndicate_id")
+  beaterId         String   @map("beater_id")
+  shootId          String   @map("shoot_id")
+  amount           Int
+  status           PaymentStatus @default(PENDING)
+  paidDate         DateTime? @map("paid_date")
+  paymentReference String?  @map("payment_reference")
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  syndicate        Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  beater           Beater    @relation(fields: [beaterId], references: [id], onDelete: Cascade)
+  shootDay         ShootDay  @relation(fields: [shootId], references: [id], onDelete: Cascade)
+
+  @@map("beater_payments")
+}
+
+model MemberPayment {
+  id              String   @id @default(cuid())
+  syndicateId     String   @map("syndicate_id")
+  memberId        String   @map("member_id")
+  amount          Int
+  paymentType     MemberPaymentType @default(SUBSCRIPTION) @map("payment_type")
+  status          PaymentStatus @default(PENDING)
+  dueDate         DateTime? @map("due_date")
+  paidDate        DateTime? @map("paid_date")
+  paymentMethod   PaymentMethod? @map("payment_method")
+  stripePaymentId String?  @map("stripe_payment_id")
+  notes           String?
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  syndicate       Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  member          Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@map("member_payments")
+}
+
+model BeaterBooking {
+  id            String   @id @default(cuid())
+  syndicateId   String   @map("syndicate_id")
+  beaterId      String   @map("beater_id")
+  shootId       String   @map("shoot_id")
+  dayRate       Int      @map("day_rate")
+  status        BookingStatus @default(INVITED)
+  invitedAt     DateTime @default(now()) @map("invited_at")
+  confirmedAt   DateTime? @map("confirmed_at")
+  checkedIn     Boolean  @default(false) @map("checked_in")
+  checkedInAt   DateTime? @map("checked_in_at")
+  paymentStatus PaymentStatus @default(PENDING) @map("payment_status")
+  notes         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  syndicate     Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  beater        Beater    @relation(fields: [beaterId], references: [id], onDelete: Cascade)
+  shootDay      ShootDay  @relation(fields: [shootId], references: [id], onDelete: Cascade)
+
+  @@unique([beaterId, shootId])
+  @@map("beater_bookings")
+}
+
+// ============================================
+// ACTIVITY LOG
+// ============================================
+
+model ActivityLog {
+  id            String   @id @default(cuid())
+  syndicateId   String   @map("syndicate_id")
+  action        ActivityAction
+  actorMemberId String?  @map("actor_member_id")
+  targetType    String?  @map("target_type")
+  targetId      String?  @map("target_id")
+  details       Json?
+  ipAddress     String?  @map("ip_address")
+  timestamp     DateTime @default(now())
+
+  // Relations
+  syndicate     Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+  actor         Member?   @relation(fields: [actorMemberId], references: [id], onDelete: SetNull)
+
+  @@map("activity_logs")
+}
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum SubscriptionType {
+  ANNUAL
+  PER_SHOOT
+  HYBRID
+}
+
+enum PegRotationRule {
+  FAIR_ROTATION
+  RANDOM
+  MANUAL
+}
+
+enum SyndicateSt
