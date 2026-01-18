@@ -116,15 +116,13 @@ export default function App() {
               }
             />
             <Route
-              path="/shoots/new"
-              element={
-                <ProtectedRoute>
-                  <RoleGuard allowedRoles={['captain']}>
-                    <ShootCreate />
-                  </RoleGuard>
-                </ProtectedRoute>
-              }
-            />
+  path="/shoots/new"
+  element={
+    <ProtectedRoute>
+      <ShootCreate />
+    </ProtectedRoute>
+  }
+/>
             <Route
               path="/bags/record"
               element={
