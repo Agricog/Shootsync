@@ -78,10 +78,10 @@ export default function CaptainDashboard() {
       <div className="space-y-6">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-2xl font-bold mb-2">{activeSyndicate.name}</h1>
-            <p className="text-gray-600 dark:text-gray-400">
-              Season: {new Date(activeSyndicate.seasonStart).toLocaleDateString()} - {new Date(activeSyndicate.seasonEnd).toLocaleDateString()}
-            </p>
+           <h1 className="text-2xl font-bold mb-2 text-white">{activeSyndicate.name}</h1>
+            <p className="text-gray-300">
+  Season: {new Date(activeSyndicate.seasonStart).toLocaleDateString()} - {new Date(activeSyndicate.seasonEnd).toLocaleDateString()}
+</p>
           </div>
           <Link to="/settings">
             <Button variant="secondary">Settings</Button>
