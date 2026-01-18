@@ -29,13 +29,6 @@ interface Member {
   status: string
 }
 
-interface Attendance {
-  id: string
-  memberId: string
-  pegNumber: number | null
-  member?: Member
-}
-
 interface PegHistory {
   memberId: string
   pegNumber: number
@@ -51,12 +44,12 @@ export default function PegAllocation() {
   const shootApi = useApi<ShootDay>('shoots')
   const memberApi = useApi<Member>('members')
 
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [, setSyndicateId] = useState<string | null>(null)
   const [shoots, setShoots] = useState<ShootDay[]>([])
   const [selectedShoot, setSelectedShoot] = useState<string | null>(shootIdParam)
   const [members, setMembers] = useState<Member[]>([])
   const [allocations, setAllocations] = useState<{ memberId: string; memberName: string; pegNumber: number }[]>([])
-  const [pegHistory, setPegHistory] = useState<PegHistory[]>([])
+  const [pegHistory] = useState<PegHistory[]>([])
   const [loading, setLoading] = useState(true)
   const [generating, setGenerating] = useState(false)
   const [saving, setSaving] = useState(false)
