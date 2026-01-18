@@ -25,7 +25,6 @@ model Syndicate {
   createdAt           DateTime @default(now()) @map("created_at")
   updatedAt           DateTime @updatedAt @map("updated_at")
 
-  // Relations
   members             Member[]
   beaters             Beater[]
   shootDays           ShootDay[]
@@ -59,7 +58,6 @@ model Member {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  // Relations
   syndicate             Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   shootAttendances      ShootAttendance[]
   guestsInvited         GuestGun[] @relation("InvitedBy")
@@ -86,17 +84,12 @@ model Beater {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  // Relations
   syndicate         Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   payments          BeaterPayment[]
   bookings          BeaterBooking[]
 
   @@map("beaters")
 }
-
-// ============================================
-// SHOOT DAY ENTITIES
-// ============================================
 
 model ShootDay {
   id                String   @id @default(cuid())
@@ -116,7 +109,6 @@ model ShootDay {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  // Relations
   syndicate         Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   attendances       ShootAttendance[]
   guestGuns         GuestGun[]
@@ -140,7 +132,6 @@ model ShootAttendance {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  // Relations
   shootDay      ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
   member        Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
@@ -168,16 +159,11 @@ model GuestGun {
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  // Relations
   shootDay              ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
   invitedBy             Member   @relation("InvitedBy", fields: [invitedByMemberId], references: [id], onDelete: Cascade)
 
   @@map("guest_guns")
 }
-
-// ============================================
-// BAG RECORDS
-// ============================================
 
 model BagRecord {
   id                String   @id @default(cuid())
@@ -195,16 +181,11 @@ model BagRecord {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  // Relations
   shootDay          ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
   recordedBy        Member   @relation(fields: [recordedByMemberId], references: [id], onDelete: Cascade)
 
   @@map("bag_records")
 }
-
-// ============================================
-// PAYMENTS
-// ============================================
 
 model BeaterPayment {
   id               String   @id @default(cuid())
@@ -219,7 +200,6 @@ model BeaterPayment {
   createdAt        DateTime @default(now()) @map("created_at")
   updatedAt        DateTime @updatedAt @map("updated_at")
 
-  // Relations
   syndicate        Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   beater           Beater    @relation(fields: [beaterId], references: [id], onDelete: Cascade)
   shootDay         ShootDay  @relation(fields: [shootId], references: [id], onDelete: Cascade)
@@ -242,7 +222,6 @@ model MemberPayment {
   createdAt       DateTime @default(now()) @map("created_at")
   updatedAt       DateTime @updatedAt @map("updated_at")
 
-  // Relations
   syndicate       Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   member          Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
@@ -265,7 +244,6 @@ model BeaterBooking {
   createdAt     DateTime @default(now()) @map("created_at")
   updatedAt     DateTime @updatedAt @map("updated_at")
 
-  // Relations
   syndicate     Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   beater        Beater    @relation(fields: [beaterId], references: [id], onDelete: Cascade)
   shootDay      ShootDay  @relation(fields: [shootId], references: [id], onDelete: Cascade)
@@ -273,10 +251,6 @@ model BeaterBooking {
   @@unique([beaterId, shootId])
   @@map("beater_bookings")
 }
-
-// ============================================
-// ACTIVITY LOG
-// ============================================
 
 model ActivityLog {
   id            String   @id @default(cuid())
@@ -289,32 +263,10 @@ model ActivityLog {
   ipAddress     String?  @map("ip_address")
   timestamp     DateTime @default(now())
 
-  // Relations
   syndicate     Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   actor         Member?   @relation(fields: [actorMemberId], references: [id], onDelete: SetNull)
 
   @@map("activity_logs")
-}
-
-// ============================================
-// ENUMS
-// ============================================
-
-enum SubscriptionType {
-  ANNUAL
-  PER_SHOOT
-  HYBRID
-}
-
-enum PegRotationRule {
-  FAIR_ROTATION
-  RANDOM
-  MANUAL
-}
-
-enum SyndicateStatus {
-  ACTIVE
-  ARCHIVED
 }
 
 // ============================================
