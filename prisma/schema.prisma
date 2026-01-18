@@ -316,3 +316,91 @@ enum SyndicateStatus {
   ACTIVE
   ARCHIVED
 }
+
+// ============================================
+// ENUMS
+// ============================================
+
+enum SubscriptionType {
+  ANNUAL
+  PER_SHOOT
+  HYBRID
+}
+
+enum PegRotationRule {
+  FAIR_ROTATION
+  RANDOM
+  MANUAL
+}
+
+enum SyndicateStatus {
+  ACTIVE
+  ARCHIVED
+}
+
+enum MemberRole {
+  CAPTAIN
+  GUN
+  BEATER
+  HYBRID
+}
+
+enum MemberStatus {
+  ACTIVE
+  INACTIVE
+  PENDING
+}
+
+enum BeaterStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ShootStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  OVERDUE
+  REFUNDED
+}
+
+enum RsvpStatus {
+  PENDING
+  CONFIRMED
+  DECLINED
+}
+
+enum BookingStatus {
+  INVITED
+  CONFIRMED
+  DECLINED
+  NO_SHOW
+}
+
+enum MemberPaymentType {
+  SUBSCRIPTION
+  GUEST_FEE
+  OTHER
+}
+
+enum PaymentMethod {
+  BANK_TRANSFER
+  STRIPE
+  CASH
+}
+
+enum ActivityAction {
+  MEMBER_INVITED
+  MEMBER_ACCEPTED
+  PAYMENT_RECEIVED
+  SHOOT_CREATED
+  BAG_RECORDED
+  PEG_ALLOCATED
+  BEATER_BOOKED
+  GUEST_INVITED
+}
