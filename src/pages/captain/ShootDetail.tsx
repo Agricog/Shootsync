@@ -108,8 +108,8 @@ export default function ShootDetail() {
             <h2 className="text-lg font-semibold text-green-500 mb-4">Location</h2>
             <div className="space-y-2">
               <p className="text-white"><span className="text-green-400">Name:</span> {shoot.locationName}</p>
-              {shoot.locationAddress && <p className="text-white"><span className="text-green-400">Address:</span> {shoot.locationAddress}</p>}
-              {shoot.locationPostcode && <p className="text-white"><span className="text-green-400">Postcode:</span> {shoot.locationPostcode}</p>}
+              {shoot.locationAddress && <p className="text-white"><span className="text-sky-400">Address:</span> {shoot.locationAddress}</p>}
+              {shoot.locationPostcode && <p className="text-white"><span className="text-sky-400">Postcode:</span> {shoot.locationPostcode}</p>}
             </div>
           </Card>
 
