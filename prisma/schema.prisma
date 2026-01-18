@@ -312,4 +312,7 @@ enum PegRotationRule {
   MANUAL
 }
 
-enum SyndicateSt
+enum SyndicateStatus {
+  ACTIVE
+  ARCHIVED
+}
