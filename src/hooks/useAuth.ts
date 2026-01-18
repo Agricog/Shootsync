@@ -1,98 +1,61 @@
 /**
- * Authentication Hook - ShootSync
- * Wrapper for Clerk with ShootSync-specific logic
+ * Auth Hook - ShootSync
+ * Wrapper around Clerk authentication
  */
 
-import { useState, useEffect, useCallback } from 'react'
-import type { ClerkUserPublicMetadata, UserRole } from '../config/clerk'
+import { useUser, useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react'
+import type { UserRole } from '../types/member'
 
-interface AuthState {
+interface AuthUser {
+  id: string
+  email: string
+  name: string
+  imageUrl?: string
+  role: UserRole
+  syndicateId?: string
+}
+
+interface UseAuthReturn {
+  user: AuthUser | null
   isLoaded: boolean
   isSignedIn: boolean
-  userId: string | null
-  email: string | null
-  name: string | null
-  role: UserRole | null
-  syndicateId: string | null
-  memberId: string | null
-}
-
-interface UseAuthReturn extends AuthState {
   signOut: () => Promise<void>
-  refreshUser: () => Promise<void>
-}
-
-// Placeholder until Clerk is integrated
-const MOCK_AUTH: AuthState = {
-  isLoaded: true,
-  isSignedIn: false,
-  userId: null,
-  email: null,
-  name: null,
-  role: null,
-  syndicateId: null,
-  memberId: null,
 }
 
 export function useAuth(): UseAuthReturn {
-  const [authState, setAuthState] = useState<AuthState>({
-    isLoaded: false,
-    isSignedIn: false,
-    userId: null,
-    email: null,
-    name: null,
-    role: null,
-    syndicateId: null,
-    memberId: null,
-  })
+  const { user, isLoaded, isSignedIn } = useUser()
+  const { signOut: clerkSignOut } = useClerk()
 
-  useEffect(() => {
-    // TODO: Replace with actual Clerk integration
-    // const { isLoaded, isSignedIn, user } = useUser()
-    
-    // Simulate auth loading
-    const timer = setTimeout(() => {
-      setAuthState(MOCK_AUTH)
-    }, 100)
+  const authUser: AuthUser | null = user
+    ? {
+        id: user.id,
+        email: user.primaryEmailAddress?.emailAddress || '',
+        name: user.fullName || user.firstName || 'User',
+        imageUrl: user.imageUrl,
+        role: (user.publicMetadata?.role as UserRole) || 'gun',
+        syndicateId: user.publicMetadata?.syndicateId as string | undefined,
+      }
+    : null
 
-    return () => clearTimeout(timer)
-  }, [])
-
-  const signOut = useCallback(async (): Promise<void> => {
-    // TODO: Replace with Clerk signOut
-    setAuthState({
-      ...MOCK_AUTH,
-      isLoaded: true,
-    })
-  }, [])
-
-  const refreshUser = useCallback(async (): Promise<void> => {
-    // TODO: Replace with Clerk user refresh
-    console.log('[useAuth] Refreshing user data')
-  }, [])
+  const signOut = async () => {
+    await clerkSignOut()
+  }
 
   return {
-    ...authState,
+    user: authUser,
+    isLoaded,
+    isSignedIn: isSignedIn ?? false,
     signOut,
-    refreshUser,
   }
 }
 
-export function parseUserMetadata(
-  metadata: Record<string, unknown> | undefined
-): ClerkUserPublicMetadata {
-  if (!metadata) {
-    return {}
-  }
-
-  return {
-    syndicateId: typeof metadata.syndicateId === 'string' ? metadata.syndicateId : undefined,
-    role: isValidRole(metadata.role) ? metadata.role : undefined,
-    memberId: typeof metadata.memberId === 'string' ? metadata.memberId : undefined,
-    onboardingComplete: typeof metadata.onboardingComplete === 'boolean' ? metadata.onboardingComplete : undefined,
-  }
+export function useAuthRole(): UserRole | null {
+  const { user } = useAuth()
+  return user?.role || null
 }
 
-function isValidRole(role: unknown): role is UserRole {
-  return role === 'captain' || role === 'gun' || role === 'beater' || role === 'guest'
+export function useSyndicateId(): string | null {
+  const { user } = useAuth()
+  return user?.syndicateId || null
 }
+
