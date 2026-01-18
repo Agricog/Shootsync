@@ -1,208 +1,164 @@
-/**
- * Captain Dashboard - ShootSync
- * Main dashboard for syndicate captains
- */
-
-import { Helmet } from 'react-helmet-async'
-import DashboardLayout from '../../components/layout/DashboardLayout'
-import { PageGrid } from '../../components/layout/DashboardLayout'
-import Card, { CardHeader, CardContent, StatCard } from '../../components/common/Card'
-import Button from '../../components/common/Button'
-import { useSyndicate, useSeasonDates } from '../../hooks/useSyndicate'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
+import { useAuth } from '../../hooks/useAuth'
+import { useSmartSuite } from '../../hooks/useSmartSuite'
+import DashboardLayout from '../../components/layout/DashboardLayout'
+import Card from '../../components/common/Card'
+import StatCard from '../../components/common/Card'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
+import Button from '../../components/common/Button'
+
+interface Syndicate {
+  id: string
+  name: string
+  season_start: string
+  season_end: string
+  subscription_amount: number
+  status: string
+}
 
 export default function CaptainDashboard() {
-  const { syndicate, isLoading } = useSyndicate()
-  const { isInSeason, daysRemaining } = useSeasonDates()
+  const { user } = useAuth()
+  const { fetchRecords, loading, error } = useSmartSuite<Syndicate>('syndicates')
+  const [syndicates, setSyndicates] = useState<Syndicate[]>([])
 
-  if (isLoading) {
+  useEffect(() => {
+    loadSyndicates()
+  }, [])
+
+  const loadSyndicates = async () => {
+    // For now, fetch all syndicates where captain_clerk_id matches current user
+    const data = await fetchRecords({
+      captain_clerk_id: user?.id
+    })
+    setSyndicates(data)
+  }
+
+  if (loading) {
     return (
-      <DashboardLayout title="Dashboard">
-        <div className="animate-pulse space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            {[1, 2, 3, 4].map(i => (
-              <div key={i} className="h-24 bg-slate-800 rounded-xl" />
-            ))}
-          </div>
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <LoadingSpinner size="lg" />
         </div>
       </DashboardLayout>
     )
   }
 
-  return (
-    <>
-      <Helmet>
-        <title>Dashboard - ShootSync</title>
-        <meta name="robots" content="noindex, nofollow" />
-      </Helmet>
+  if (error) {
+    return (
+      <DashboardLayout>
+        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
+          <p className="text-red-800 dark:text-red-200">Error loading syndicates: {error}</p>
+          <Button onClick={loadSyndicates} className="mt-4">
+            Retry
+          </Button>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
-      <DashboardLayout
-        title={syndicate?.name || 'Dashboard'}
-        subtitle={isInSeason ? `${daysRemaining} days remaining in season` : 'Off season'}
-        action={
-          <Link to="/shoots/new">
-            <Button>Create Shoot</Button>
+  // If no syndicates, show setup screen
+  if (syndicates.length === 0) {
+    return (
+      <DashboardLayout>
+        <div className="max-w-2xl mx-auto text-center py-12">
+          <h1 className="text-3xl font-bold mb-4">Welcome to ShootSync! 🎯</h1>
+          <p className="text-gray-600 dark:text-gray-400 mb-8">
+            Let's get started by creating your first syndicate.
+          </p>
+          <Link to="/syndicate/create">
+            <Button size="lg">Create Your Syndicate</Button>
           </Link>
-        }
-      >
-        <PageGrid columns={4}>
-          <StatCard
-            label="Members"
-            value="8"
-            icon={<UsersIcon />}
-          />
-          <StatCard
-            label="Shoots This Season"
-            value="12"
-            icon={<CalendarIcon />}
-          />
-          <StatCard
-            label="Season Bag"
-            value="847"
-            icon={<TargetIcon />}
-          />
-          <StatCard
-            label="Outstanding"
-            value="£320"
-            icon={<PoundIcon />}
-          />
-        </PageGrid>
+        </div>
+      </DashboardLayout>
+    )
+  }
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mt-6">
-          <Card>
-            <CardHeader
-              title="Upcoming Shoots"
-              action={
-                <Link to="/shoots" className="text-green-500 text-sm hover:text-green-400">
-                  View all
-                </Link>
-              }
-            />
-            <CardContent>
-              <div className="space-y-3">
-                <ShootRow date="Sat 18 Jan" location="Beatrice Farm" confirmed={6} total={8} />
-                <ShootRow date="Sat 25 Jan" location="Oakwood Estate" confirmed={4} total={8} />
-                <ShootRow date="Sat 1 Feb" location="Manor Fields" confirmed={2} total={8} />
-              </div>
-            </CardContent>
-          </Card>
+  const activeSyndicate = syndicates[0] // For now, use the first syndicate
 
-          <Card>
-            <CardHeader
-              title="Recent Activity"
-              action={
-                <Link to="/activity" className="text-green-500 text-sm hover:text-green-400">
-                  View all
-                </Link>
-              }
-            />
-            <CardContent>
-              <div className="space-y-3">
-                <ActivityRow
-                  text="John Smith confirmed for 18 Jan"
-                  time="2 hours ago"
-                />
-                <ActivityRow
-                  text="Bag recorded: 72 birds (11 Jan)"
-                  time="Yesterday"
-                />
-                <ActivityRow
-                  text="Dave Wilson payment received: £800"
-                  time="2 days ago"
-                />
-              </div>
-            </CardContent>
-          </Card>
+  return (
+    <DashboardLayout>
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-bold mb-2">{activeSyndicate.name}</h1>
+            <p className="text-gray-600 dark:text-gray-400">
+              Season: {new Date(activeSyndicate.season_start).toLocaleDateString()} - {new Date(activeSyndicate.season_end).toLocaleDateString()}
+            </p>
+          </div>
+          <Link to="/settings">
+            <Button variant="secondary">Settings</Button>
+          </Link>
         </div>
 
-        <Card className="mt-6">
-          <CardHeader title="Quick Actions" />
-          <CardContent>
-            <div className="flex flex-wrap gap-3">
-              <Link to="/shoots/new">
-                <Button variant="secondary" size="sm">Create Shoot</Button>
-              </Link>
-              <Link to="/members/invite">
-                <Button variant="secondary" size="sm">Invite Member</Button>
-              </Link>
-              <Link to="/beaters/add">
-                <Button variant="secondary" size="sm">Add Beater</Button>
-              </Link>
-              <Link to="/bags/record">
-                <Button variant="secondary" size="sm">Record Bag</Button>
-              </Link>
-            </div>
-          </CardContent>
+        {/* Stats Overview */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <StatCard
+            title="Total Members"
+            value="0"
+            subtitle="Loading..."
+          />
+          <StatCard
+            title="Next Shoot"
+            value="TBD"
+            subtitle="No shoots scheduled"
+          />
+          <StatCard
+            title="Season Bag"
+            value="0"
+            subtitle="birds recorded"
+          />
+          <StatCard
+            title="Outstanding"
+            value={`£0`}
+            subtitle="payments pending"
+          />
+        </div>
+
+        {/* Quick Actions */}
+        <Card>
+          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Link to="/shoots/new" className="block">
+              <Button variant="primary" className="w-full">
+                Schedule Shoot Day
+              </Button>
+            </Link>
+            <Link to="/members" className="block">
+              <Button variant="secondary" className="w-full">
+                Invite Members
+              </Button>
+            </Link>
+            <Link to="/bags/record" className="block">
+              <Button variant="secondary" className="w-full">
+                Record Bag
+              </Button>
+            </Link>
+          </div>
         </Card>
-      </DashboardLayout>
-    </>
-  )
-}
 
-interface ShootRowProps {
-  date: string
-  location: string
-  confirmed: number
-  total: number
-}
+        {/* Recent Activity */}
+        <Card>
+          <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
+          <p className="text-gray-600 dark:text-gray-400">
+            No recent activity yet. Start by inviting members or scheduling a shoot day.
+          </p>
+        </Card>
 
-function ShootRow({ date, location, confirmed, total }: ShootRowProps) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
-      <div>
-        <p className="text-white font-medium">{location}</p>
-        <p className="text-slate-400 text-sm">{date}</p>
+        {/* Upcoming Shoots */}
+        <Card>
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-lg font-semibold">Upcoming Shoots</h2>
+            <Link to="/shoots">
+              <Button variant="ghost" size="sm">View All</Button>
+            </Link>
+          </div>
+          <p className="text-gray-600 dark:text-gray-400">
+            No shoots scheduled yet.
+          </p>
+        </Card>
       </div>
-      <div className="text-right">
-        <p className="text-white">{confirmed}/{total}</p>
-        <p className="text-slate-400 text-sm">confirmed</p>
-      </div>
-    </div>
-  )
-}
-
-interface ActivityRowProps {
-  text: string
-  time: string
-}
-
-function ActivityRow({ text, time }: ActivityRowProps) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
-      <p className="text-slate-300 text-sm">{text}</p>
-      <p className="text-slate-500 text-sm">{time}</p>
-    </div>
-  )
-}
-
-function UsersIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
-    </svg>
-  )
-}
-
-function CalendarIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-    </svg>
-  )
-}
-
-function TargetIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
-  )
-}
-
-function PoundIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-    </svg>
+    </DashboardLayout>
   )
 }
