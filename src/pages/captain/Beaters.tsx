@@ -1,200 +1,253 @@
-/**
- * Beaters Page - ShootSync
- * Beater management for captains
- */
-
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
+import { useAuth } from '../../hooks/useAuth'
+import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
-import Card, { CardHeader, CardContent } from '../../components/common/Card'
+import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import Modal, { ModalFooter } from '../../components/common/Modal'
 import Input from '../../components/common/Input'
-import { validateInput } from '../../utils/validation'
-import { formatCurrency } from '../../config/stripe'
-import type { Beater } from '../../types/member'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
 
-const MOCK_BEATERS: Beater[] = [
-  { id: '1', syndicateId: '1', name: 'Pete Brown', email: 'pete@example.com', phone: '07700 900010', dayRate: 40, stripeOnboardingComplete: true, totalDaysWorked: 8, totalOwed: 0, totalPaid: 320, status: 'active' },
-  { id: '2', syndicateId: '1', name: 'Steve Jones', email: 'steve@example.com', phone: '07700 900011', dayRate: 40, stripeOnboardingComplete: true, totalDaysWorked: 6, totalOwed: 80, totalPaid: 160, status: 'active' },
-  { id: '3', syndicateId: '1', name: 'Tom Clark', email: 'tom@example.com', phone: '07700 900012', dayRate: 45, stripeOnboardingComplete: false, totalDaysWorked: 4, totalOwed: 180, totalPaid: 0, status: 'pending_stripe' },
-]
+interface Syndicate {
+  id: string
+  name: string
+  defaultBeaterRate: number
+}
+
+interface Beater {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  dayRate: number
+  status: string
+  bankName?: string
+  bankSortCode?: string
+  bankAccountNumber?: string
+  notes?: string
+}
 
 export default function Beaters() {
-  const [beaters] = useState<Beater[]>(MOCK_BEATERS)
-  const [isAddModalOpen, setIsAddModalOpen] = useState(false)
-  const [addForm, setAddForm] = useState({ name: '', email: '', phone: '', dayRate: '40' })
-  const [addErrors, setAddErrors] = useState<Record<string, string>>({})
-  const [isAdding, setIsAdding] = useState(false)
+  const { user } = useAuth()
+  const syndicateApi = useApi<Syndicate>('syndicates')
+  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [defaultRate, setDefaultRate] = useState(40)
+  const [beaters, setBeaters] = useState<Beater[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    dayRate: 40,
+    bankName: '',
+    bankSortCode: '',
+    bankAccountNumber: '',
+    notes: '',
+  })
+
+  const beaterApi = useApi<Beater>('beaters')
+
+  useEffect(() => {
+    if (user?.id) {
+      loadData()
+    }
+  }, [user?.id])
+
+  const loadData = async () => {
+    setLoading(true)
+    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
+    if (syndicates.length > 0) {
+      setSyndicateId(syndicates[0].id)
+      setDefaultRate(syndicates[0].defaultBeaterRate || 40)
+      setFormData(prev => ({ ...prev, dayRate: syndicates[0].defaultBeaterRate || 40 }))
+      const beaterData = await beaterApi.fetchAll({ syndicateId: syndicates[0].id })
+      setBeaters(beaterData)
+    }
+    setLoading(false)
+  }
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault()
-    const errors: Record<string, string> = {}
+    if (!syndicateId) return
 
-    if (!addForm.name.trim()) errors.name = 'Name is required'
+    setAdding(true)
+    const result = await beaterApi.create({
+      ...formData,
+      syndicateId,
+    } as any)
 
-    const emailValidation = validateInput(addForm.email, 'email')
-    if (!emailValidation.isValid) errors.email = 'Valid email is required'
-
-    const phoneValidation = validateInput(addForm.phone, 'phone')
-    if (!phoneValidation.isValid) errors.phone = 'Valid phone number is required'
-
-    const rateValidation = validateInput(addForm.dayRate, 'currency')
-    if (!rateValidation.isValid) errors.dayRate = 'Valid day rate is required'
-
-    if (Object.keys(errors).length > 0) {
-      setAddErrors(errors)
-      return
+    if (result) {
+      setBeaters([...beaters, result])
+      setFormData({
+        name: '',
+        email: '',
+        phone: '',
+        dayRate: defaultRate,
+        bankName: '',
+        bankSortCode: '',
+        bankAccountNumber: '',
+        notes: '',
+      })
+      setShowAddForm(false)
     }
+    setAdding(false)
+  }
 
-    setIsAdding(true)
-    try {
-      console.log('[Beaters] Adding:', addForm)
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      setIsAddModalOpen(false)
-      setAddForm({ name: '', email: '', phone: '', dayRate: '40' })
-    } catch (err) {
-      setAddErrors({ form: 'Failed to add beater' })
-    } finally {
-      setIsAdding(false)
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+    const { name, value, type } = e.target
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'number' ? parseInt(value) || 0 : value,
+    }))
+  }
+
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      case 'INACTIVE': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
     }
   }
 
-  const totalOwed = beaters.reduce((sum, b) => sum + b.totalOwed, 0)
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
-    <>
+    <DashboardLayout>
       <Helmet>
-        <title>Beaters - ShootSync</title>
-        <meta name="robots" content="noindex, nofollow" />
+        <title>Beaters | ShootSync</title>
       </Helmet>
 
-      <DashboardLayout
-        title="Beaters"
-        subtitle={`${beaters.length} beaters, ${formatCurrency(totalOwed * 100)} outstanding`}
-        action={
-          <Button onClick={() => setIsAddModalOpen(true)}>
-            Add Beater
-          </Button>
-        }
-      >
-        <Card>
-          <CardHeader title="All Beaters" />
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Name</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Contact</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Day Rate</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Days Worked</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Owed</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Stripe</th>
-                    <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {beaters.map((beater) => (
-                    <tr key={beater.id} className="border-b border-slate-700/50 hover:bg-slate-800/50">
-                      <td className="py-3 px-4">
-                        <p className="text-white font-medium">{beater.name}</p>
-                      </td>
-                      <td className="py-3 px-4">
-                        <p className="text-slate-300 text-sm">{beater.email}</p>
-                        <p className="text-slate-500 text-sm">{beater.phone}</p>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">
-                        {formatCurrency(beater.dayRate * 100)}
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">
-                        {beater.totalDaysWorked}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className={beater.totalOwed > 0 ? 'text-amber-400' : 'text-slate-400'}>
-                          {formatCurrency(beater.totalOwed * 100)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        {beater.stripeOnboardingComplete ? (
-                          <span className="text-green-400 text-sm">Connected</span>
-                        ) : (
-                          <span className="text-amber-400 text-sm">Pending</span>
-                        )}
-                      </td>
-                      <td className="py-3 px-4 text-right space-x-2">
-                        {beater.totalOwed > 0 && beater.stripeOnboardingComplete && (
-                          <Button variant="primary" size="sm">Pay</Button>
-                        )}
-                        <Button variant="ghost" size="sm">View</Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-white">Beaters</h1>
+          <Button onClick={() => setShowAddForm(true)}>Add Beater</Button>
+        </div>
 
-        <Modal
-          isOpen={isAddModalOpen}
-          onClose={() => setIsAddModalOpen(false)}
-          title="Add Beater"
-          description="Add a new beater to your syndicate"
-        >
-          <form onSubmit={handleAdd}>
-            {addErrors.form && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <p className="text-red-500 text-sm">{addErrors.form}</p>
+        {/* Add Form */}
+        {showAddForm && (
+          <Card>
+            <h2 className="text-lg font-semibold text-green-500 mb-4">Add New Beater</h2>
+            <form onSubmit={handleAdd} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Name"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleChange}
+                  required
+                />
+                <Input
+                  label="Day Rate (£)"
+                  name="dayRate"
+                  type="number"
+                  value={formData.dayRate}
+                  onChange={handleChange}
+                  min={0}
+                />
               </div>
-            )}
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Input
+                  label="Email"
+                  name="email"
+                  type="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                />
+                <Input
+                  label="Phone"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handleChange}
+                />
+              </div>
 
-            <div className="space-y-4">
-              <Input
-                label="Full name"
-                value={addForm.name}
-                onChange={(e) => setAddForm(prev => ({ ...prev, name: e.target.value }))}
-                error={addErrors.name}
-                required
-              />
-              <Input
-                type="email"
-                label="Email address"
-                value={addForm.email}
-                onChange={(e) => setAddForm(prev => ({ ...prev, email: e.target.value }))}
-                error={addErrors.email}
-                hint="Used for Stripe Connect onboarding"
-                required
-              />
-              <Input
-                type="tel"
-                label="Phone number"
-                value={addForm.phone}
-                onChange={(e) => setAddForm(prev => ({ ...prev, phone: e.target.value }))}
-                error={addErrors.phone}
-                required
-              />
-              <Input
-                type="number"
-                label="Day rate (£)"
-                value={addForm.dayRate}
-                onChange={(e) => setAddForm(prev => ({ ...prev, dayRate: e.target.value }))}
-                error={addErrors.dayRate}
-                required
-              />
+              <h3 className="text-md font-semibold text-amber-500 mt-6">Bank Details (for payments)</h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <Input
+                  label="Bank Name"
+                  name="bankName"
+                  value={formData.bankName}
+                  onChange={handleChange}
+                />
+                <Input
+                  label="Sort Code"
+                  name="bankSortCode"
+                  value={formData.bankSortCode}
+                  onChange={handleChange}
+                  placeholder="00-00-00"
+                />
+                <Input
+                  label="Account Number"
+                  name="bankAccountNumber"
+                  value={formData.bankAccountNumber}
+                  onChange={handleChange}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-amber-500 mb-1">Notes</label>
+                <textarea
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleChange}
+                  rows={2}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white placeholder-gray-400"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <Button type="submit" disabled={adding}>
+                  {adding ? 'Adding...' : 'Add Beater'}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setShowAddForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Card>
+        )}
+
+        {/* Beaters List */}
+        {beaters.length === 0 ? (
+          <Card>
+            <div className="text-center py-8">
+              <p className="text-white mb-4">No beaters added yet.</p>
+              <Button onClick={() => setShowAddForm(true)}>Add Your First Beater</Button>
             </div>
-
-            <ModalFooter>
-              <Button variant="secondary" onClick={() => setIsAddModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" isLoading={isAdding}>
-                Add Beater
-              </Button>
-            </ModalFooter>
-          </form>
-        </Modal>
-      </DashboardLayout>
-    </>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {beaters.map((beater) => (
+              <Card key={beater.id} hover>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{beater.name}</h3>
+                    <p className="text-amber-500">£{beater.dayRate}/day</p>
+                    {beater.phone && <p className="text-white text-sm mt-1">{beater.phone}</p>}
+                    {beater.email && <p className="text-white text-sm">{beater.email}</p>}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(beater.status)}`}>
+                      {beater.status}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
   )
 }
