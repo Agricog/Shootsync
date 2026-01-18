@@ -92,7 +92,7 @@ export default function ShootDetail() {
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold text-white">{shoot.locationName}</h1>
-            <p className="text-gray-300">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
+            <p className="text-green-400">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
           </div>
           <div className="flex gap-3">
             <Link to="/shoots">
@@ -105,21 +105,21 @@ export default function ShootDetail() {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {/* Location Card */}
           <Card>
-            <h2 className="text-lg font-semibold text-white mb-4">Location</h2>
-            <div className="space-y-2 text-gray-300">
-              <p><strong>Name:</strong> {shoot.locationName}</p>
-              {shoot.locationAddress && <p><strong>Address:</strong> {shoot.locationAddress}</p>}
-              {shoot.locationPostcode && <p><strong>Postcode:</strong> {shoot.locationPostcode}</p>}
+            <h2 className="text-lg font-semibold text-green-500 mb-4">Location</h2>
+            <div className="space-y-2">
+              <p className="text-white"><span className="text-green-400">Name:</span> {shoot.locationName}</p>
+              {shoot.locationAddress && <p className="text-white"><span className="text-green-400">Address:</span> {shoot.locationAddress}</p>}
+              {shoot.locationPostcode && <p className="text-white"><span className="text-green-400">Postcode:</span> {shoot.locationPostcode}</p>}
             </div>
           </Card>
 
           {/* Shoot Info Card */}
           <Card>
-            <h2 className="text-lg font-semibold text-white mb-4">Shoot Details</h2>
-            <div className="space-y-2 text-gray-300">
-              <p><strong>Status:</strong> {shoot.status}</p>
-              <p><strong>Drives Planned:</strong> {shoot.drivesPlanned}</p>
-              {shoot.expectedBag && <p><strong>Expected Bag:</strong> {shoot.expectedBag}</p>}
+            <h2 className="text-lg font-semibold text-green-500 mb-4">Shoot Details</h2>
+            <div className="space-y-2">
+              <p className="text-white"><span className="text-green-400">Status:</span> {shoot.status}</p>
+              <p className="text-white"><span className="text-green-400">Drives Planned:</span> {shoot.drivesPlanned}</p>
+              {shoot.expectedBag && <p className="text-white"><span className="text-green-400">Expected Bag:</span> {shoot.expectedBag}</p>}
             </div>
           </Card>
         </div>
@@ -127,14 +127,14 @@ export default function ShootDetail() {
         {/* Captain's Notes */}
         {shoot.captainNotes && (
           <Card>
-            <h2 className="text-lg font-semibold text-white mb-4">Captain's Notes</h2>
-            <p className="text-gray-300">{shoot.captainNotes}</p>
+            <h2 className="text-lg font-semibold text-green-500 mb-4">Captain's Notes</h2>
+            <p className="text-white">{shoot.captainNotes}</p>
           </Card>
         )}
 
         {/* Attendees */}
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-4">
+          <h2 className="text-lg font-semibold text-green-500 mb-4">
             Guns ({shoot.attendances?.length || 0})
           </h2>
           {shoot.attendances?.length > 0 ? (
@@ -142,18 +142,18 @@ export default function ShootDetail() {
               {shoot.attendances.map((att: any) => (
                 <div key={att.id} className="flex justify-between items-center p-2 bg-gray-700 rounded">
                   <span className="text-white">{att.member?.name}</span>
-                  <span className="text-gray-400">Peg {att.pegNumber || 'TBD'}</span>
+                  <span className="text-green-400">Peg {att.pegNumber || 'TBD'}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-400">No guns assigned yet.</p>
+            <p className="text-white">No guns assigned yet.</p>
           )}
         </Card>
 
         {/* Beaters */}
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-4">
+          <h2 className="text-lg font-semibold text-green-500 mb-4">
             Beaters ({shoot.beaterBookings?.length || 0})
           </h2>
           {shoot.beaterBookings?.length > 0 ? (
@@ -161,43 +161,41 @@ export default function ShootDetail() {
               {shoot.beaterBookings.map((booking: any) => (
                 <div key={booking.id} className="flex justify-between items-center p-2 bg-gray-700 rounded">
                   <span className="text-white">{booking.beater?.name}</span>
-                  <span className="text-gray-400">£{booking.dayRate}</span>
+                  <span className="text-green-400">£{booking.dayRate}</span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-gray-400">No beaters booked yet.</p>
+            <p className="text-white">No beaters booked yet.</p>
           )}
         </Card>
 
         {/* Bag Totals */}
-        {shoot.bagTotals && (
-          <Card>
-            <h2 className="text-lg font-semibold text-white mb-4">Bag Total</h2>
-            <div className="grid grid-cols-5 gap-4 text-center">
-              <div>
-                <p className="text-2xl font-bold text-white">{shoot.bagTotals.pheasant}</p>
-                <p className="text-gray-400 text-sm">Pheasant</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{shoot.bagTotals.partridge}</p>
-                <p className="text-gray-400 text-sm">Partridge</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{shoot.bagTotals.duck}</p>
-                <p className="text-gray-400 text-sm">Duck</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{shoot.bagTotals.woodcock}</p>
-                <p className="text-gray-400 text-sm">Woodcock</p>
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-white">{shoot.bagTotals.other}</p>
-                <p className="text-gray-400 text-sm">Other</p>
-              </div>
+        <Card>
+          <h2 className="text-lg font-semibold text-green-500 mb-4">Bag Total</h2>
+          <div className="grid grid-cols-5 gap-4 text-center">
+            <div>
+              <p className="text-2xl font-bold text-white">{shoot.bagTotals?.pheasant || 0}</p>
+              <p className="text-green-400 text-sm">Pheasant</p>
             </div>
-          </Card>
-        )}
+            <div>
+              <p className="text-2xl font-bold text-white">{shoot.bagTotals?.partridge || 0}</p>
+              <p className="text-green-400 text-sm">Partridge</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{shoot.bagTotals?.duck || 0}</p>
+              <p className="text-green-400 text-sm">Duck</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{shoot.bagTotals?.woodcock || 0}</p>
+              <p className="text-green-400 text-sm">Woodcock</p>
+            </div>
+            <div>
+              <p className="text-2xl font-bold text-white">{shoot.bagTotals?.other || 0}</p>
+              <p className="text-green-400 text-sm">Other</p>
+            </div>
+          </div>
+        </Card>
       </div>
     </DashboardLayout>
   )
