@@ -1,22 +1,17 @@
 /**
  * Protected Route Component - ShootSync
- * Requires authentication to access
+ * Guards routes requiring authentication
  */
 
-import { type ReactNode } from 'react'
+import { useAuth } from '@clerk/clerk-react'
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuth } from '../../hooks/useAuth'
 import { PageLoader } from '../common/LoadingSpinner'
 
 interface ProtectedRouteProps {
-  children: ReactNode
-  redirectTo?: string
+  children: React.ReactNode
 }
 
-export default function ProtectedRoute({
-  children,
-  redirectTo = '/login',
-}: ProtectedRouteProps) {
+export default function ProtectedRoute({ children }: ProtectedRouteProps) {
   const { isLoaded, isSignedIn } = useAuth()
   const location = useLocation()
 
@@ -25,66 +20,17 @@ export default function ProtectedRoute({
   }
 
   if (!isSignedIn) {
-    return (
-      <Navigate
-        to={redirectTo}
-        state={{ from: location.pathname }}
-        replace
-      />
-    )
-  }
-
-  return <>{children}</>
-}
-
-interface RequireSyndicateProps {
-  children: ReactNode
-  redirectTo?: string
-}
-
-export function RequireSyndicate({
-  children,
-  redirectTo = '/onboarding',
-}: RequireSyndicateProps) {
-  const { isLoaded, isSignedIn, syndicateId } = useAuth()
-  const location = useLocation()
-
-  if (!isLoaded) {
-    return <PageLoader />
-  }
-
-  if (!isSignedIn) {
-    return (
-      <Navigate
-        to="/login"
-        state={{ from: location.pathname }}
-        replace
-      />
-    )
-  }
-
-  if (!syndicateId) {
-    return (
-      <Navigate
-        to={redirectTo}
-        state={{ from: location.pathname }}
-        replace
-      />
-    )
+    return <Navigate to="/login" state={{ from: location.pathname }} replace />
   }
 
   return <>{children}</>
 }
 
 interface PublicOnlyRouteProps {
-  children: ReactNode
-  redirectTo?: string
+  children: React.ReactNode
 }
 
-export function PublicOnlyRoute({
-  children,
-  redirectTo = '/dashboard',
-}: PublicOnlyRouteProps) {
+export function PublicOnlyRoute({ children }: PublicOnlyRouteProps) {
   const { isLoaded, isSignedIn } = useAuth()
 
   if (!isLoaded) {
@@ -92,7 +38,7 @@ export function PublicOnlyRoute({
   }
 
   if (isSignedIn) {
-    return <Navigate to={redirectTo} replace />
+    return <Navigate to="/dashboard" replace />
   }
 
   return <>{children}</>
