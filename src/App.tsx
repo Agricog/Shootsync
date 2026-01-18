@@ -23,6 +23,7 @@ import Shoots from './pages/captain/Shoots'
 import ShootCreate from './pages/captain/ShootCreate'
 import BagRecord from './pages/captain/BagRecord'
 import Finances from './pages/captain/Finances'
+import ShootDetail from './pages/captain/ShootDetail'
 import Settings from './pages/captain/Settings'
 
 // Gun pages
@@ -120,6 +121,14 @@ export default function App() {
   element={
     <ProtectedRoute>
       <ShootCreate />
+    </ProtectedRoute>
+  }
+/>
+            <Route
+  path="/shoots/:id"
+  element={
+    <ProtectedRoute>
+      <ShootDetail />
     </ProtectedRoute>
   }
 />
