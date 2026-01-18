@@ -1,167 +1,135 @@
-/**
- * Shoots Page - ShootSync
- * Shoot day management for captains
- */
-
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
+import { useAuth } from '../../hooks/useAuth'
+import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
-import Card, { CardContent } from '../../components/common/Card'
+import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import type { ShootDay } from '../../types/shoot'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
 
-const MOCK_SHOOTS: ShootDay[] = [
-  { id: '1', syndicateId: '1', date: '2026-01-18', locationName: 'Beatrice Farm', locationPostcode: 'OX15 4AB', meetTime: '08:30', drivesPlanned: 4, expectedBag: 80, status: 'scheduled', briefingGenerated: false, createdAt: '2025-12-01' },
-  { id: '2', syndicateId: '1', date: '2026-01-25', locationName: 'Oakwood Estate', locationPostcode: 'GL7 5NP', meetTime: '09:00', drivesPlanned: 5, expectedBag: 100, status: 'scheduled', briefingGenerated: false, createdAt: '2025-12-01' },
-  { id: '3', syndicateId: '1', date: '2026-01-11', locationName: 'Manor Fields', locationPostcode: 'SN6 7QA', meetTime: '08:30', drivesPlanned: 4, expectedBag: 75, status: 'completed', briefingGenerated: true, createdAt: '2025-11-15' },
-]
+interface Syndicate {
+  id: string
+  name: string
+}
+
+interface ShootDay {
+  id: string
+  date: string
+  locationName: string
+  meetTime: string
+  status: string
+  drivesPlanned: number
+  _count?: {
+    attendances: number
+    beaterBookings: number
+  }
+}
 
 export default function Shoots() {
-  const [shoots] = useState<ShootDay[]>(MOCK_SHOOTS)
-  const [filter, setFilter] = useState<'all' | 'upcoming' | 'completed'>('all')
+  const { user } = useAuth()
+  const syndicateApi = useApi<Syndicate>('syndicates')
+  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [shoots, setShoots] = useState<ShootDay[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const filteredShoots = shoots.filter(shoot => {
-    if (filter === 'upcoming') return shoot.status === 'scheduled'
-    if (filter === 'completed') return shoot.status === 'completed'
-    return true
-  })
+  const shootApi = useApi<ShootDay>('shoots')
 
-  const upcomingCount = shoots.filter(s => s.status === 'scheduled').length
-  const completedCount = shoots.filter(s => s.status === 'completed').length
+  useEffect(() => {
+    if (user?.id) {
+      loadData()
+    }
+  }, [user?.id])
 
-  return (
-    <>
-      <Helmet>
-        <title>Shoots - ShootSync</title>
-        <meta name="robots" content="noindex, nofollow" />
-      </Helmet>
+  const loadData = async () => {
+    setLoading(true)
+    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
+    if (syndicates.length > 0) {
+      setSyndicateId(syndicates[0].id)
+      const shootData = await shootApi.fetchAll({ syndicateId: syndicates[0].id })
+      setShoots(shootData)
+    }
+    setLoading(false)
+  }
 
-      <DashboardLayout
-        title="Shoots"
-        subtitle={`${upcomingCount} upcoming, ${completedCount} completed`}
-        action={
-          <Link to="/shoots/new">
-            <Button>Create Shoot</Button>
-          </Link>
-        }
-      >
-        <div className="flex gap-2 mb-6">
-          <FilterButton active={filter === 'all'} onClick={() => setFilter('all')}>
-            All ({shoots.length})
-          </FilterButton>
-          <FilterButton active={filter === 'upcoming'} onClick={() => setFilter('upcoming')}>
-            Upcoming ({upcomingCount})
-          </FilterButton>
-          <FilterButton active={filter === 'completed'} onClick={() => setFilter('completed')}>
-            Completed ({completedCount})
-          </FilterButton>
-        </div>
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString('en-GB', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    })
+  }
 
-        <div className="space-y-4">
-          {filteredShoots.map((shoot) => (
-            <ShootCard key={shoot.id} shoot={shoot} />
-          ))}
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'SCHEDULED': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+      case 'COMPLETED': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      case 'CANCELLED': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+    }
+  }
 
-          {filteredShoots.length === 0 && (
-            <Card>
-              <CardContent>
-                <p className="text-slate-400 text-center py-8">No shoots found</p>
-              </CardContent>
-            </Card>
-          )}
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <LoadingSpinner size="lg" />
         </div>
       </DashboardLayout>
-    </>
-  )
-}
-
-interface ShootCardProps {
-  shoot: ShootDay
-}
-
-function ShootCard({ shoot }: ShootCardProps) {
-  const shootDate = new Date(shoot.date)
-  const isUpcoming = shoot.status === 'scheduled'
-  const isPast = shootDate < new Date()
-
-  return (
-    <Card hover onClick={() => console.log('View shoot', shoot.id)}>
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div className="flex items-start gap-4">
-          <div className="flex-shrink-0 w-14 h-14 bg-slate-700 rounded-lg flex flex-col items-center justify-center">
-            <span className="text-xs text-slate-400 uppercase">
-              {shootDate.toLocaleDateString('en-GB', { weekday: 'short' })}
-            </span>
-            <span className="text-lg font-bold text-white">
-              {shootDate.getDate()}
-            </span>
-          </div>
-          
-          <div>
-            <h3 className="text-white font-semibold">{shoot.locationName}</h3>
-            <p className="text-slate-400 text-sm">
-              {shootDate.toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })} • Meet {shoot.meetTime}
-            </p>
-            <p className="text-slate-500 text-sm mt-1">
-              {shoot.drivesPlanned} drives • Expected bag: {shoot.expectedBag}
-            </p>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 sm:flex-col sm:items-end">
-          <StatusBadge status={shoot.status} />
-          
-          <div className="flex gap-2">
-            {isUpcoming && (
-              <>
-                <Button variant="secondary" size="sm">Allocate Pegs</Button>
-                <Button variant="ghost" size="sm">Edit</Button>
-              </>
-            )}
-            {!isUpcoming && isPast && (
-              <Button variant="secondary" size="sm">View Bags</Button>
-            )}
-          </div>
-        </div>
-      </div>
-    </Card>
-  )
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    scheduled: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    completed: 'bg-green-500/10 text-green-400 border-green-500/20',
-    cancelled: 'bg-red-500/10 text-red-400 border-red-500/20',
+    )
   }
 
   return (
-    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded border ${styles[status]}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
-  )
-}
+    <DashboardLayout>
+      <Helmet>
+        <title>Shoot Days | ShootSync</title>
+      </Helmet>
 
-interface FilterButtonProps {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-white">Shoot Days</h1>
+          <Link to="/shoots/new">
+            <Button>Schedule New Shoot</Button>
+          </Link>
+        </div>
 
-function FilterButton({ active, onClick, children }: FilterButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`
-        px-3 py-1.5 text-sm font-medium rounded-lg transition-colors
-        ${active 
-          ? 'bg-green-600 text-white' 
-          : 'bg-slate-800 text-slate-400 hover:text-white hover:bg-slate-700'
-        }
-      `}
-    >
-      {children}
-    </button>
+        {shoots.length === 0 ? (
+          <Card>
+            <div className="text-center py-8">
+              <p className="text-gray-400 mb-4">No shoot days scheduled yet.</p>
+              <Link to="/shoots/new">
+                <Button>Schedule Your First Shoot</Button>
+              </Link>
+            </div>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {shoots.map((shoot) => (
+              <Card key={shoot.id} hover>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{shoot.locationName}</h3>
+                    <p className="text-gray-300">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
+                    <p className="text-gray-400 text-sm mt-1">
+                      {shoot.drivesPlanned} drives planned
+                      {shoot._count && ` • ${shoot._count.attendances} guns • ${shoot._count.beaterBookings} beaters`}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(shoot.status)}`}>
+                      {shoot.status}
+                    </span>
+                    <Link to={`/shoots/${shoot.id}`}>
+                      <Button variant="secondary" size="sm">View</Button>
+                    </Link>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
   )
 }
