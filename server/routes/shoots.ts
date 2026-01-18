@@ -85,7 +85,7 @@ router.get('/:id', async (req: Request, res: Response) => {
 
     // Calculate bag totals
     const bagTotals = shoot.bagRecords.reduce(
-      (acc: { pheasant: number; partridge: number; duck: number; woodcock: number; other: number }, bag) => ({
+      (acc: { pheasant: number; partridge: number; duck: number; woodcock: number; other: number }, bag: { pheasant: number; partridge: number; duck: number; woodcock: number; other: number }) => ({
         pheasant: acc.pheasant + bag.pheasant,
         partridge: acc.partridge + bag.partridge,
         duck: acc.duck + bag.duck,
