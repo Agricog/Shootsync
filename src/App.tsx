@@ -53,7 +53,7 @@ export default function App() {
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/features" element={<Features />} />
             <Route
-              path="/login"
+              path="/login/*"
               element={
                 <PublicOnlyRoute>
                   <Login />
@@ -61,14 +61,13 @@ export default function App() {
               }
             />
             <Route
-              path="/signup"
+              path="/signup/*"
               element={
                 <PublicOnlyRoute>
                   <Signup />
                 </PublicOnlyRoute>
               }
             />
-
             {/* Captain routes */}
             <Route
               path="/dashboard"
