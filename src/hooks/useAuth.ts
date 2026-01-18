@@ -3,22 +3,27 @@
  * Wrapper around Clerk authentication
  */
 
-import { useUser, useClerk, useAuth as useClerkAuth } from '@clerk/clerk-react'
-import type { UserRole } from '../types/member'
+import { useUser, useClerk } from '@clerk/clerk-react'
 
-interface AuthUser {
-  id: string
-  email: string
-  name: string
-  imageUrl?: string
-  role: UserRole
-  syndicateId?: string
-}
+export type UserRole = 'captain' | 'gun' | 'beater' | 'guest'
 
 interface UseAuthReturn {
-  user: AuthUser | null
   isLoaded: boolean
   isSignedIn: boolean
+  userId: string | null
+  email: string | null
+  name: string | null
+  imageUrl: string | null
+  role: UserRole
+  syndicateId: string | null
+  user: {
+    id: string
+    email: string
+    name: string
+    imageUrl?: string
+    role: UserRole
+    syndicateId?: string
+  } | null
   signOut: () => Promise<void>
 }
 
@@ -26,36 +31,43 @@ export function useAuth(): UseAuthReturn {
   const { user, isLoaded, isSignedIn } = useUser()
   const { signOut: clerkSignOut } = useClerk()
 
-  const authUser: AuthUser | null = user
-    ? {
-        id: user.id,
-        email: user.primaryEmailAddress?.emailAddress || '',
-        name: user.fullName || user.firstName || 'User',
-        imageUrl: user.imageUrl,
-        role: (user.publicMetadata?.role as UserRole) || 'gun',
-        syndicateId: user.publicMetadata?.syndicateId as string | undefined,
-      }
-    : null
+  const role = (user?.publicMetadata?.role as UserRole) || 'gun'
+  const syndicateId = (user?.publicMetadata?.syndicateId as string) || null
 
   const signOut = async () => {
     await clerkSignOut()
   }
 
   return {
-    user: authUser,
     isLoaded,
     isSignedIn: isSignedIn ?? false,
+    userId: user?.id || null,
+    email: user?.primaryEmailAddress?.emailAddress || null,
+    name: user?.fullName || user?.firstName || null,
+    imageUrl: user?.imageUrl || null,
+    role,
+    syndicateId,
+    user: user
+      ? {
+          id: user.id,
+          email: user.primaryEmailAddress?.emailAddress || '',
+          name: user.fullName || user.firstName || 'User',
+          imageUrl: user.imageUrl,
+          role,
+          syndicateId: syndicateId || undefined,
+        }
+      : null,
     signOut,
   }
 }
 
-export function useAuthRole(): UserRole | null {
-  const { user } = useAuth()
-  return user?.role || null
+export function useAuthRole(): UserRole {
+  const { role } = useAuth()
+  return role
 }
 
 export function useSyndicateId(): string | null {
-  const { user } = useAuth()
-  return user?.syndicateId || null
+  const { syndicateId } = useAuth()
+  return syndicateId
 }
 
