@@ -92,7 +92,7 @@ export default function ShootDetail() {
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-2xl font-bold text-white">{shoot.locationName}</h1>
-            <p className="text-green-400">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
+            <p className="text-amber-500">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
           </div>
           <div className="flex gap-3">
             <Link to="/shoots">
@@ -107,9 +107,9 @@ export default function ShootDetail() {
           <Card>
             <h2 className="text-lg font-semibold text-green-500 mb-4">Location</h2>
             <div className="space-y-2">
-              <p className="text-white"><span className="text-green-400">Name:</span> {shoot.locationName}</p>
-              {shoot.locationAddress && <p className="text-white"><span className="text-sky-400">Address:</span> {shoot.locationAddress}</p>}
-              {shoot.locationPostcode && <p className="text-white"><span className="text-sky-400">Postcode:</span> {shoot.locationPostcode}</p>}
+              <p className="text-white"><span className="text-amber-500">Name:</span> {shoot.locationName}</p>
+              {shoot.locationAddress && <p className="text-white"><span className="text-amber-500">Address:</span> {shoot.locationAddress}</p>}
+              {shoot.locationPostcode && <p className="text-white"><span className="text-amber-500">Postcode:</span> {shoot.locationPostcode}</p>}
             </div>
           </Card>
 
@@ -117,9 +117,9 @@ export default function ShootDetail() {
           <Card>
             <h2 className="text-lg font-semibold text-green-500 mb-4">Shoot Details</h2>
             <div className="space-y-2">
-              <p className="text-white"><span className="text-green-400">Status:</span> {shoot.status}</p>
-              <p className="text-white"><span className="text-green-400">Drives Planned:</span> {shoot.drivesPlanned}</p>
-              {shoot.expectedBag && <p className="text-white"><span className="text-green-400">Expected Bag:</span> {shoot.expectedBag}</p>}
+              <p className="text-white"><span className="text-amber-500">Status:</span> {shoot.status}</p>
+              <p className="text-white"><span className="text-amber-500">Drives Planned:</span> {shoot.drivesPlanned}</p>
+              {shoot.expectedBag && <p className="text-white"><span className="text-amber-500">Expected Bag:</span> {shoot.expectedBag}</p>}
             </div>
           </Card>
         </div>
@@ -142,7 +142,7 @@ export default function ShootDetail() {
               {shoot.attendances.map((att: any) => (
                 <div key={att.id} className="flex justify-between items-center p-2 bg-gray-700 rounded">
                   <span className="text-white">{att.member?.name}</span>
-                  <span className="text-green-400">Peg {att.pegNumber || 'TBD'}</span>
+                  <span className="text-amber-500">Peg {att.pegNumber || 'TBD'}</span>
                 </div>
               ))}
             </div>
@@ -161,7 +161,7 @@ export default function ShootDetail() {
               {shoot.beaterBookings.map((booking: any) => (
                 <div key={booking.id} className="flex justify-between items-center p-2 bg-gray-700 rounded">
                   <span className="text-white">{booking.beater?.name}</span>
-                  <span className="text-green-400">£{booking.dayRate}</span>
+                  <span className="text-amber-500">£{booking.dayRate}</span>
                 </div>
               ))}
             </div>
@@ -176,23 +176,23 @@ export default function ShootDetail() {
           <div className="grid grid-cols-5 gap-4 text-center">
             <div>
               <p className="text-2xl font-bold text-white">{shoot.bagTotals?.pheasant || 0}</p>
-              <p className="text-green-400 text-sm">Pheasant</p>
+              <p className="text-amber-500 text-sm">Pheasant</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-white">{shoot.bagTotals?.partridge || 0}</p>
-              <p className="text-green-400 text-sm">Partridge</p>
+              <p className="text-amber-500 text-sm">Partridge</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-white">{shoot.bagTotals?.duck || 0}</p>
-              <p className="text-green-400 text-sm">Duck</p>
+              <p className="text-amber-500 text-sm">Duck</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-white">{shoot.bagTotals?.woodcock || 0}</p>
-              <p className="text-green-400 text-sm">Woodcock</p>
+              <p className="text-amber-500 text-sm">Woodcock</p>
             </div>
             <div>
               <p className="text-2xl font-bold text-white">{shoot.bagTotals?.other || 0}</p>
-              <p className="text-green-400 text-sm">Other</p>
+              <p className="text-amber-500 text-sm">Other</p>
             </div>
           </div>
         </Card>
