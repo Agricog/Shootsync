@@ -99,15 +99,13 @@ export default function App() {
               }
             />
             <Route
-              path="/beaters"
-              element={
-                <ProtectedRoute>
-                  <RoleGuard allowedRoles={['captain']}>
-                    <Beaters />
-                  </RoleGuard>
-                </ProtectedRoute>
-              }
-            />
+  path="/beaters"
+  element={
+    <ProtectedRoute>
+      <Beaters />
+    </ProtectedRoute>
+  }
+/>
             <Route
               path="/shoots"
               element={
