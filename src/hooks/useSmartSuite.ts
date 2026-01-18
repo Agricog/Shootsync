@@ -1,201 +1,170 @@
 import { useState, useCallback } from 'react'
-import { SMARTSUITE_CONFIG, getSmartSuiteHeaders } from '../config/smartsuite'
 
-interface UseSmartSuiteOptions {
+const API_URL = import.meta.env.VITE_API_URL || ''
+
+interface UseApiOptions {
   syndicateId?: string
 }
 
-interface SmartSuiteRecord {
-  id: string
-  [key: string]: any
-}
-
-interface SmartSuiteResponse<T> {
-  items: T[]
-  total_items: number
-}
-
-export function useSmartSuite<T extends SmartSuiteRecord>(
-  tableName: keyof typeof SMARTSUITE_CONFIG.tables,
-  options: UseSmartSuiteOptions = {}
-) {
+export function useApi<T>(endpoint: string, options: UseApiOptions = {}) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const tableId = SMARTSUITE_CONFIG.tables[tableName]
-  const baseUrl = `${SMARTSUITE_CONFIG.baseUrl}/applications/${tableId}/records`
+  const buildUrl = useCallback(
+    (path: string = '', params: Record<string, string> = {}) => {
+      const url = new URL(`${API_URL}/api/${endpoint}${path}`, window.location.origin)
+      
+      if (options.syndicateId) {
+        url.searchParams.set('syndicateId', options.syndicateId)
+      }
+      
+      Object.entries(params).forEach(([key, value]) => {
+        if (value) url.searchParams.set(key, value)
+      })
+      
+      return url.toString()
+    },
+    [endpoint, options.syndicateId]
+  )
 
-  // Fetch records with optional filters
-  const fetchRecords = useCallback(
-    async (filters: Record<string, any> = {}): Promise<T[]> => {
+  const fetchAll = useCallback(
+    async (params: Record<string, string> = {}): Promise<T[]> => {
       setLoading(true)
       setError(null)
 
       try {
-        // Enforce tenant isolation - always filter by syndicateId if provided
-        const finalFilters = options.syndicateId
-          ? { ...filters, syndicate_id: options.syndicateId }
-          : filters
-
-        const response = await fetch(baseUrl, {
-          method: 'POST',
-          headers: getSmartSuiteHeaders(),
-          body: JSON.stringify({
-            filter: finalFilters,
-          }),
-        })
-
+        const response = await fetch(buildUrl('', params))
+        
         if (!response.ok) {
-          throw new Error(`SmartSuite API error: ${response.status}`)
+          throw new Error(`API error: ${response.status}`)
         }
 
-        const data: SmartSuiteResponse<T> = await response.json()
-        return data.items || []
+        const data = await response.json()
+        return data
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to fetch records'
+        const message = err instanceof Error ? err.message : 'Failed to fetch'
         setError(message)
-        console.error('SmartSuite fetch error:', err)
         return []
       } finally {
         setLoading(false)
       }
     },
-    [baseUrl, options.syndicateId]
+    [buildUrl]
   )
 
-  // Fetch a single record by ID
-  const fetchRecord = useCallback(
-    async (recordId: string): Promise<T | null> => {
+  const fetchOne = useCallback(
+    async (id: string): Promise<T | null> => {
       setLoading(true)
       setError(null)
 
       try {
-        const response = await fetch(`${baseUrl}/${recordId}`, {
-          method: 'GET',
-          headers: getSmartSuiteHeaders(),
-        })
-
+        const response = await fetch(buildUrl(`/${id}`))
+        
         if (!response.ok) {
-          throw new Error(`SmartSuite API error: ${response.status}`)
+          throw new Error(`API error: ${response.status}`)
         }
 
-        const data: T = await response.json()
-        return data
+        return await response.json()
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to fetch record'
+        const message = err instanceof Error ? err.message : 'Failed to fetch'
         setError(message)
-        console.error('SmartSuite fetch error:', err)
         return null
       } finally {
         setLoading(false)
       }
     },
-    [baseUrl]
+    [buildUrl]
   )
 
-  // Create a new record
-  const createRecord = useCallback(
+  const create = useCallback(
     async (data: Partial<T>): Promise<T | null> => {
       setLoading(true)
       setError(null)
 
       try {
-        // Enforce tenant isolation
-        const recordData = options.syndicateId
-          ? { ...data, syndicate_id: options.syndicateId }
-          : data
-
-        const response = await fetch(baseUrl, {
+        const response = await fetch(buildUrl(), {
           method: 'POST',
-          headers: getSmartSuiteHeaders(),
-          body: JSON.stringify(recordData),
-        })
-
-        if (!response.ok) {
-          throw new Error(`SmartSuite API error: ${response.status}`)
-        }
-
-        const newRecord: T = await response.json()
-        return newRecord
-      } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to create record'
-        setError(message)
-        console.error('SmartSuite create error:', err)
-        return null
-      } finally {
-        setLoading(false)
-      }
-    },
-    [baseUrl, options.syndicateId]
-  )
-
-  // Update an existing record
-  const updateRecord = useCallback(
-    async (recordId: string, data: Partial<T>): Promise<T | null> => {
-      setLoading(true)
-      setError(null)
-
-      try {
-        const response = await fetch(`${baseUrl}/${recordId}`, {
-          method: 'PATCH',
-          headers: getSmartSuiteHeaders(),
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(data),
         })
 
         if (!response.ok) {
-          throw new Error(`SmartSuite API error: ${response.status}`)
+          throw new Error(`API error: ${response.status}`)
         }
 
-        const updatedRecord: T = await response.json()
-        return updatedRecord
+        return await response.json()
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to update record'
+        const message = err instanceof Error ? err.message : 'Failed to create'
         setError(message)
-        console.error('SmartSuite update error:', err)
         return null
       } finally {
         setLoading(false)
       }
     },
-    [baseUrl]
+    [buildUrl]
   )
 
-  // Delete a record
-  const deleteRecord = useCallback(
-    async (recordId: string): Promise<boolean> => {
+  const update = useCallback(
+    async (id: string, data: Partial<T>): Promise<T | null> => {
       setLoading(true)
       setError(null)
 
       try {
-        const response = await fetch(`${baseUrl}/${recordId}`, {
-          method: 'DELETE',
-          headers: getSmartSuiteHeaders(),
+        const response = await fetch(buildUrl(`/${id}`), {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data),
         })
 
         if (!response.ok) {
-          throw new Error(`SmartSuite API error: ${response.status}`)
+          throw new Error(`API error: ${response.status}`)
+        }
+
+        return await response.json()
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to update'
+        setError(message)
+        return null
+      } finally {
+        setLoading(false)
+      }
+    },
+    [buildUrl]
+  )
+
+  const remove = useCallback(
+    async (id: string): Promise<boolean> => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const response = await fetch(buildUrl(`/${id}`), {
+          method: 'DELETE',
+        })
+
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`)
         }
 
         return true
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to delete record'
+        const message = err instanceof Error ? err.message : 'Failed to delete'
         setError(message)
-        console.error('SmartSuite delete error:', err)
         return false
       } finally {
         setLoading(false)
       }
     },
-    [baseUrl]
+    [buildUrl]
   )
 
   return {
     loading,
     error,
-    fetchRecords,
-    fetchRecord,
-    createRecord,
-    updateRecord,
-    deleteRecord,
+    fetchAll,
+    fetchOne,
+    create,
+    update,
+    remove,
   }
 }
