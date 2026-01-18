@@ -1,73 +1,61 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
 import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 
-interface Syndicate {
-  id: string
-  name: string
-}
-
 interface ShootDay {
   id: string
   date: string
   locationName: string
+  locationAddress?: string
+  locationPostcode?: string
   meetTime: string
   status: string
   drivesPlanned: number
-  _count?: {
-    attendances: number
-    beaterBookings: number
+  expectedBag?: number
+  captainNotes?: string
+  attendances: any[]
+  beaterBookings: any[]
+  bagRecords: any[]
+  bagTotals?: {
+    pheasant: number
+    partridge: number
+    duck: number
+    woodcock: number
+    other: number
   }
 }
 
-export default function Shoots() {
-  const { user } = useAuth()
-  const syndicateApi = useApi<Syndicate>('syndicates')
-  const [, setSyndicateId] = useState<string | null>(null)
-  const [shoots, setShoots] = useState<ShootDay[]>([])
+export default function ShootDetail() {
+  const { id } = useParams<{ id: string }>()
+  const shootApi = useApi<ShootDay>('shoots')
+  const [shoot, setShoot] = useState<ShootDay | null>(null)
   const [loading, setLoading] = useState(true)
 
-  const shootApi = useApi<ShootDay>('shoots')
-
   useEffect(() => {
-    if (user?.id) {
-      loadData()
+    if (id) {
+      loadShoot()
     }
-  }, [user?.id])
+  }, [id])
 
-  const loadData = async () => {
+  const loadShoot = async () => {
     setLoading(true)
-    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
-    if (syndicates.length > 0) {
-      setSyndicateId(syndicates[0].id)
-      const shootData = await shootApi.fetchAll({ syndicateId: syndicates[0].id })
-      setShoots(shootData)
-    }
+    const data = await shootApi.fetchOne(id!)
+    setShoot(data)
     setLoading(false)
   }
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleDateString('en-GB', {
-      weekday: 'short',
+      weekday: 'long',
       day: 'numeric',
-      month: 'short',
+      month: 'long',
       year: 'numeric'
     })
-  }
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'SCHEDULED': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
-      case 'COMPLETED': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      case 'CANCELLED': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-    }
   }
 
   if (loading) {
@@ -80,54 +68,135 @@ export default function Shoots() {
     )
   }
 
+  if (!shoot) {
+    return (
+      <DashboardLayout>
+        <div className="text-center py-12">
+          <h1 className="text-2xl font-bold text-white mb-4">Shoot Not Found</h1>
+          <Link to="/shoots">
+            <Button>Back to Shoots</Button>
+          </Link>
+        </div>
+      </DashboardLayout>
+    )
+  }
+
   return (
     <DashboardLayout>
       <Helmet>
-        <title>Shoot Days | ShootSync</title>
+        <title>{shoot.locationName} | ShootSync</title>
       </Helmet>
 
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-white">Shoot Days</h1>
-          <Link to="/shoots/new">
-            <Button>Schedule New Shoot</Button>
-          </Link>
+        {/* Header */}
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-2xl font-bold text-white">{shoot.locationName}</h1>
+            <p className="text-gray-300">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
+          </div>
+          <div className="flex gap-3">
+            <Link to="/shoots">
+              <Button variant="secondary">Back</Button>
+            </Link>
+          </div>
         </div>
 
-        {shoots.length === 0 ? (
+        {/* Details Grid */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Location Card */}
           <Card>
-            <div className="text-center py-8">
-              <p className="text-gray-400 mb-4">No shoot days scheduled yet.</p>
-              <Link to="/shoots/new">
-                <Button>Schedule Your First Shoot</Button>
-              </Link>
+            <h2 className="text-lg font-semibold text-white mb-4">Location</h2>
+            <div className="space-y-2 text-gray-300">
+              <p><strong>Name:</strong> {shoot.locationName}</p>
+              {shoot.locationAddress && <p><strong>Address:</strong> {shoot.locationAddress}</p>}
+              {shoot.locationPostcode && <p><strong>Postcode:</strong> {shoot.locationPostcode}</p>}
             </div>
           </Card>
-        ) : (
-          <div className="space-y-4">
-            {shoots.map((shoot) => (
-              <Card key={shoot.id} hover>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">{shoot.locationName}</h3>
-                    <p className="text-gray-300">{formatDate(shoot.date)} • Meet {shoot.meetTime}</p>
-                    <p className="text-gray-400 text-sm mt-1">
-                      {shoot.drivesPlanned} drives planned
-                      {shoot._count && ` • ${shoot._count.attendances} guns • ${shoot._count.beaterBookings} beaters`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(shoot.status)}`}>
-                      {shoot.status}
-                    </span>
-                    <Link to={`/shoots/${shoot.id}`}>
-                      <Button variant="secondary" size="sm">View</Button>
-                    </Link>
-                  </div>
+
+          {/* Shoot Info Card */}
+          <Card>
+            <h2 className="text-lg font-semibold text-white mb-4">Shoot Details</h2>
+            <div className="space-y-2 text-gray-300">
+              <p><strong>Status:</strong> {shoot.status}</p>
+              <p><strong>Drives Planned:</strong> {shoot.drivesPlanned}</p>
+              {shoot.expectedBag && <p><strong>Expected Bag:</strong> {shoot.expectedBag}</p>}
+            </div>
+          </Card>
+        </div>
+
+        {/* Captain's Notes */}
+        {shoot.captainNotes && (
+          <Card>
+            <h2 className="text-lg font-semibold text-white mb-4">Captain's Notes</h2>
+            <p className="text-gray-300">{shoot.captainNotes}</p>
+          </Card>
+        )}
+
+        {/* Attendees */}
+        <Card>
+          <h2 className="text-lg font-semibold text-white mb-4">
+            Guns ({shoot.attendances?.length || 0})
+          </h2>
+          {shoot.attendances?.length > 0 ? (
+            <div className="space-y-2">
+              {shoot.attendances.map((att: any) => (
+                <div key={att.id} className="flex justify-between items-center p-2 bg-gray-700 rounded">
+                  <span className="text-white">{att.member?.name}</span>
+                  <span className="text-gray-400">Peg {att.pegNumber || 'TBD'}</span>
                 </div>
-              </Card>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-400">No guns assigned yet.</p>
+          )}
+        </Card>
+
+        {/* Beaters */}
+        <Card>
+          <h2 className="text-lg font-semibold text-white mb-4">
+            Beaters ({shoot.beaterBookings?.length || 0})
+          </h2>
+          {shoot.beaterBookings?.length > 0 ? (
+            <div className="space-y-2">
+              {shoot.beaterBookings.map((booking: any) => (
+                <div key={booking.id} className="flex justify-between items-center p-2 bg-gray-700 rounded">
+                  <span className="text-white">{booking.beater?.name}</span>
+                  <span className="text-gray-400">£{booking.dayRate}</span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-gray-400">No beaters booked yet.</p>
+          )}
+        </Card>
+
+        {/* Bag Totals */}
+        {shoot.bagTotals && (
+          <Card>
+            <h2 className="text-lg font-semibold text-white mb-4">Bag Total</h2>
+            <div className="grid grid-cols-5 gap-4 text-center">
+              <div>
+                <p className="text-2xl font-bold text-white">{shoot.bagTotals.pheasant}</p>
+                <p className="text-gray-400 text-sm">Pheasant</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-white">{shoot.bagTotals.partridge}</p>
+                <p className="text-gray-400 text-sm">Partridge</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-white">{shoot.bagTotals.duck}</p>
+                <p className="text-gray-400 text-sm">Duck</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-white">{shoot.bagTotals.woodcock}</p>
+                <p className="text-gray-400 text-sm">Woodcock</p>
+              </div>
+              <div>
+                <p className="text-2xl font-bold text-white">{shoot.bagTotals.other}</p>
+                <p className="text-gray-400 text-sm">Other</p>
+              </div>
+            </div>
+          </Card>
         )}
       </div>
     </DashboardLayout>
