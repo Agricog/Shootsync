@@ -24,6 +24,7 @@ import ShootCreate from './pages/captain/ShootCreate'
 import BagRecord from './pages/captain/BagRecord'
 import Finances from './pages/captain/Finances'
 import ShootDetail from './pages/captain/ShootDetail'
+import PegAllocation from './pages/captain/PegAllocation'
 import Settings from './pages/captain/Settings'
 
 // Gun pages
@@ -80,6 +81,14 @@ export default function App() {
                 </ProtectedRoute>
               }
             />
+            <Route
+  path="/pegs"
+  element={
+    <ProtectedRoute>
+      <PegAllocation />
+    </ProtectedRoute>
+  }
+/>
             <Route
               path="/syndicate/create"
               element={
