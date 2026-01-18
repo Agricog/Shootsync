@@ -16,6 +16,7 @@ import Features from './pages/public/Features'
 
 // Captain pages
 import CaptainDashboard from './pages/captain/Dashboard'
+import CreateSyndicate from './pages/captain/CreateSyndicate'
 import Members from './pages/captain/Members'
 import Beaters from './pages/captain/Beaters'
 import Shoots from './pages/captain/Shoots'
@@ -68,12 +69,21 @@ export default function App() {
                 </PublicOnlyRoute>
               }
             />
+
             {/* Captain routes */}
             <Route
               path="/dashboard"
               element={
                 <ProtectedRoute>
                   <CaptainDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/syndicate/create"
+              element={
+                <ProtectedRoute>
+                  <CreateSyndicate />
                 </ProtectedRoute>
               }
             />
