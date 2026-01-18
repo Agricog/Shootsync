@@ -29,7 +29,7 @@ interface ShootDay {
 export default function Shoots() {
   const { user } = useAuth()
   const syndicateApi = useApi<Syndicate>('syndicates')
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [, setSyndicateId] = useState<string | null>(null)
   const [shoots, setShoots] = useState<ShootDay[]>([])
   const [loading, setLoading] = useState(true)
 
