@@ -101,10 +101,9 @@ export default function BagRecord() {
 
     setSaving(true)
     const result = await bagApi.create({
-      ...formData,
-      shootId: selectedShoot,
-      recordedByMemberId: user?.id || 'captain',
-    } as any)
+  ...formData,
+  shootId: selectedShoot,
+} as any)
 
     if (result) {
       setBags([...bags, result])
