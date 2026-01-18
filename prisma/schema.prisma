@@ -175,14 +175,14 @@ model BagRecord {
   woodcock          Int      @default(0)
   other             Int      @default(0)
   otherDescription  String?  @map("other_description")
-  recordedByMemberId String  @map("recorded_by_member_id")
+  recordedByMemberId String?  @map("recorded_by_member_id")
   recordedAt        DateTime @default(now()) @map("recorded_at")
   notes             String?
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
   shootDay          ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
-  recordedBy        Member   @relation(fields: [recordedByMemberId], references: [id], onDelete: Cascade)
+  recordedBy        Member?  @relation(fields: [recordedByMemberId], references: [id], onDelete: SetNull)
 
   @@map("bag_records")
 }
