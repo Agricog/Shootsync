@@ -4,7 +4,6 @@ import { z } from 'zod'
 
 const router = Router()
 
-// Validation schema
 const createBagSchema = z.object({
   shootId: z.string().min(1),
   driveNumber: z.number().int().min(1),
@@ -14,13 +13,11 @@ const createBagSchema = z.object({
   woodcock: z.number().int().min(0).optional(),
   other: z.number().int().min(0).optional(),
   otherDescription: z.string().optional(),
-  recordedByMemberId: z.string().min(1),
   notes: z.string().optional(),
 })
 
-const updateBagSchema = createBagSchema.partial().omit({ shootId: true, recordedByMemberId: true })
+const updateBagSchema = createBagSchema.partial().omit({ shootId: true })
 
-// GET /api/bags - Get bag records for a shoot
 router.get('/', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
   const { shootId } = req.query
@@ -33,11 +30,6 @@ router.get('/', async (req: Request, res: Response) => {
     const bags = await prisma.bagRecord.findMany({
       where: { shootId },
       orderBy: { driveNumber: 'asc' },
-      include: {
-        recordedBy: {
-          select: { id: true, name: true },
-        },
-      },
     })
     res.json(bags)
   } catch (error) {
@@ -46,7 +38,6 @@ router.get('/', async (req: Request, res: Response) => {
   }
 })
 
-// GET /api/bags/season - Get season totals for a syndicate
 router.get('/season', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
   const { syndicateId } = req.query
@@ -95,7 +86,6 @@ router.get('/season', async (req: Request, res: Response) => {
   }
 })
 
-// GET /api/bags/:id - Get single bag record
 router.get('/:id', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
   const { id } = req.params
@@ -105,9 +95,6 @@ router.get('/:id', async (req: Request, res: Response) => {
       where: { id },
       include: {
         shootDay: true,
-        recordedBy: {
-          select: { id: true, name: true },
-        },
       },
     })
 
@@ -122,7 +109,6 @@ router.get('/:id', async (req: Request, res: Response) => {
   }
 })
 
-// POST /api/bags - Create new bag record
 router.post('/', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
 
@@ -139,7 +125,6 @@ router.post('/', async (req: Request, res: Response) => {
         woodcock: data.woodcock ?? 0,
         other: data.other ?? 0,
         otherDescription: data.otherDescription,
-        recordedByMemberId: data.recordedByMemberId,
         notes: data.notes,
       },
     })
@@ -154,7 +139,6 @@ router.post('/', async (req: Request, res: Response) => {
   }
 })
 
-// PATCH /api/bags/:id - Update bag record
 router.patch('/:id', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
   const { id } = req.params
@@ -177,7 +161,6 @@ router.patch('/:id', async (req: Request, res: Response) => {
   }
 })
 
-// DELETE /api/bags/:id - Delete bag record
 router.delete('/:id', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
   const { id } = req.params
