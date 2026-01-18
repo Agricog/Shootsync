@@ -1,233 +1,201 @@
-/**
- * SmartSuite API Hook - ShootSync
- * Secure data access with tenant isolation
- */
+import { useState, useCallback } from 'react'
+import { SMARTSUITE_CONFIG, getSmartSuiteHeaders } from '../config/smartsuite'
 
-import { useCallback } from 'react'
-import { useAuth } from './useAuth'
-import { SMARTSUITE_TABLES, type SmartSuiteTable } from '../config/smartsuite'
-import { captureError } from '../utils/errorTracking'
-import type { ApiResponse, SmartSuiteQueryOptions } from '../types/api'
-
-interface TenantContext {
-  syndicateId: string
-  userId: string
-  role: string
+interface UseSmartSuiteOptions {
+  syndicateId?: string
 }
 
-export function useSmartSuite() {
-  const { userId, syndicateId, role } = useAuth()
+interface SmartSuiteRecord {
+  id: string
+  [key: string]: any
+}
 
-  const getTenantContext = useCallback((): TenantContext | null => {
-    if (!syndicateId || !userId || !role) {
-      return null
-    }
-    return { syndicateId, userId, role }
-  }, [syndicateId, userId, role])
+interface SmartSuiteResponse<T> {
+  items: T[]
+  total_items: number
+}
 
-  const query = useCallback(async <T>(
-    table: SmartSuiteTable,
-    options: SmartSuiteQueryOptions = {}
-  ): Promise<ApiResponse<T[]>> => {
-    const ctx = getTenantContext()
-    
-    if (!ctx) {
-      return {
-        success: false,
-        error: {
-          code: 'NO_TENANT_CONTEXT',
-          message: 'User must be authenticated and belong to a syndicate',
-        },
+export function useSmartSuite<T extends SmartSuiteRecord>(
+  tableName: keyof typeof SMARTSUITE_CONFIG.tables,
+  options: UseSmartSuiteOptions = {}
+) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const tableId = SMARTSUITE_CONFIG.tables[tableName]
+  const baseUrl = `${SMARTSUITE_CONFIG.baseUrl}/applications/${tableId}/records`
+
+  // Fetch records with optional filters
+  const fetchRecords = useCallback(
+    async (filters: Record<string, any> = {}): Promise<T[]> => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        // Enforce tenant isolation - always filter by syndicateId if provided
+        const finalFilters = options.syndicateId
+          ? { ...filters, syndicate_id: options.syndicateId }
+          : filters
+
+        const response = await fetch(baseUrl, {
+          method: 'POST',
+          headers: getSmartSuiteHeaders(),
+          body: JSON.stringify({
+            filter: finalFilters,
+          }),
+        })
+
+        if (!response.ok) {
+          throw new Error(`SmartSuite API error: ${response.status}`)
+        }
+
+        const data: SmartSuiteResponse<T> = await response.json()
+        return data.items || []
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to fetch records'
+        setError(message)
+        console.error('SmartSuite fetch error:', err)
+        return []
+      } finally {
+        setLoading(false)
       }
-    }
+    },
+    [baseUrl, options.syndicateId]
+  )
 
-    // CRITICAL: Always include syndicate_id filter for tenant isolation
-    const filter = {
-      syndicate_id: { eq: ctx.syndicateId },
-      ...options.filter,
-    }
+  // Fetch a single record by ID
+  const fetchRecord = useCallback(
+    async (recordId: string): Promise<T | null> => {
+      setLoading(true)
+      setError(null)
 
-    try {
-      const response = await fetch(`/api/smartsuite/${SMARTSUITE_TABLES[table]}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          filter,
-          sort: options.sort,
-          limit: options.limit,
-          offset: options.offset,
-        }),
-      })
+      try {
+        const response = await fetch(`${baseUrl}/${recordId}`, {
+          method: 'GET',
+          headers: getSmartSuiteHeaders(),
+        })
 
-      if (!response.ok) {
-        throw new Error(`Query failed: ${response.status}`)
+        if (!response.ok) {
+          throw new Error(`SmartSuite API error: ${response.status}`)
+        }
+
+        const data: T = await response.json()
+        return data
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to fetch record'
+        setError(message)
+        console.error('SmartSuite fetch error:', err)
+        return null
+      } finally {
+        setLoading(false)
       }
+    },
+    [baseUrl]
+  )
 
-      const data = await response.json()
-      return { success: true, data }
-    } catch (error) {
-      captureError(error, `useSmartSuite.query.${table}`)
-      return {
-        success: false,
-        error: {
-          code: 'QUERY_FAILED',
-          message: 'Failed to fetch data',
-        },
+  // Create a new record
+  const createRecord = useCallback(
+    async (data: Partial<T>): Promise<T | null> => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        // Enforce tenant isolation
+        const recordData = options.syndicateId
+          ? { ...data, syndicate_id: options.syndicateId }
+          : data
+
+        const response = await fetch(baseUrl, {
+          method: 'POST',
+          headers: getSmartSuiteHeaders(),
+          body: JSON.stringify(recordData),
+        })
+
+        if (!response.ok) {
+          throw new Error(`SmartSuite API error: ${response.status}`)
+        }
+
+        const newRecord: T = await response.json()
+        return newRecord
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to create record'
+        setError(message)
+        console.error('SmartSuite create error:', err)
+        return null
+      } finally {
+        setLoading(false)
       }
-    }
-  }, [getTenantContext])
+    },
+    [baseUrl, options.syndicateId]
+  )
 
-  const create = useCallback(async <T>(
-    table: SmartSuiteTable,
-    data: Record<string, unknown>
-  ): Promise<ApiResponse<T>> => {
-    const ctx = getTenantContext()
-    
-    if (!ctx) {
-      return {
-        success: false,
-        error: {
-          code: 'NO_TENANT_CONTEXT',
-          message: 'User must be authenticated and belong to a syndicate',
-        },
+  // Update an existing record
+  const updateRecord = useCallback(
+    async (recordId: string, data: Partial<T>): Promise<T | null> => {
+      setLoading(true)
+      setError(null)
+
+      try {
+        const response = await fetch(`${baseUrl}/${recordId}`, {
+          method: 'PATCH',
+          headers: getSmartSuiteHeaders(),
+          body: JSON.stringify(data),
+        })
+
+        if (!response.ok) {
+          throw new Error(`SmartSuite API error: ${response.status}`)
+        }
+
+        const updatedRecord: T = await response.json()
+        return updatedRecord
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to update record'
+        setError(message)
+        console.error('SmartSuite update error:', err)
+        return null
+      } finally {
+        setLoading(false)
       }
-    }
+    },
+    [baseUrl]
+  )
 
-    // CRITICAL: Always inject syndicate_id on create
-    const recordWithTenant = {
-      ...data,
-      syndicate_id: ctx.syndicateId,
-    }
+  // Delete a record
+  const deleteRecord = useCallback(
+    async (recordId: string): Promise<boolean> => {
+      setLoading(true)
+      setError(null)
 
-    try {
-      const response = await fetch(`/api/smartsuite/${SMARTSUITE_TABLES[table]}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify(recordWithTenant),
-      })
+      try {
+        const response = await fetch(`${baseUrl}/${recordId}`, {
+          method: 'DELETE',
+          headers: getSmartSuiteHeaders(),
+        })
 
-      if (!response.ok) {
-        throw new Error(`Create failed: ${response.status}`)
+        if (!response.ok) {
+          throw new Error(`SmartSuite API error: ${response.status}`)
+        }
+
+        return true
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to delete record'
+        setError(message)
+        console.error('SmartSuite delete error:', err)
+        return false
+      } finally {
+        setLoading(false)
       }
-
-      const result = await response.json()
-      return { success: true, data: result }
-    } catch (error) {
-      captureError(error, `useSmartSuite.create.${table}`)
-      return {
-        success: false,
-        error: {
-          code: 'CREATE_FAILED',
-          message: 'Failed to create record',
-        },
-      }
-    }
-  }, [getTenantContext])
-
-  const update = useCallback(async <T>(
-    table: SmartSuiteTable,
-    id: string,
-    data: Record<string, unknown>
-  ): Promise<ApiResponse<T>> => {
-    const ctx = getTenantContext()
-    
-    if (!ctx) {
-      return {
-        success: false,
-        error: {
-          code: 'NO_TENANT_CONTEXT',
-          message: 'User must be authenticated and belong to a syndicate',
-        },
-      }
-    }
-
-    try {
-      const response = await fetch(`/api/smartsuite/${SMARTSUITE_TABLES[table]}/${id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          ...data,
-          syndicate_id: ctx.syndicateId, // Ensure tenant context
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Update failed: ${response.status}`)
-      }
-
-      const result = await response.json()
-      return { success: true, data: result }
-    } catch (error) {
-      captureError(error, `useSmartSuite.update.${table}`)
-      return {
-        success: false,
-        error: {
-          code: 'UPDATE_FAILED',
-          message: 'Failed to update record',
-        },
-      }
-    }
-  }, [getTenantContext])
-
-  const remove = useCallback(async (
-    table: SmartSuiteTable,
-    id: string
-  ): Promise<ApiResponse<void>> => {
-    const ctx = getTenantContext()
-    
-    if (!ctx) {
-      return {
-        success: false,
-        error: {
-          code: 'NO_TENANT_CONTEXT',
-          message: 'User must be authenticated and belong to a syndicate',
-        },
-      }
-    }
-
-    try {
-      const response = await fetch(`/api/smartsuite/${SMARTSUITE_TABLES[table]}/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          syndicate_id: ctx.syndicateId, // Verify tenant context
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error(`Delete failed: ${response.status}`)
-      }
-
-      return { success: true }
-    } catch (error) {
-      captureError(error, `useSmartSuite.remove.${table}`)
-      return {
-        success: false,
-        error: {
-          code: 'DELETE_FAILED',
-          message: 'Failed to delete record',
-        },
-      }
-    }
-  }, [getTenantContext])
+    },
+    [baseUrl]
+  )
 
   return {
-    query,
-    create,
-    update,
-    remove,
-    isReady: !!getTenantContext(),
+    loading,
+    error,
+    fetchRecords,
+    fetchRecord,
+    createRecord,
+    updateRecord,
+    deleteRecord,
   }
 }
