@@ -34,21 +34,50 @@ export default function Card({
   )
 }
 
-// Card subcomponents for structured layouts
-export function CardHeader({ children, className = '' }: { children: ReactNode; className?: string }) {
+// CardHeader - supports both children-based and props-based usage
+interface CardHeaderProps {
+  title?: string
+  subtitle?: string
+  action?: ReactNode
+  children?: ReactNode
+  className?: string
+}
+
+export function CardHeader({ 
+  title, 
+  subtitle, 
+  action, 
+  children, 
+  className = '' 
+}: CardHeaderProps) {
+  if (children && !title) {
+    return <div className={`mb-4 ${className}`}>{children}</div>
+  }
+
   return (
     <div className={`mb-4 ${className}`}>
+      <div className="flex items-start justify-between">
+        <div>
+          {title && (
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+              {title}
+            </h3>
+          )}
+          {subtitle && (
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+              {subtitle}
+            </p>
+          )}
+        </div>
+        {action && <div>{action}</div>}
+      </div>
       {children}
     </div>
   )
 }
 
 export function CardContent({ children, className = '' }: { children: ReactNode; className?: string }) {
-  return (
-    <div className={className}>
-      {children}
-    </div>
-  )
+  return <div className={className}>{children}</div>
 }
 
 export function CardFooter({ children, className = '' }: { children: ReactNode; className?: string }) {
@@ -59,10 +88,10 @@ export function CardFooter({ children, className = '' }: { children: ReactNode; 
   )
 }
 
-// StatCard component for dashboard metrics
+// StatCard for dashboard metrics - supports both title and label
 interface StatCardProps {
   title?: string
-  label?: string // Support both title and label for backwards compatibility
+  label?: string
   value: string | number
   subtitle?: string
   icon?: ReactNode
@@ -77,7 +106,7 @@ export function StatCard({
   icon,
   className = '' 
 }: StatCardProps) {
-  const displayTitle = title || label || '' // Use title or label, whichever is provided
+  const displayTitle = title || label || ''
   
   return (
     <Card className={className}>
@@ -89,11 +118,7 @@ export function StatCard({
             <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">{subtitle}</p>
           )}
         </div>
-        {icon && (
-          <div className="text-gray-400 dark:text-gray-600">
-            {icon}
-          </div>
-        )}
+        {icon && <div className="text-gray-400 dark:text-gray-600">{icon}</div>}
       </div>
     </Card>
   )
