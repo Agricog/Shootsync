@@ -232,11 +232,12 @@ export default function Beaters() {
               <Card key={beater.id} hover>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-lg font-semibold text-white">{beater.name}</h3>
-                    <p className="text-amber-500">£{beater.dayRate}/day</p>
-                    {beater.phone && <p className="text-white text-sm mt-1">{beater.phone}</p>}
-                    {beater.email && <p className="text-white text-sm">{beater.email}</p>}
-                  </div>
+                    <div>
+  <h3 className="text-lg font-semibold text-gray-900">{beater.name}</h3>
+  <p className="text-amber-600">£{beater.dayRate}/day</p>
+  {beater.phone && <p className="text-gray-700 text-sm mt-1">{beater.phone}</p>}
+  {beater.email && <p className="text-gray-700 text-sm">{beater.email}</p>}
+</div>
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(beater.status)}`}>
                       {beater.status}
