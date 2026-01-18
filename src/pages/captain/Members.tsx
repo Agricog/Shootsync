@@ -1,209 +1,196 @@
-/**
- * Members Page - ShootSync
- * Member management for captains
- */
-
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
+import { useAuth } from '../../hooks/useAuth'
+import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
-import Card, { CardHeader, CardContent } from '../../components/common/Card'
+import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import Modal, { ModalFooter } from '../../components/common/Modal'
 import Input from '../../components/common/Input'
-import Select from '../../components/common/Select'
-import { validateInput } from '../../utils/validation'
-import type { Member, MemberRole } from '../../types/member'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
 
-const MOCK_MEMBERS: Member[] = [
-  { id: '1', syndicateId: '1', clerkUserId: 'u1', email: 'john@example.com', name: 'John Smith', phone: '07700 900001', role: 'gun', emergencyContactName: 'Jane Smith', emergencyContactPhone: '07700 900002', subscriptionStatus: 'paid', invitedAt: '2024-08-01', acceptedAt: '2024-08-02', status: 'active' },
-  { id: '2', syndicateId: '1', clerkUserId: 'u2', email: 'dave@example.com', name: 'Dave Wilson', phone: '07700 900003', role: 'gun', emergencyContactName: 'Mary Wilson', emergencyContactPhone: '07700 900004', subscriptionStatus: 'paid', invitedAt: '2024-08-01', acceptedAt: '2024-08-03', status: 'active' },
-  { id: '3', syndicateId: '1', clerkUserId: 'u3', email: 'mike@example.com', name: 'Mike Roberts', phone: '07700 900005', role: 'gun', emergencyContactName: 'Sue Roberts', emergencyContactPhone: '07700 900006', subscriptionStatus: 'unpaid', invitedAt: '2024-08-05', status: 'pending' },
-]
+interface Syndicate {
+  id: string
+  name: string
+}
+
+interface Member {
+  id: string
+  name: string
+  email: string
+  phone?: string
+  role: string
+  status: string
+  subscriptionStatus: string
+  insuranceExpiry?: string
+}
 
 export default function Members() {
-  const [members] = useState<Member[]>(MOCK_MEMBERS)
-  const [isInviteModalOpen, setIsInviteModalOpen] = useState(false)
-  const [inviteForm, setInviteForm] = useState({ name: '', email: '', role: 'gun' as MemberRole })
-  const [inviteErrors, setInviteErrors] = useState<Record<string, string>>({})
-  const [isInviting, setIsInviting] = useState(false)
+  const { user } = useAuth()
+  const syndicateApi = useApi<Syndicate>('syndicates')
+  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [members, setMembers] = useState<Member[]>([])
+  const [loading, setLoading] = useState(true)
+  const [showInviteForm, setShowInviteForm] = useState(false)
+  const [inviteData, setInviteData] = useState({ name: '', email: '', phone: '', role: 'GUN' })
+  const [inviting, setInviting] = useState(false)
+
+  const memberApi = useApi<Member>('members')
+
+  useEffect(() => {
+    if (user?.id) {
+      loadData()
+    }
+  }, [user?.id])
+
+  const loadData = async () => {
+    setLoading(true)
+    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
+    if (syndicates.length > 0) {
+      setSyndicateId(syndicates[0].id)
+      const memberData = await memberApi.fetchAll({ syndicateId: syndicates[0].id })
+      setMembers(memberData)
+    }
+    setLoading(false)
+  }
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault()
-    const errors: Record<string, string> = {}
+    if (!syndicateId) return
 
-    if (!inviteForm.name.trim()) {
-      errors.name = 'Name is required'
+    setInviting(true)
+    const result = await memberApi.create({
+      ...inviteData,
+      syndicateId,
+      clerkUserId: `pending_${Date.now()}`, // Placeholder until they accept
+    } as any)
+
+    if (result) {
+      setMembers([...members, result])
+      setInviteData({ name: '', email: '', phone: '', role: 'GUN' })
+      setShowInviteForm(false)
     }
+    setInviting(false)
+  }
 
-    const emailValidation = validateInput(inviteForm.email, 'email')
-    if (!emailValidation.isValid) {
-      errors.email = 'Valid email is required'
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setInviteErrors(errors)
-      return
-    }
-
-    setIsInviting(true)
-    try {
-      // TODO: API call to invite member
-      console.log('[Members] Inviting:', inviteForm)
-      await new Promise(resolve => setTimeout(resolve, 1000))
-      setIsInviteModalOpen(false)
-      setInviteForm({ name: '', email: '', role: 'gun' })
-    } catch (err) {
-      setInviteErrors({ form: 'Failed to send invite' })
-    } finally {
-      setIsInviting(false)
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case 'ACTIVE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+      case 'PENDING': return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+      case 'INACTIVE': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
     }
   }
 
-  const activeMembers = members.filter(m => m.status === 'active')
-  const pendingMembers = members.filter(m => m.status === 'pending')
+  const getRoleColor = (role: string) => {
+    switch (role) {
+      case 'CAPTAIN': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
+      case 'GUN': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+      case 'BEATER': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </DashboardLayout>
+    )
+  }
 
   return (
-    <>
+    <DashboardLayout>
       <Helmet>
-        <title>Members - ShootSync</title>
-        <meta name="robots" content="noindex, nofollow" />
+        <title>Members | ShootSync</title>
       </Helmet>
 
-      <DashboardLayout
-        title="Members"
-        subtitle={`${activeMembers.length} active, ${pendingMembers.length} pending`}
-        action={
-          <Button onClick={() => setIsInviteModalOpen(true)}>
-            Invite Member
-          </Button>
-        }
-      >
-        <Card>
-          <CardHeader title="All Members" />
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b border-slate-700">
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Name</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Email</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Role</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Subscription</th>
-                    <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Status</th>
-                    <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((member) => (
-                    <tr key={member.id} className="border-b border-slate-700/50 hover:bg-slate-800/50">
-                      <td className="py-3 px-4">
-                        <p className="text-white font-medium">{member.name}</p>
-                        <p className="text-slate-500 text-sm">{member.phone}</p>
-                      </td>
-                      <td className="py-3 px-4 text-slate-300">{member.email}</td>
-                      <td className="py-3 px-4">
-                        <RoleBadge role={member.role} />
-                      </td>
-                      <td className="py-3 px-4">
-                        <StatusBadge status={member.subscriptionStatus} />
-                      </td>
-                      <td className="py-3 px-4">
-                        <StatusBadge status={member.status} />
-                      </td>
-                      <td className="py-3 px-4 text-right">
-                        <Button variant="ghost" size="sm">View</Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="space-y-6">
+        <div className="flex justify-between items-center">
+          <h1 className="text-2xl font-bold text-white">Members</h1>
+          <Button onClick={() => setShowInviteForm(true)}>Invite Member</Button>
+        </div>
 
-        <Modal
-          isOpen={isInviteModalOpen}
-          onClose={() => setIsInviteModalOpen(false)}
-          title="Invite Member"
-          description="Send an invitation to join your syndicate"
-        >
-          <form onSubmit={handleInvite}>
-            {inviteErrors.form && (
-              <div className="mb-4 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                <p className="text-red-500 text-sm">{inviteErrors.form}</p>
-              </div>
-            )}
-
-            <div className="space-y-4">
+        {/* Invite Form Modal */}
+        {showInviteForm && (
+          <Card>
+            <h2 className="text-lg font-semibold text-white mb-4">Invite New Member</h2>
+            <form onSubmit={handleInvite} className="space-y-4">
               <Input
-                label="Full name"
-                value={inviteForm.name}
-                onChange={(e) => setInviteForm(prev => ({ ...prev, name: e.target.value }))}
-                error={inviteErrors.name}
+                label="Name"
+                value={inviteData.name}
+                onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
                 required
               />
               <Input
+                label="Email"
                 type="email"
-                label="Email address"
-                value={inviteForm.email}
-                onChange={(e) => setInviteForm(prev => ({ ...prev, email: e.target.value }))}
-                error={inviteErrors.email}
+                value={inviteData.email}
+                onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
                 required
               />
-              <Select
-                label="Role"
-                value={inviteForm.role}
-                onChange={(e) => setInviteForm(prev => ({ ...prev, role: e.target.value as MemberRole }))}
-                options={[
-                  { value: 'gun', label: 'Gun' },
-                  { value: 'beater', label: 'Beater' },
-                ]}
+              <Input
+                label="Phone"
+                value={inviteData.phone}
+                onChange={(e) => setInviteData({ ...inviteData, phone: e.target.value })}
               />
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Role</label>
+                <select
+                  value={inviteData.role}
+                  onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
+                >
+                  <option value="GUN">Gun</option>
+                  <option value="BEATER">Beater</option>
+                  <option value="HYBRID">Hybrid (Gun & Beater)</option>
+                </select>
+              </div>
+              <div className="flex gap-3">
+                <Button type="submit" disabled={inviting}>
+                  {inviting ? 'Inviting...' : 'Send Invite'}
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setShowInviteForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Card>
+        )}
+
+        {/* Members List */}
+        {members.length === 0 ? (
+          <Card>
+            <div className="text-center py-8">
+              <p className="text-gray-400 mb-4">No members yet. Invite your first member to get started.</p>
+              <Button onClick={() => setShowInviteForm(true)}>Invite Your First Member</Button>
             </div>
-
-            <ModalFooter>
-              <Button variant="secondary" onClick={() => setIsInviteModalOpen(false)}>
-                Cancel
-              </Button>
-              <Button type="submit" isLoading={isInviting}>
-                Send Invite
-              </Button>
-            </ModalFooter>
-          </form>
-        </Modal>
-      </DashboardLayout>
-    </>
-  )
-}
-
-function RoleBadge({ role }: { role: MemberRole }) {
-  const styles: Record<MemberRole, string> = {
-    captain: 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-    gun: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    beater: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    hybrid: 'bg-teal-500/10 text-teal-400 border-teal-500/20',
-  }
-
-  return (
-    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded border ${styles[role]}`}>
-      {role.charAt(0).toUpperCase() + role.slice(1)}
-    </span>
-  )
-}
-
-function StatusBadge({ status }: { status: string }) {
-  const styles: Record<string, string> = {
-    active: 'bg-green-500/10 text-green-400 border-green-500/20',
-    paid: 'bg-green-500/10 text-green-400 border-green-500/20',
-    pending: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    unpaid: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-    inactive: 'bg-slate-500/10 text-slate-400 border-slate-500/20',
-    overdue: 'bg-red-500/10 text-red-400 border-red-500/20',
-  }
-
-  return (
-    <span className={`inline-flex px-2 py-1 text-xs font-medium rounded border ${styles[status] || styles.inactive}`}>
-      {status.charAt(0).toUpperCase() + status.slice(1)}
-    </span>
+          </Card>
+        ) : (
+          <div className="space-y-4">
+            {members.map((member) => (
+              <Card key={member.id} hover>
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h3 className="text-lg font-semibold text-white">{member.name}</h3>
+                    <p className="text-gray-300">{member.email}</p>
+                    {member.phone && <p className="text-gray-400 text-sm">{member.phone}</p>}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(member.role)}`}>
+                      {member.role}
+                    </span>
+                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(member.status)}`}>
+                      {member.status}
+                    </span>
+                  </div>
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
   )
 }
