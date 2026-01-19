@@ -10,6 +10,7 @@ import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatLongDate } from '../../utils/dateHelpers'
 import { formatCurrency } from '../../config/stripe'
+import { generateShootBriefingPDF } from '../../utils/pdfGenerator'
 
 interface Member {
   id: string
@@ -203,6 +204,37 @@ export default function ShootDetail() {
     }
   }
 
+  const handleGenerateBriefing = () => {
+    if (!shoot) return
+
+    generateShootBriefingPDF({
+      syndicateName: 'Shooting Syndicate', // We'll improve this later
+      shootDate: formatLongDate(shoot.date),
+      locationName: shoot.locationName,
+      locationAddress: shoot.locationAddress,
+      locationPostcode: shoot.locationPostcode,
+      meetTime: shoot.meetTime,
+      drivesPlanned: shoot.drivesPlanned,
+      expectedBag: shoot.expectedBag,
+      captainNotes: shoot.captainNotes,
+      guns: [
+        ...(shoot.attendances?.map(att => ({
+          name: att.member?.name || 'Unknown',
+          pegNumber: att.pegNumber,
+          isGuest: false,
+        })) || []),
+        ...(shoot.guestGuns?.filter(g => g.rsvpStatus === 'CONFIRMED').map(guest => ({
+          name: guest.name,
+          pegNumber: undefined,
+          isGuest: true,
+        })) || []),
+      ],
+      beaters: shoot.beaterBookings?.filter(b => b.status === 'CONFIRMED').map(b => ({
+        name: b.beater?.name || 'Unknown',
+      })) || [],
+    })
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -244,6 +276,9 @@ export default function ShootDetail() {
             <p className="text-amber-500">{formatLongDate(shoot.date)} • Meet {shoot.meetTime}</p>
           </div>
           <div className="flex gap-3">
+            <Button onClick={handleGenerateBriefing}>
+              Generate Briefing
+            </Button>
             <Link to={`/pegs?shootId=${shoot.id}`}>
               <Button variant="secondary">Allocate Pegs</Button>
             </Link>
