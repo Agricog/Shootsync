@@ -29,7 +29,8 @@
     "react-helmet-async": "^2.0.5",
     "svix": "^1.24.0",
     "zod": "^3.23.8",
-    "stripe": "^14.21.0"
+    "stripe": "^14.21.0",
+    "jspdf": "^2.5.1"
   },
   "devDependencies": {
     "@types/cors": "^2.8.17",
