@@ -9,6 +9,7 @@ import memberRoutes from './routes/members.js'
 import beaterRoutes from './routes/beaters.js'
 import shootRoutes from './routes/shoots.js'
 import bagRoutes from './routes/bags.js'
+import guestRoutes from './routes/guests.js'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -39,6 +40,7 @@ app.use('/api/members', memberRoutes)
 app.use('/api/beaters', beaterRoutes)
 app.use('/api/shoots', shootRoutes)
 app.use('/api/bags', bagRoutes)
+app.use('/api/guests', guestRoutes)
 
 // Serve static files in production
 if (process.env.NODE_ENV === 'production') {
