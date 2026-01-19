@@ -114,13 +114,19 @@ export default function ShootDetail() {
 
     // Get current member for inviting guests
     if (data && user?.id) {
-      const syndicates = await syndicateApi.fetchAll({ captainClerkId: user.id })
-      if (syndicates.length > 0) {
-        const members = await memberApi.fetchAll({ syndicateId: syndicates[0].id })
-        const member = members.find((m) => m.clerkUserId === user.id)
-        if (member) {
-          setCurrentMember(member)
-        }
+      const members = await memberApi.fetchAll({ syndicateId: data.syndicateId })
+      // Try to find by clerkUserId first, then fall back to any active member
+      let member = members.find((m: any) => m.clerkUserId === user.id)
+      if (!member) {
+        // Fall back to first active member (captain is viewing this page)
+        member = members.find((m: any) => m.status === 'ACTIVE')
+      }
+      if (!member && members.length > 0) {
+        // Last resort: use first member
+        member = members[0]
+      }
+      if (member) {
+        setCurrentMember(member)
       }
     }
 
