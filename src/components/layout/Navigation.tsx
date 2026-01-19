@@ -2,7 +2,6 @@
  * Navigation Component - ShootSync
  * Main header with auth-aware navigation
  */
-
 import { Link, useLocation } from 'react-router-dom'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -19,6 +18,7 @@ export default function Navigation() {
         { path: '/shoots', label: 'Shoots' },
         { path: '/members', label: 'Members' },
         { path: '/beaters', label: 'Beaters' },
+        { path: '/pegs', label: 'Pegs' },
         { path: '/finances', label: 'Finances' },
       ]
     : []
