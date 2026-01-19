@@ -43,7 +43,6 @@ import GuestAccept from './pages/guest/GuestAccept'
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import { PublicOnlyRoute } from './components/auth/ProtectedRoute'
-import RoleGuard from './components/auth/RoleGuard'
 
 export default function App() {
   return (
@@ -82,13 +81,13 @@ export default function App() {
               }
             />
             <Route
-  path="/pegs"
-  element={
-    <ProtectedRoute>
-      <PegAllocation />
-    </ProtectedRoute>
-  }
-/>
+              path="/pegs"
+              element={
+                <ProtectedRoute>
+                  <PegAllocation />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/syndicate/create"
               element={
@@ -101,20 +100,18 @@ export default function App() {
               path="/members"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['captain']}>
-                    <Members />
-                  </RoleGuard>
+                  <Members />
                 </ProtectedRoute>
               }
             />
             <Route
-  path="/beaters"
-  element={
-    <ProtectedRoute>
-      <Beaters />
-    </ProtectedRoute>
-  }
-/>
+              path="/beaters"
+              element={
+                <ProtectedRoute>
+                  <Beaters />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/shoots"
               element={
@@ -124,28 +121,26 @@ export default function App() {
               }
             />
             <Route
-  path="/shoots/new"
-  element={
-    <ProtectedRoute>
-      <ShootCreate />
-    </ProtectedRoute>
-  }
-/>
+              path="/shoots/new"
+              element={
+                <ProtectedRoute>
+                  <ShootCreate />
+                </ProtectedRoute>
+              }
+            />
             <Route
-  path="/shoots/:id"
-  element={
-    <ProtectedRoute>
-      <ShootDetail />
-    </ProtectedRoute>
-  }
-/>
+              path="/shoots/:id"
+              element={
+                <ProtectedRoute>
+                  <ShootDetail />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/bags/record"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['captain', 'gun']}>
-                    <BagRecord />
-                  </RoleGuard>
+                  <BagRecord />
                 </ProtectedRoute>
               }
             />
@@ -153,9 +148,7 @@ export default function App() {
               path="/finances"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['captain']}>
-                    <Finances />
-                  </RoleGuard>
+                  <Finances />
                 </ProtectedRoute>
               }
             />
@@ -163,9 +156,7 @@ export default function App() {
               path="/settings"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['captain']}>
-                    <Settings />
-                  </RoleGuard>
+                  <Settings />
                 </ProtectedRoute>
               }
             />
@@ -175,9 +166,7 @@ export default function App() {
               path="/gun/dashboard"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['gun', 'captain']}>
-                    <GunDashboard />
-                  </RoleGuard>
+                  <GunDashboard />
                 </ProtectedRoute>
               }
             />
@@ -185,9 +174,7 @@ export default function App() {
               path="/my-pegs"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['gun', 'captain']}>
-                    <MyPegs />
-                  </RoleGuard>
+                  <MyPegs />
                 </ProtectedRoute>
               }
             />
@@ -195,9 +182,7 @@ export default function App() {
               path="/my-payments"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['gun', 'captain']}>
-                    <MyPayments />
-                  </RoleGuard>
+                  <MyPayments />
                 </ProtectedRoute>
               }
             />
@@ -207,9 +192,7 @@ export default function App() {
               path="/beater/dashboard"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['beater']}>
-                    <BeaterDashboard />
-                  </RoleGuard>
+                  <BeaterDashboard />
                 </ProtectedRoute>
               }
             />
@@ -217,9 +200,7 @@ export default function App() {
               path="/beater/bookings"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['beater']}>
-                    <MyBookings />
-                  </RoleGuard>
+                  <MyBookings />
                 </ProtectedRoute>
               }
             />
@@ -227,9 +208,7 @@ export default function App() {
               path="/beater/earnings"
               element={
                 <ProtectedRoute>
-                  <RoleGuard allowedRoles={['beater']}>
-                    <MyEarnings />
-                  </RoleGuard>
+                  <MyEarnings />
                 </ProtectedRoute>
               }
             />
