@@ -39,6 +39,7 @@ import MyEarnings from './pages/beater/MyEarnings'
 
 // Guest pages
 import GuestAccept from './pages/guest/GuestAccept'
+import PaymentSuccess from './pages/guest/PaymentSuccess'
 
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
@@ -216,6 +217,7 @@ export default function App() {
             {/* Guest routes */}
             <Route path="/guest/accept/:token" element={<GuestAccept />} />
             <Route path="/guest/accept" element={<GuestAccept />} />
+            <Route path="/guest/payment-success" element={<PaymentSuccess />} />
 
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />
