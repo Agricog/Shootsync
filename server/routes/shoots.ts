@@ -63,6 +63,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     const shoot = await prisma.shootDay.findUnique({
       where: { id },
       include: {
+        syndicate: true,
         attendances: {
           include: { member: true },
           orderBy: { pegNumber: 'asc' },
