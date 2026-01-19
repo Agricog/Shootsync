@@ -43,6 +43,67 @@ router.get('/', async (req: Request, res: Response) => {
   }
 })
 
+// GET /api/beaters/payments/summary - Get payment summary for all beaters
+router.get('/payments/summary', async (req: Request, res: Response) => {
+  const prisma: PrismaClient = req.app.locals.prisma
+  const { syndicateId } = req.query
+
+  if (!syndicateId || typeof syndicateId !== 'string') {
+    return res.status(400).json({ error: 'syndicateId is required' })
+  }
+
+  try {
+    const beaters = await prisma.beater.findMany({
+      where: { syndicateId, status: 'ACTIVE' },
+      include: {
+        payments: true,
+        bookings: {
+          where: { status: 'CONFIRMED' },
+        },
+      },
+      orderBy: { name: 'asc' },
+    })
+
+    const summary = beaters.map(beater => {
+      const totalEarned = beater.payments.reduce((sum, p) => sum + p.amount, 0)
+      const totalPaid = beater.payments
+        .filter(p => p.status === 'PAID')
+        .reduce((sum, p) => sum + p.amount, 0)
+      const totalOutstanding = beater.payments
+        .filter(p => p.status === 'PENDING')
+        .reduce((sum, p) => sum + p.amount, 0)
+      const daysWorked = beater.bookings.length
+
+      return {
+        id: beater.id,
+        name: beater.name,
+        email: beater.email,
+        phone: beater.phone,
+        bankName: beater.bankName,
+        bankSortCode: beater.bankSortCode,
+        bankAccountNumber: beater.bankAccountNumber,
+        dayRate: beater.dayRate,
+        daysWorked,
+        totalEarned,
+        totalPaid,
+        totalOutstanding,
+        payments: beater.payments.filter(p => p.status === 'PENDING'),
+      }
+    })
+
+    const totals = {
+      totalOutstanding: summary.reduce((sum, b) => sum + b.totalOutstanding, 0),
+      totalPaid: summary.reduce((sum, b) => sum + b.totalPaid, 0),
+      totalEarned: summary.reduce((sum, b) => sum + b.totalEarned, 0),
+    }
+
+    res.json({ beaters: summary, totals })
+  } catch (error) {
+    console.error('Error fetching payment summary:', error)
+    res.status(500).json({ error: 'Failed to fetch payment summary' })
+  }
+})
+
 // GET /api/beaters/:id - Get single beater with payment history
 router.get('/:id', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
@@ -69,7 +130,6 @@ router.get('/:id', async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Beater not found' })
     }
 
-    // Calculate totals
     const totalOwed = await prisma.beaterPayment.aggregate({
       where: { beaterId: id, status: 'PENDING' },
       _sum: { amount: true },
@@ -215,6 +275,32 @@ router.post('/:id/pay', async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error recording payment:', error)
     res.status(500).json({ error: 'Failed to record payment' })
+  }
+})
+
+// POST /api/beaters/pay-all - Mark all outstanding payments as paid for a beater
+router.post('/pay-all/:id', async (req: Request, res: Response) => {
+  const prisma: PrismaClient = req.app.locals.prisma
+  const { id } = req.params
+  const { paymentReference } = req.body
+
+  try {
+    const updated = await prisma.beaterPayment.updateMany({
+      where: { 
+        beaterId: id,
+        status: 'PENDING',
+      },
+      data: {
+        status: 'PAID',
+        paidDate: new Date(),
+        paymentReference,
+      },
+    })
+
+    res.json({ updated: updated.count })
+  } catch (error) {
+    console.error('Error recording payments:', error)
+    res.status(500).json({ error: 'Failed to record payments' })
   }
 })
 
