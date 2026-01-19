@@ -208,7 +208,7 @@ export default function ShootDetail() {
     if (!shoot) return
 
     generateShootBriefingPDF({
-      syndicateName: 'Shooting Syndicate', // We'll improve this later
+      syndicateName: (shoot as any).syndicate?.name || 'Shooting Syndicate',
       shootDate: formatLongDate(shoot.date),
       locationName: shoot.locationName,
       locationAddress: shoot.locationAddress,
