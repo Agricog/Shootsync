@@ -357,18 +357,18 @@ export default function ShootDetail() {
                 />
                 <div>
                   <label className="block text-sm font-medium text-slate-300 mb-1">
-                    Day Fee (pence)
+                    Day Fee (£)
                   </label>
                   <input
                     type="number"
-                    value={inviteData.dayFee}
-                    onChange={(e) => setInviteData({ ...inviteData, dayFee: parseInt(e.target.value) || 0 })}
+                    value={inviteData.dayFee / 100}
+                    onChange={(e) => setInviteData({ ...inviteData, dayFee: Math.round((parseFloat(e.target.value) || 0) * 100) })}
                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
                     min="0"
-                    step="100"
+                    step="1"
                   />
                   <p className="text-slate-500 text-sm mt-1">
-                    {formatCurrency(inviteData.dayFee)} - Enter 0 for complimentary
+                    Enter 0 for complimentary
                   </p>
                 </div>
 
