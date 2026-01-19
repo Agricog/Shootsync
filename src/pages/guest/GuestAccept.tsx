@@ -193,13 +193,39 @@ export default function GuestAccept() {
   }
 
   const handlePayment = async () => {
-    // TODO: Integrate Stripe payment
-    // For now, mark as confirmed after "payment"
-    setIsProcessing(true)
-    await new Promise(resolve => setTimeout(resolve, 1500))
-    setStep('confirmed')
+  if (!invite) return
+
+  setIsProcessing(true)
+  setError(null)
+
+  try {
+    const response = await fetch('/api/stripe/create-checkout-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guestId: invite.id }),
+    })
+
+    if (!response.ok) {
+      const errorData = await response.json()
+      setError(errorData.error || 'Failed to create payment session')
+      setIsProcessing(false)
+      return
+    }
+
+    const { url } = await response.json()
+    
+    if (url) {
+      window.location.href = url
+    } else {
+      setError('Failed to get payment URL')
+      setIsProcessing(false)
+    }
+  } catch (err) {
+    console.error('Payment error:', err)
+    setError('Failed to initiate payment. Please try again.')
     setIsProcessing(false)
   }
+}
 
   if (step === 'loading') {
     return (
