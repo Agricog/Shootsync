@@ -20,10 +20,14 @@ const createMemberSchema = z.object({
 
 const updateMemberSchema = createMemberSchema.partial().omit({ syndicateId: true })
 
+const updateStatusSchema = z.object({
+  status: z.enum(['ACTIVE', 'PENDING', 'INACTIVE']),
+})
+
 // GET /api/members - Get members for a syndicate
 router.get('/', async (req: Request, res: Response) => {
   const prisma: PrismaClient = req.app.locals.prisma
-  const { syndicateId, status } = req.query
+  const { syndicateId, status, role } = req.query
 
   if (!syndicateId || typeof syndicateId !== 'string') {
     return res.status(400).json({ error: 'syndicateId is required' })
@@ -34,6 +38,7 @@ router.get('/', async (req: Request, res: Response) => {
       where: { 
         syndicateId,
         ...(status && typeof status === 'string' ? { status: status as any } : {}),
+        ...(role && typeof role === 'string' ? { role: role as any } : {}),
       },
       orderBy: { name: 'asc' },
     })
@@ -158,6 +163,39 @@ router.patch('/:id', async (req: Request, res: Response) => {
     }
     console.error('Error updating member:', error)
     res.status(500).json({ error: 'Failed to update member' })
+  }
+})
+
+// PATCH /api/members/:id/status - Update member status (captain action)
+router.patch('/:id/status', async (req: Request, res: Response) => {
+  const prisma: PrismaClient = req.app.locals.prisma
+  const { id } = req.params
+
+  try {
+    const { status } = updateStatusSchema.parse(req.body)
+    
+    const updateData: any = { status }
+    
+    // Set acceptedAt when activating for the first time
+    if (status === 'ACTIVE') {
+      const existingMember = await prisma.member.findUnique({ where: { id } })
+      if (existingMember && !existingMember.acceptedAt) {
+        updateData.acceptedAt = new Date()
+      }
+    }
+    
+    const member = await prisma.member.update({
+      where: { id },
+      data: updateData,
+    })
+
+    res.json(member)
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    }
+    console.error('Error updating member status:', error)
+    res.status(500).json({ error: 'Failed to update member status' })
   }
 })
 
