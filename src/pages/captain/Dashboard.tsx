@@ -28,15 +28,6 @@ interface ShootDay {
   status: string
 }
 
-interface BagRecord {
-  id: string
-  pheasant: number
-  partridge: number
-  duck: number
-  woodcock: number
-  other: number
-}
-
 interface DashboardStats {
   activeMembers: number
   nextShoot: ShootDay | null
@@ -58,7 +49,6 @@ export default function CaptainDashboard() {
 
   const memberApi = useApi<Member>('members')
   const shootApi = useApi<ShootDay>('shoots')
-  const bagApi = useApi<BagRecord>('bags')
 
   useEffect(() => {
     if (user?.id) {
@@ -89,11 +79,17 @@ export default function CaptainDashboard() {
         .sort((a: ShootDay, b: ShootDay) => new Date(a.date).getTime() - new Date(b.date).getTime())
       const nextShoot = upcomingShoots.length > 0 ? upcomingShoots[0] : null
 
-      // Fetch bag records
-      const bags = await bagApi.fetchAll({ syndicateId })
-      const seasonBag = bags.reduce((total: number, bag: BagRecord) => {
-        return total + (bag.pheasant || 0) + (bag.partridge || 0) + (bag.duck || 0) + (bag.woodcock || 0) + (bag.other || 0)
-      }, 0)
+      // Fetch season bag totals
+      let seasonBag = 0
+      try {
+        const bagResponse = await fetch(`/api/bags/season?syndicateId=${syndicateId}`)
+        if (bagResponse.ok) {
+          const bagData = await bagResponse.json()
+          seasonBag = bagData.total || 0
+        }
+      } catch (err) {
+        console.error('Failed to fetch bag totals:', err)
+      }
 
       // TODO: Fetch outstanding payments when payment system is implemented
       const outstandingPayments = 0
