@@ -43,10 +43,6 @@ router.get('/', async (req: Request, res: Response) => {
     if (shootId && typeof shootId === 'string') {
       const guests = await prisma.guestGun.findMany({
         where: { shootId },
-        include: {
-          invitedBy: { select: { name: true, email: true } },
-          shootDay: { select: { date: true, locationName: true } },
-        },
         orderBy: { createdAt: 'desc' },
       })
       return res.json(guests)
@@ -56,10 +52,6 @@ router.get('/', async (req: Request, res: Response) => {
       const guests = await prisma.guestGun.findMany({
         where: {
           shootDay: { syndicateId },
-        },
-        include: {
-          invitedBy: { select: { name: true, email: true } },
-          shootDay: { select: { date: true, locationName: true } },
         },
         orderBy: { createdAt: 'desc' },
       })
@@ -81,26 +73,19 @@ router.get('/:id', async (req: Request, res: Response) => {
   try {
     const guest = await prisma.guestGun.findUnique({
       where: { id },
-      include: {
-        invitedBy: { select: { name: true, email: true } },
-        shootDay: {
-          select: {
-            date: true,
-            locationName: true,
-            locationAddress: true,
-            locationPostcode: true,
-            meetTime: true,
-            syndicate: { select: { name: true } },
-          },
-        },
-      },
     })
 
     if (!guest) {
       return res.status(404).json({ error: 'Guest not found' })
     }
 
-    res.json(guest)
+    // Get related data separately
+    const shootDay = await prisma.shootDay.findUnique({
+      where: { id: guest.shootId },
+      include: { syndicate: { select: { name: true } } },
+    })
+
+    res.json({ ...guest, shootDay })
   } catch (error) {
     console.error('Error fetching guest:', error)
     res.status(500).json({ error: 'Failed to fetch guest' })
@@ -115,26 +100,24 @@ router.get('/token/:token', async (req: Request, res: Response) => {
   try {
     const guest = await prisma.guestGun.findFirst({
       where: { inviteToken: token },
-      include: {
-        invitedBy: { select: { name: true } },
-        shootDay: {
-          select: {
-            date: true,
-            locationName: true,
-            locationAddress: true,
-            locationPostcode: true,
-            meetTime: true,
-            syndicate: { select: { name: true } },
-          },
-        },
-      },
     })
 
     if (!guest) {
       return res.status(404).json({ error: 'Invalid or expired invite' })
     }
 
-    res.json(guest)
+    // Get related data separately
+    const shootDay = await prisma.shootDay.findUnique({
+      where: { id: guest.shootId },
+      include: { syndicate: { select: { name: true } } },
+    })
+
+    const invitedBy = await prisma.member.findUnique({
+      where: { id: guest.invitedByMemberId },
+      select: { name: true },
+    })
+
+    res.json({ ...guest, shootDay, invitedBy })
   } catch (error) {
     console.error('Error fetching guest by token:', error)
     res.status(500).json({ error: 'Failed to fetch guest' })
@@ -164,12 +147,7 @@ router.post('/', async (req: Request, res: Response) => {
         paymentStatus: 'PENDING',
         waiverAccepted: false,
       },
-      include: {
-        shootDay: { select: { date: true, locationName: true } },
-      },
     })
-
-    // TODO: Send invite email with link containing inviteToken
 
     res.status(201).json(guest)
   } catch (error) {
