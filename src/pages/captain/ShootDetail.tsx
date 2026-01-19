@@ -73,11 +73,6 @@ interface ShootDay {
   }
 }
 
-interface Syndicate {
-  id: string
-  name: string
-}
-
 export default function ShootDetail() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
