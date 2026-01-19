@@ -33,6 +33,7 @@ export default function Members() {
   const [showInviteForm, setShowInviteForm] = useState(false)
   const [inviteData, setInviteData] = useState({ name: '', email: '', phone: '', role: 'GUN' })
   const [inviting, setInviting] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
 
   const memberApi = useApi<Member>('members')
 
@@ -61,7 +62,7 @@ export default function Members() {
     const result = await memberApi.create({
       ...inviteData,
       syndicateId,
-      clerkUserId: `pending_${Date.now()}`, // Placeholder until they accept
+      clerkUserId: `pending_${Date.now()}`,
     } as any)
 
     if (result) {
@@ -70,6 +71,32 @@ export default function Members() {
       setShowInviteForm(false)
     }
     setInviting(false)
+  }
+
+  const handleStatusChange = async (memberId: string, newStatus: 'ACTIVE' | 'PENDING' | 'INACTIVE') => {
+    setUpdatingStatus(memberId)
+    try {
+      const response = await fetch(`/api/members/${memberId}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      })
+
+      if (response.ok) {
+        const updatedMember = await response.json()
+        setMembers(members.map(m => m.id === memberId ? updatedMember : m))
+      }
+    } catch (error) {
+      console.error('Failed to update member status:', error)
+    }
+    setUpdatingStatus(null)
+  }
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!confirm('Are you sure you want to remove this member? They will be marked as inactive.')) {
+      return
+    }
+    await handleStatusChange(memberId, 'INACTIVE')
   }
 
   const getStatusColor = (status: string) => {
@@ -86,9 +113,15 @@ export default function Members() {
       case 'CAPTAIN': return 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200'
       case 'GUN': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
       case 'BEATER': return 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200'
+      case 'HYBRID': return 'bg-teal-100 text-teal-800 dark:bg-teal-900 dark:text-teal-200'
       default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
     }
   }
+
+  // Count members by status
+  const activeCount = members.filter(m => m.status === 'ACTIVE').length
+  const pendingCount = members.filter(m => m.status === 'PENDING').length
+  const inactiveCount = members.filter(m => m.status === 'INACTIVE').length
 
   if (loading) {
     return (
@@ -108,7 +141,12 @@ export default function Members() {
 
       <div className="space-y-6">
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-white">Members</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-white">Members</h1>
+            <p className="text-gray-400 text-sm mt-1">
+              {activeCount} active · {pendingCount} pending · {inactiveCount} inactive
+            </p>
+          </div>
           <Button onClick={() => setShowInviteForm(true)}>Invite Member</Button>
         </div>
 
@@ -177,13 +215,55 @@ export default function Members() {
                     <p className="text-gray-300">{member.email}</p>
                     {member.phone && <p className="text-gray-400 text-sm">{member.phone}</p>}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(member.role)}`}>
-                      {member.role}
-                    </span>
-                    <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(member.status)}`}>
-                      {member.status}
-                    </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(member.role)}`}>
+                        {member.role}
+                      </span>
+                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(member.status)}`}>
+                        {member.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {updatingStatus === member.id ? (
+                        <LoadingSpinner size="sm" />
+                      ) : (
+                        <>
+                          {member.status === 'PENDING' && (
+                            <button
+                              onClick={() => handleStatusChange(member.id, 'ACTIVE')}
+                              className="text-sm text-green-400 hover:text-green-300 font-medium"
+                            >
+                              Activate
+                            </button>
+                          )}
+                          {member.status === 'ACTIVE' && (
+                            <button
+                              onClick={() => handleStatusChange(member.id, 'INACTIVE')}
+                              className="text-sm text-amber-400 hover:text-amber-300 font-medium"
+                            >
+                              Deactivate
+                            </button>
+                          )}
+                          {member.status === 'INACTIVE' && (
+                            <button
+                              onClick={() => handleStatusChange(member.id, 'ACTIVE')}
+                              className="text-sm text-green-400 hover:text-green-300 font-medium"
+                            >
+                              Reactivate
+                            </button>
+                          )}
+                          {member.status !== 'INACTIVE' && (
+                            <button
+                              onClick={() => handleRemoveMember(member.id)}
+                              className="text-sm text-red-400 hover:text-red-300 font-medium ml-2"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
                 </div>
               </Card>
