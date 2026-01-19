@@ -44,7 +44,7 @@ router.get('/', async (req: Request, res: Response) => {
       const guests = await prisma.guestGun.findMany({
         where: { shootId },
         include: {
-          invitedByMember: { select: { name: true, email: true } },
+          invitedBy: { select: { name: true, email: true } },
           shootDay: { select: { date: true, locationName: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -58,7 +58,7 @@ router.get('/', async (req: Request, res: Response) => {
           shootDay: { syndicateId },
         },
         include: {
-          invitedByMember: { select: { name: true, email: true } },
+          invitedBy: { select: { name: true, email: true } },
           shootDay: { select: { date: true, locationName: true } },
         },
         orderBy: { createdAt: 'desc' },
@@ -82,7 +82,7 @@ router.get('/:id', async (req: Request, res: Response) => {
     const guest = await prisma.guestGun.findUnique({
       where: { id },
       include: {
-        invitedByMember: { select: { name: true, email: true } },
+        invitedBy: { select: { name: true, email: true } },
         shootDay: {
           select: {
             date: true,
@@ -116,7 +116,7 @@ router.get('/token/:token', async (req: Request, res: Response) => {
     const guest = await prisma.guestGun.findFirst({
       where: { inviteToken: token },
       include: {
-        invitedByMember: { select: { name: true } },
+        invitedBy: { select: { name: true } },
         shootDay: {
           select: {
             date: true,
