@@ -82,7 +82,6 @@ export default function ShootDetail() {
   const { id } = useParams<{ id: string }>()
   const { user } = useAuth()
   const shootApi = useApi<ShootDay>('shoots')
-  const syndicateApi = useApi<Syndicate>('syndicates')
   const memberApi = useApi<Member>('members')
 
   const [shoot, setShoot] = useState<ShootDay | null>(null)
