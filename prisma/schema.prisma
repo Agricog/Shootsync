@@ -155,12 +155,13 @@ model GuestGun {
   waiverAccepted        Boolean  @default(false) @map("waiver_accepted")
   waiverAcceptedAt      DateTime? @map("waiver_accepted_at")
   rsvpStatus            RsvpStatus @default(PENDING) @map("rsvp_status")
+  inviteToken           String?  @unique @map("invite_token")
   notes                 String?
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
   shootDay              ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
-  invitedBy             Member   @relation("InvitedBy", fields: [invitedByMemberId], references: [id], onDelete: Cascade)
+  invitedByMember       Member   @relation("InvitedBy", fields: [invitedByMemberId], references: [id], onDelete: Cascade)
 
   @@map("guest_guns")
 }
