@@ -15,6 +15,7 @@ interface Member {
   id: string
   name: string
   email: string
+  clerkUserId?: string
 }
 
 interface ShootDay {
@@ -116,7 +117,7 @@ export default function ShootDetail() {
       const syndicates = await syndicateApi.fetchAll({ captainClerkId: user.id })
       if (syndicates.length > 0) {
         const members = await memberApi.fetchAll({ syndicateId: syndicates[0].id })
-        const member = members.find((m: Member & { clerkUserId: string }) => m.clerkUserId === user.id)
+        const member = members.find((m) => m.clerkUserId === user.id)
         if (member) {
           setCurrentMember(member)
         }
