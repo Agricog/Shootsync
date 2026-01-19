@@ -3,16 +3,154 @@
  * Financial overview for captains
  */
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
+import { useAuth } from '../../hooks/useAuth'
+import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
-import { PageGrid } from '../../components/layout/DashboardLayout'
 import Card, { CardHeader, CardContent, StatCard } from '../../components/common/Card'
 import Button from '../../components/common/Button'
+import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatCurrency } from '../../config/stripe'
 
+interface Syndicate {
+  id: string
+  name: string
+}
+
+interface BeaterPayment {
+  id: string
+  amount: number
+  status: string
+}
+
+interface BeaterSummary {
+  id: string
+  name: string
+  email?: string
+  phone?: string
+  bankName?: string
+  bankSortCode?: string
+  bankAccountNumber?: string
+  dayRate: number
+  daysWorked: number
+  totalEarned: number
+  totalPaid: number
+  totalOutstanding: number
+  payments: BeaterPayment[]
+}
+
+interface PaymentSummary {
+  beaters: BeaterSummary[]
+  totals: {
+    totalOutstanding: number
+    totalPaid: number
+    totalEarned: number
+  }
+}
+
 export default function Finances() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'subscriptions' | 'beaters'>('overview')
+  const { user } = useAuth()
+  const syndicateApi = useApi<Syndicate>('syndicates')
+  
+  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [activeTab, setActiveTab] = useState<'overview' | 'beaters'>('overview')
+  const [loading, setLoading] = useState(true)
+  const [paymentData, setPaymentData] = useState<PaymentSummary | null>(null)
+  const [paying, setPaying] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (user?.id) {
+      loadData()
+    }
+  }, [user?.id])
+
+  const loadData = async () => {
+    setLoading(true)
+    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
+    if (syndicates.length > 0) {
+      setSyndicateId(syndicates[0].id)
+      await loadPaymentData(syndicates[0].id)
+    }
+    setLoading(false)
+  }
+
+  const loadPaymentData = async (synId: string) => {
+    try {
+      const response = await fetch(`/api/beaters/payments/summary?syndicateId=${synId}`)
+      if (response.ok) {
+        const data = await response.json()
+        setPaymentData(data)
+      }
+    } catch (err) {
+      console.error('Error loading payment data:', err)
+    }
+  }
+
+  const handlePayBeater = async (beaterId: string) => {
+    const reference = prompt('Enter payment reference (e.g., bank transfer ref):')
+    if (!reference) return
+
+    setPaying(beaterId)
+    try {
+      const response = await fetch(`/api/beaters/pay-all/${beaterId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentReference: reference }),
+      })
+
+      if (response.ok) {
+        if (syndicateId) {
+          await loadPaymentData(syndicateId)
+        }
+      }
+    } catch (err) {
+      console.error('Error paying beater:', err)
+    }
+    setPaying(null)
+  }
+
+  const exportCSV = () => {
+    if (!paymentData) return
+
+    const headers = ['Name', 'Email', 'Phone', 'Bank Name', 'Sort Code', 'Account Number', 'Days Worked', 'Day Rate', 'Total Earned', 'Total Paid', 'Outstanding']
+    const rows = paymentData.beaters.map(b => [
+      b.name,
+      b.email || '',
+      b.phone || '',
+      b.bankName || '',
+      b.bankSortCode || '',
+      b.bankAccountNumber || '',
+      b.daysWorked.toString(),
+      (b.dayRate / 100).toFixed(2),
+      (b.totalEarned / 100).toFixed(2),
+      (b.totalPaid / 100).toFixed(2),
+      (b.totalOutstanding / 100).toFixed(2),
+    ])
+
+    const csvContent = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    link.href = URL.createObjectURL(blob)
+    link.download = `beater-payments-${new Date().toISOString().split('T')[0]}.csv`
+    link.click()
+  }
+
+  if (loading) {
+    return (
+      <DashboardLayout>
+        <div className="flex justify-center items-center h-64">
+          <LoadingSpinner size="lg" />
+        </div>
+      </DashboardLayout>
+    )
+  }
+
+  const totals = paymentData?.totals || { totalOutstanding: 0, totalPaid: 0, totalEarned: 0 }
 
   return (
     <>
@@ -21,252 +159,162 @@ export default function Finances() {
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
-      <DashboardLayout
-        title="Finances"
-        subtitle="Season 2025-26 financial overview"
-        action={
-          <Button variant="secondary">Export CSV</Button>
-        }
-      >
-        <PageGrid columns={4}>
-          <StatCard
-            label="Subscriptions Collected"
-            value={formatCurrency(640000)}
-          />
-          <StatCard
-            label="Subscriptions Outstanding"
-            value={formatCurrency(160000)}
-          />
-          <StatCard
-            label="Guest Fees Collected"
-            value={formatCurrency(35000)}
-          />
-          <StatCard
-            label="Beater Payments Due"
-            value={formatCurrency(26000)}
-          />
-        </PageGrid>
+      <DashboardLayout>
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-white">Finances</h1>
+              <p className="text-slate-400">Season 2025-26 financial overview</p>
+            </div>
+            <Button variant="secondary" onClick={exportCSV}>
+              Export CSV
+            </Button>
+          </div>
 
-        <div className="flex gap-2 mt-8 mb-6">
-          <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
-            Overview
-          </TabButton>
-          <TabButton active={activeTab === 'subscriptions'} onClick={() => setActiveTab('subscriptions')}>
-            Subscriptions
-          </TabButton>
-          <TabButton active={activeTab === 'beaters'} onClick={() => setActiveTab('beaters')}>
-            Beater Payments
-          </TabButton>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <StatCard
+              title="Total Earned (Beaters)"
+              value={formatCurrency(totals.totalEarned)}
+              subtitle="This season"
+            />
+            <StatCard
+              title="Total Paid"
+              value={formatCurrency(totals.totalPaid)}
+              subtitle="Payments made"
+            />
+            <StatCard
+              title="Outstanding"
+              value={formatCurrency(totals.totalOutstanding)}
+              subtitle="Payments due"
+            />
+          </div>
+
+          <div className="flex gap-2">
+            <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
+              Overview
+            </TabButton>
+            <TabButton active={activeTab === 'beaters'} onClick={() => setActiveTab('beaters')}>
+              Beater Payments
+            </TabButton>
+          </div>
+
+          {activeTab === 'overview' && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <Card>
+                <CardHeader title="Outstanding Beater Payments" />
+                <CardContent>
+                  {paymentData?.beaters.filter(b => b.totalOutstanding > 0).length === 0 ? (
+                    <p className="text-slate-400">No outstanding payments</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {paymentData?.beaters
+                        .filter(b => b.totalOutstanding > 0)
+                        .map(beater => (
+                          <div key={beater.id} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
+                            <div>
+                              <p className="text-white text-sm">{beater.name}</p>
+                              <p className="text-slate-500 text-xs">{beater.daysWorked} days worked</p>
+                            </div>
+                            <span className="text-amber-400">{formatCurrency(beater.totalOutstanding)}</span>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader title="Payment Summary" />
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-slate-400">Active Beaters</span>
+                      <span className="text-white font-medium">{paymentData?.beaters.length || 0}</span>
+                    </div>
+                    <div className="flex justify-between items-center py-2">
+                      <span className="text-slate-400">Total Days Worked</span>
+                      <span className="text-white font-medium">
+                        {paymentData?.beaters.reduce((sum, b) => sum + b.daysWorked, 0) || 0}
+                      </span>
+                    </div>
+                    <div className="flex justify-between items-center py-2 border-t border-slate-700">
+                      <span className="text-slate-400">Beaters with Outstanding</span>
+                      <span className="text-amber-400 font-medium">
+                        {paymentData?.beaters.filter(b => b.totalOutstanding > 0).length || 0}
+                      </span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          )}
+
+          {activeTab === 'beaters' && (
+            <Card>
+              <CardHeader title="Beater Payments" />
+              <CardContent>
+                {paymentData?.beaters.length === 0 ? (
+                  <p className="text-slate-400">No beaters found. Add beaters from the Beaters page.</p>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-slate-700">
+                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Beater</th>
+                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Days</th>
+                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Earned</th>
+                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Paid</th>
+                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Outstanding</th>
+                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Bank Details</th>
+                          <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paymentData?.beaters.map(beater => (
+                          <tr key={beater.id} className="border-b border-slate-700/50">
+                            <td className="py-3 px-4">
+                              <p className="text-white">{beater.name}</p>
+                              {beater.email && <p className="text-slate-500 text-xs">{beater.email}</p>}
+                            </td>
+                            <td className="py-3 px-4 text-slate-300">{beater.daysWorked}</td>
+                            <td className="py-3 px-4 text-slate-300">{formatCurrency(beater.totalEarned)}</td>
+                            <td className="py-3 px-4 text-green-400">{formatCurrency(beater.totalPaid)}</td>
+                            <td className="py-3 px-4 text-amber-400">
+                              {beater.totalOutstanding > 0 ? formatCurrency(beater.totalOutstanding) : '-'}
+                            </td>
+                            <td className="py-3 px-4">
+                              {beater.bankSortCode && beater.bankAccountNumber ? (
+                                <div className="text-xs text-slate-400">
+                                  <p>{beater.bankName || 'Bank'}</p>
+                                  <p>{beater.bankSortCode} / {beater.bankAccountNumber}</p>
+                                </div>
+                              ) : (
+                                <span className="text-slate-500 text-xs">Not provided</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              {beater.totalOutstanding > 0 && (
+                                <Button 
+                                  size="sm" 
+                                  onClick={() => handlePayBeater(beater.id)}
+                                  disabled={paying === beater.id}
+                                >
+                                  {paying === beater.id ? 'Processing...' : 'Mark Paid'}
+                                </Button>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
         </div>
-
-        {activeTab === 'overview' && <OverviewTab />}
-        {activeTab === 'subscriptions' && <SubscriptionsTab />}
-        {activeTab === 'beaters' && <BeatersTab />}
       </DashboardLayout>
     </>
-  )
-}
-
-function OverviewTab() {
-  return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      <Card>
-        <CardHeader title="Recent Transactions" />
-        <CardContent>
-          <div className="space-y-3">
-            <TransactionRow
-              description="Subscription - John Smith"
-              amount={80000}
-              type="income"
-              date="10 Jan 2026"
-            />
-            <TransactionRow
-              description="Beater Payment - Pete Brown"
-              amount={-8000}
-              type="expense"
-              date="8 Jan 2026"
-            />
-            <TransactionRow
-              description="Guest Fee - Mike Guest"
-              amount={5000}
-              type="income"
-              date="5 Jan 2026"
-            />
-            <TransactionRow
-              description="Subscription - Dave Wilson"
-              amount={80000}
-              type="income"
-              date="3 Jan 2026"
-            />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader title="Outstanding Payments" />
-        <CardContent>
-          <div className="space-y-3">
-            <OutstandingRow name="Mike Roberts" amount={80000} dueDate="15 Jan 2026" type="subscription" />
-            <OutstandingRow name="Tom Davis" amount={80000} dueDate="15 Jan 2026" type="subscription" />
-            <OutstandingRow name="Steve Jones" amount={8000} dueDate="ASAP" type="beater" />
-            <OutstandingRow name="Tom Clark" amount={18000} dueDate="ASAP" type="beater" />
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  )
-}
-
-function SubscriptionsTab() {
-  return (
-    <Card>
-      <CardHeader title="Member Subscriptions" />
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-700">
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Member</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Amount</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Status</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Paid Date</th>
-                <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <SubscriptionRow name="John Smith" amount={80000} status="paid" paidDate="10 Jan 2026" />
-              <SubscriptionRow name="Dave Wilson" amount={80000} status="paid" paidDate="3 Jan 2026" />
-              <SubscriptionRow name="Mike Roberts" amount={80000} status="unpaid" />
-              <SubscriptionRow name="Tom Davis" amount={80000} status="unpaid" />
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-function BeatersTab() {
-  return (
-    <Card>
-      <CardHeader 
-        title="Beater Payments" 
-        action={<Button size="sm">Pay All Outstanding</Button>}
-      />
-      <CardContent>
-        <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead>
-              <tr className="border-b border-slate-700">
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Beater</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Days Worked</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Total Earned</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Paid</th>
-                <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Outstanding</th>
-                <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              <BeaterPaymentRow name="Pete Brown" daysWorked={8} earned={32000} paid={32000} outstanding={0} />
-              <BeaterPaymentRow name="Steve Jones" daysWorked={6} earned={24000} paid={16000} outstanding={8000} />
-              <BeaterPaymentRow name="Tom Clark" daysWorked={4} earned={18000} paid={0} outstanding={18000} />
-            </tbody>
-          </table>
-        </div>
-      </CardContent>
-    </Card>
-  )
-}
-
-interface TransactionRowProps {
-  description: string
-  amount: number
-  type: 'income' | 'expense'
-  date: string
-}
-
-function TransactionRow({ description, amount, type, date }: TransactionRowProps) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
-      <div>
-        <p className="text-white text-sm">{description}</p>
-        <p className="text-slate-500 text-xs">{date}</p>
-      </div>
-      <span className={type === 'income' ? 'text-green-400' : 'text-red-400'}>
-        {type === 'income' ? '+' : ''}{formatCurrency(amount)}
-      </span>
-    </div>
-  )
-}
-
-interface OutstandingRowProps {
-  name: string
-  amount: number
-  dueDate: string
-  type: 'subscription' | 'beater'
-}
-
-function OutstandingRow({ name, amount, dueDate, type }: OutstandingRowProps) {
-  return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
-      <div>
-        <p className="text-white text-sm">{name}</p>
-        <p className="text-slate-500 text-xs">{type === 'subscription' ? 'Subscription' : 'Beater payment'} • Due {dueDate}</p>
-      </div>
-      <span className="text-amber-400">{formatCurrency(amount)}</span>
-    </div>
-  )
-}
-
-interface SubscriptionRowProps {
-  name: string
-  amount: number
-  status: 'paid' | 'unpaid'
-  paidDate?: string
-}
-
-function SubscriptionRow({ name, amount, status, paidDate }: SubscriptionRowProps) {
-  return (
-    <tr className="border-b border-slate-700/50">
-      <td className="py-3 px-4 text-white">{name}</td>
-      <td className="py-3 px-4 text-slate-300">{formatCurrency(amount)}</td>
-      <td className="py-3 px-4">
-        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded border ${
-          status === 'paid' 
-            ? 'bg-green-500/10 text-green-400 border-green-500/20' 
-            : 'bg-amber-500/10 text-amber-400 border-amber-500/20'
-        }`}>
-          {status.charAt(0).toUpperCase() + status.slice(1)}
-        </span>
-      </td>
-      <td className="py-3 px-4 text-slate-400">{paidDate || '-'}</td>
-      <td className="py-3 px-4 text-right">
-        {status === 'unpaid' && <Button size="sm" variant="secondary">Send Reminder</Button>}
-      </td>
-    </tr>
-  )
-}
-
-interface BeaterPaymentRowProps {
-  name: string
-  daysWorked: number
-  earned: number
-  paid: number
-  outstanding: number
-}
-
-function BeaterPaymentRow({ name, daysWorked, earned, paid, outstanding }: BeaterPaymentRowProps) {
-  return (
-    <tr className="border-b border-slate-700/50">
-      <td className="py-3 px-4 text-white">{name}</td>
-      <td className="py-3 px-4 text-slate-300">{daysWorked}</td>
-      <td className="py-3 px-4 text-slate-300">{formatCurrency(earned)}</td>
-      <td className="py-3 px-4 text-green-400">{formatCurrency(paid)}</td>
-      <td className="py-3 px-4 text-amber-400">{outstanding > 0 ? formatCurrency(outstanding) : '-'}</td>
-      <td className="py-3 px-4 text-right">
-        {outstanding > 0 && <Button size="sm">Pay Now</Button>}
-      </td>
-    </tr>
   )
 }
 
