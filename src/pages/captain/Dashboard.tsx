@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../../hooks/useAuth'
 import { useApi } from '../../hooks/useApi'
+import { useSubscription } from '../../hooks/useSubscription'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card, { StatCard } from '../../components/common/Card'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
@@ -49,6 +50,10 @@ export default function CaptainDashboard() {
 
   const memberApi = useApi<Member>('members')
   const shootApi = useApi<ShootDay>('shoots')
+  const navigate = useNavigate()
+  
+  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const { isActive, loading: subLoading } = useSubscription(syndicateId)
 
   useEffect(() => {
     if (user?.id) {
@@ -61,9 +66,17 @@ export default function CaptainDashboard() {
     setSyndicates(data)
     
     if (data.length > 0) {
+      setSyndicateId(data[0].id)
       loadStats(data[0].id)
     }
   }
+
+  // Redirect to subscribe if no active subscription
+  useEffect(() => {
+    if (syndicateId && !subLoading && !isActive) {
+      navigate('/subscribe')
+    }
+  }, [syndicateId, subLoading, isActive, navigate])
 
   const loadStats = async (syndicateId: string) => {
     setStatsLoading(true)
@@ -106,7 +119,7 @@ export default function CaptainDashboard() {
     setStatsLoading(false)
   }
 
-  if (loading) {
+  if (loading || subLoading) {
     return (
       <DashboardLayout>
         <div className="flex justify-center items-center h-64">
