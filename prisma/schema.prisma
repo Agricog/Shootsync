@@ -19,6 +19,15 @@ model Syndicate {
   seasonEnd           DateTime @map("season_end")
   subscriptionAmount  Int      @default(0) @map("subscription_amount")
   subscriptionType    SubscriptionType @default(ANNUAL) @map("subscription_type")
+  
+  // Stripe subscription fields
+  stripeCustomerId           String?  @map("stripe_customer_id")
+  stripeSubscriptionId       String?  @map("stripe_subscription_id")
+  stripePriceId              String?  @map("stripe_price_id")
+  stripeSubscriptionStatus   StripeSubscriptionStatus? @map("stripe_subscription_status")
+  subscriptionCurrentPeriodEnd DateTime? @map("subscription_current_period_end")
+  planTier                   PlanTier? @map("plan_tier")
+  
   defaultBeaterRate   Int      @default(40) @map("default_beater_rate")
   pegRotationRule     PegRotationRule @default(FAIR_ROTATION) @map("peg_rotation_rule")
   status              SyndicateStatus @default(ACTIVE)
@@ -345,6 +354,19 @@ enum PaymentMethod {
   BANK_TRANSFER
   STRIPE
   CASH
+}
+
+enum StripeSubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELLED
+  INCOMPLETE
+  TRIALING
+}
+
+enum PlanTier {
+  STARTER
+  STANDARD
 }
 
 enum ActivityAction {
