@@ -26,6 +26,8 @@ import Finances from './pages/captain/Finances'
 import ShootDetail from './pages/captain/ShootDetail'
 import PegAllocation from './pages/captain/PegAllocation'
 import Settings from './pages/captain/Settings'
+import Subscribe from './pages/captain/Subscribe'
+import SubscriptionSuccess from './pages/captain/SubscriptionSuccess'
 
 // Gun pages
 import GunDashboard from './pages/gun/GunDashboard'
@@ -218,6 +220,24 @@ export default function App() {
             <Route path="/guest/accept/:token" element={<GuestAccept />} />
             <Route path="/guest/accept" element={<GuestAccept />} />
             <Route path="/guest/payment-success" element={<PaymentSuccess />} />
+
+            {/* Subscription routes */}
+            <Route
+              path="/subscribe"
+              element={
+                <ProtectedRoute>
+                  <Subscribe />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/subscription/success"
+              element={
+                <ProtectedRoute>
+                  <SubscriptionSuccess />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Fallback */}
             <Route path="*" element={<NotFound />} />
