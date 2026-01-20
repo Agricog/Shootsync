@@ -8,14 +8,12 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import LoadingSpinner from '../../components/common/LoadingSpinner'
 
 export default function SubscriptionSuccess() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
   const [countdown, setCountdown] = useState(5)
 
-  const sessionId = searchParams.get('session_id')
 
   useEffect(() => {
     const timer = setInterval(() => {
