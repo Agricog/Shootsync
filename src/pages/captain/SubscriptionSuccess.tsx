@@ -11,7 +11,6 @@ import Button from '../../components/common/Button'
 
 export default function SubscriptionSuccess() {
   const navigate = useNavigate()
-  const [searchParams] = useSearchParams()
   const [countdown, setCountdown] = useState(5)
 
 
