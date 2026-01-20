@@ -82,10 +82,10 @@ export default function Subscribe() {
   }
 
   const handleSelectPlan = async (tier: 'STARTER' | 'STANDARD') => {
-    if (!syndicate || !user?.primaryEmailAddress?.emailAddress) return
+    if (!syndicate || !user?.email) return
     
     setCheckingOut(tier)
-    await startCheckout(tier, user.primaryEmailAddress.emailAddress, user.id)
+    await startCheckout(tier, user.email, user.id)
     setCheckingOut(null)
   }
 
