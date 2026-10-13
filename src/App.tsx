@@ -13,6 +13,9 @@ import Login from './pages/public/Login'
 import Signup from './pages/public/Signup'
 import Pricing from './pages/public/Pricing'
 import Features from './pages/public/Features'
+import Privacy from './pages/public/Privacy'
+import Terms from './pages/public/Terms'
+import Contact from './pages/public/Contact'
 
 // Captain pages
 import CaptainDashboard from './pages/captain/Dashboard'
@@ -57,6 +60,9 @@ export default function App() {
             <Route path="/" element={<Landing />} />
             <Route path="/pricing" element={<Pricing />} />
             <Route path="/features" element={<Features />} />
+            <Route path="/privacy" element={<Privacy />} />
+            <Route path="/terms" element={<Terms />} />
+            <Route path="/contact" element={<Contact />} />
             <Route
               path="/login/*"
               element={

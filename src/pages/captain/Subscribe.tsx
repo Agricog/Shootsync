@@ -12,6 +12,7 @@ import { useSubscription } from '../../hooks/useSubscription'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
+import { BILLING_TERMS, PLANS } from '../../config/plans'
 
 interface Syndicate {
   id: string
@@ -19,36 +20,6 @@ interface Syndicate {
   stripeSubscriptionStatus?: string
 }
 
-const PLANS = [
-  {
-    tier: 'STARTER' as const,
-    name: 'Starter',
-    price: 49,
-    features: [
-      'Up to 10 guns',
-      'Up to 15 beaters',
-      '1 captain login',
-      'Shoot scheduling',
-      'Peg allocation',
-      'Bag recording',
-      'Guest management',
-      'PDF briefings',
-    ],
-  },
-  {
-    tier: 'STANDARD' as const,
-    name: 'Standard',
-    price: 79,
-    features: [
-      'Up to 20 guns',
-      'Unlimited beaters',
-      '3 admin logins',
-      'All Starter features',
-      'Priority support',
-    ],
-    popular: true,
-  },
-]
 
 export default function Subscribe() {
   const navigate = useNavigate()
@@ -168,7 +139,7 @@ export default function Subscribe() {
                 <div className="text-center mb-6">
                   <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
                   <div className="flex items-baseline justify-center gap-1">
-                    <span className="text-4xl font-bold text-white">£{plan.price}</span>
+                    <span className="text-4xl font-bold text-white">£{plan.monthlyPrice}</span>
                     <span className="text-slate-400">/month</span>
                   </div>
                 </div>
@@ -198,7 +169,7 @@ export default function Subscribe() {
 
           {/* Footer */}
           <p className="text-center text-slate-500 text-sm mt-8">
-            Cancel anytime. All plans include a 14-day money-back guarantee.
+            No contract. Every plan has a {BILLING_TERMS.moneyBackDays}-day money-back guarantee.
           </p>
         </div>
       </div>

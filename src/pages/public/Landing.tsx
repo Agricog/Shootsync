@@ -1,583 +1,380 @@
 /**
- * Landing Page - ShootSync
- * SEO-optimized public homepage
- * Implements Autaimate Build Standard v3 — 15-Point SEO Achievement Framework
+ * Home page - ShootSync
  *
- * SEO Checklist:
- *  1. Unique, keyword-rich <title> tag
- *  2. Meta description (≤160 chars, CTA-oriented)
- *  3. Canonical URL
- *  4. Open Graph tags (title, description, image, url, type, site_name)
- *  5. Twitter Card tags (card, title, description, image)
- *  6. JSON-LD structured data (SoftwareApplication + Organization + FAQPage)
- *  7. Single semantic <h1> with primary keyword
- *  8. Semantic HTML throughout (header, nav, main, section, article, footer)
- *  9. Alt text on all images / aria-labels on interactive elements
- * 10. Internal linking (features, pricing, login, signup)
- * 11. Mobile-responsive layout (Tailwind breakpoints)
- * 12. Robots meta (index, follow)
- * 13. Heading hierarchy (h1 → h2 → h3, no skips)
- * 14. Structured content sections with descriptive IDs for defined anchors
- * 15. Accessibility: WCAG 2.1 AA (focus states, contrast, ARIA, skip-nav)
+ * Primary keyword: shooting syndicate management software
+ * Supporting: syndicate shoot software, peg draw, shoot captain, bag book, beaters' pay, guest guns
+ *
+ * Every claim on this page describes something built and working. Prices come
+ * from src/config/plans.ts, questions from src/content/faq.ts. Rendered to static
+ * HTML at build time by scripts/prerender.mjs.
  */
 
 import { Link } from 'react-router-dom'
-import { Helmet } from 'react-helmet-async'
-import {
-  Users,
-  Target,
-  Calendar,
-  Mic,
-  HardHat,
-  UserPlus,
-  CheckCircle,
-  ArrowRight,
-  ChevronDown,
-} from 'lucide-react'
-import Button from '../../components/common/Button'
+import { ArrowRight, Calendar, CheckCircle, Mic, PoundSterling, Target, UserPlus, Users } from 'lucide-react'
+import Seo from '../../components/public/Seo'
+import PublicLayout from '../../components/public/PublicLayout'
+import { BILLING_TERMS, LOWEST_MONTHLY_PRICE, PLANS } from '../../config/plans'
+import { SITE } from '../../config/site'
+import { FAQS } from '../../content/faq'
 
-const SITE_URL = 'https://shootsync.co.uk'
-const SITE_NAME = 'ShootSync'
-
-const JSON_LD_SOFTWARE = {
-  '@context': 'https://schema.org',
-  '@type': 'SoftwareApplication',
-  name: SITE_NAME,
-  url: SITE_URL,
-  applicationCategory: 'BusinessApplication',
-  operatingSystem: 'Web',
-  description:
-    'Professional shooting syndicate management software for UK syndicates. Manage members, shoots, peg allocation, bag recording, beaters and payments.',
-  offers: {
-    '@type': 'AggregateOffer',
-    priceCurrency: 'GBP',
-    lowPrice: '49',
-    highPrice: '149',
-    offerCount: '2',
-  },
-  featureList: [
-    'Member management',
-    'Fair peg allocation algorithm',
-    'Shoot day scheduling',
-    'Bag recording with voice input',
-    'Beater booking & payments',
-    'Guest gun management with Stripe payments',
-    'PDF shoot briefings',
-    'Offline-capable PWA',
-  ],
-  screenshot: `${SITE_URL}/og-image.png`,
-  softwareVersion: '1.0',
-  author: {
-    '@type': 'Organization',
-    name: 'Autaimate',
-    url: 'https://autaimate.com',
-  },
-}
-
-const JSON_LD_ORGANIZATION = {
-  '@context': 'https://schema.org',
-  '@type': 'Organization',
-  name: SITE_NAME,
-  url: SITE_URL,
-  logo: `${SITE_URL}/icon-512.png`,
-  description:
-    'UK shooting syndicate management software replacing WhatsApp groups and spreadsheets.',
-  contactPoint: {
-    '@type': 'ContactPoint',
-    contactType: 'customer support',
-    url: `${SITE_URL}/contact`,
-  },
-}
-
-const JSON_LD_FAQ = {
-  '@context': 'https://schema.org',
-  '@type': 'FAQPage',
-  mainEntity: [
-    {
-      '@type': 'Question',
-      name: 'What is ShootSync?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'ShootSync is a professional management platform built specifically for UK shooting syndicates. It replaces WhatsApp groups and spreadsheets with a single system for managing members, shoots, peg allocation, bag recording, beaters and payments.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'How does peg allocation work?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: "ShootSync uses a fair rotation algorithm that analyses each gun's peg history across the season. It ensures every member gets equal opportunity at every position, eliminating arguments and manual tracking.",
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'Can I record bags in the field without signal?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Yes. ShootSync works offline as a Progressive Web App. Record bags by drive — including voice input — and the data syncs automatically when you regain signal.',
-      },
-    },
-    {
-      '@type': 'Question',
-      name: 'How much does ShootSync cost?',
-      acceptedAnswer: {
-        '@type': 'Answer',
-        text: 'Plans start at £49/month for the Starter tier (up to 10 guns) and £79/month for the Standard tier with guest management, Stripe payments and PDF briefings.',
-      },
-    },
-  ],
-}
+const TITLE = 'Shooting Syndicate Management Software for UK | ShootSync'
+const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, a fair peg draw, bag records, beaters' pay and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
+const QUICK_ANSWER =
+  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, a fair peg draw, bag records, beaters’ pay and guest guns in one place.'
 
 const FEATURES = [
   {
-    icon: Users,
-    title: 'Member Management',
-    description:
-      'Invite members, track subscriptions, manage insurance documents and keep emergency contacts current. No more chasing paperwork.',
-  },
-  {
     icon: Target,
-    title: 'Fair Peg Allocation',
-    description:
-      'Automated rotation algorithm analyses season history so every gun gets equal opportunity at the best pegs. No more arguments.',
+    anchor: 'peg-draw',
+    linkLabel: 'How the peg draw works',
+    title: 'A fair peg draw, every shoot',
+    text: 'Pegs rotate on each gun’s history this season, so everyone gets their turn on the good ones and nobody has to keep score.',
   },
   {
     icon: Calendar,
-    title: 'Shoot Day Planning',
-    description:
-      'Schedule shoots, send reminders, generate briefing PDFs and manage attendance — all from one dashboard.',
+    anchor: 'shoot-days',
+    linkLabel: 'Shoot days and briefing sheets',
+    title: 'Shoot days and briefing sheets',
+    text: 'Set the date, location, meet time and drives, then download a PDF briefing sheet with the peg list for the morning.',
   },
   {
     icon: Mic,
-    title: 'Bag Recording',
-    description:
-      'Record bags by drive with voice input. Works offline in the field and syncs automatically when you have signal.',
+    anchor: 'bag-records',
+    linkLabel: 'Recording the bag',
+    title: 'The bag book, by drive',
+    text: 'Record pheasant, partridge, duck, woodcock and other quarry drive by drive, by voice or by hand, with season totals kept for you.',
   },
   {
-    icon: HardHat,
-    title: 'Beater Management',
-    description:
-      'Book beaters, track confirmations, manage day rates and process payments. Beaters get their own portal to confirm and check in.',
+    icon: PoundSterling,
+    anchor: 'beaters',
+    linkLabel: 'Paying beaters',
+    title: 'Beaters’ day rates and pay',
+    text: 'One list of beaters with their day rates and bank details. See what’s owed, mark it paid, and export a sheet for your bank.',
   },
   {
     icon: UserPlus,
-    title: 'Guest Gun Handling',
-    description:
-      'Invite guests, collect day fees via Stripe, and manage liability waivers automatically. No more chasing bank transfers.',
+    anchor: 'guest-guns',
+    linkLabel: 'Guest guns and day fees',
+    title: 'Guest guns who pay before the day',
+    text: 'Send a guest their own link. They accept the waiver, leave an emergency contact and pay the day fee by card.',
+  },
+  {
+    icon: Users,
+    anchor: 'members',
+    linkLabel: 'The member list',
+    title: 'Your members in one list',
+    text: 'Every gun in the syndicate with their role and contact details, kept by the captain, without anyone needing an account.',
   },
 ] as const
 
-const BENEFITS = [
-  'Replace WhatsApp groups and spreadsheets',
-  'Save 2+ hours of admin every week',
-  'Fair, transparent peg allocation every shoot',
-  'Professional guest handling with online payments',
-  'Works offline in the field — syncs when ready',
-  'Beaters confirm bookings and check in themselves',
+const SEASON_STEPS = [
+  {
+    title: 'Set up the syndicate',
+    text: 'Name it, set the season dates, the annual subscription and your usual beaters’ day rate.',
+  },
+  {
+    title: 'Add your guns and beaters',
+    text: 'Build the member list and the beating team once, and use it all season.',
+  },
+  {
+    title: 'Plan the shoot days',
+    text: 'Date, location and postcode, meet time and the number of drives.',
+  },
+  {
+    title: 'Run the peg draw',
+    text: 'Generate a fair rotation, check it, save it to the day, and print the briefing sheet.',
+  },
+  {
+    title: 'Record the bag',
+    text: 'Drive by drive on the day, so the season’s numbers are there when the game book needs filling in.',
+  },
+  {
+    title: 'Settle up',
+    text: 'Guests have already paid by card. Mark the beaters paid and export the list for your bank.',
+  },
 ] as const
+
+const PAINS = [
+  'The peg draw argued over in the car park',
+  'A spreadsheet only the captain can find',
+  'Guest day fees chased by text for a fortnight',
+  'Beaters’ money worked out on the back of the game card',
+  'Bag numbers lost in a WhatsApp thread',
+] as const
+
+const jsonLd = [
+  {
+    '@context': 'https://schema.org',
+    '@type': 'Organization',
+    '@id': `${SITE.url}/#organization`,
+    name: SITE.name,
+    url: SITE.url,
+    logo: `${SITE.url}/icon-512.png`,
+    email: SITE.email,
+    founder: { '@type': 'Person', name: SITE.operator.legalName },
+    parentOrganization: { '@type': 'Organization', name: SITE.operator.tradingAs, url: SITE.operator.url },
+    areaServed: 'GB',
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareApplication',
+    name: SITE.name,
+    url: SITE.url,
+    applicationCategory: 'BusinessApplication',
+    operatingSystem: 'Web browser',
+    description: QUICK_ANSWER,
+    image: `${SITE.url}${SITE.ogImage}`,
+    publisher: { '@id': `${SITE.url}/#organization` },
+    featureList: FEATURES.map((feature) => feature.title),
+    offers: PLANS.map((plan) => ({
+      '@type': 'Offer',
+      name: `ShootSync ${plan.name}`,
+      price: plan.monthlyPrice.toFixed(2),
+      priceCurrency: 'GBP',
+      url: `${SITE.url}/pricing`,
+      priceSpecification: {
+        '@type': 'UnitPriceSpecification',
+        price: plan.monthlyPrice.toFixed(2),
+        priceCurrency: 'GBP',
+        unitText: 'MONTH',
+        referenceQuantity: { '@type': 'QuantitativeValue', value: 1, unitCode: 'MON' },
+      },
+    })),
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'WebPage',
+    name: TITLE,
+    url: SITE.url,
+    description: DESCRIPTION,
+    inLanguage: 'en-GB',
+    speakable: { '@type': 'SpeakableSpecification', cssSelector: ['#quick-answer'] },
+  },
+  {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: FAQS.map((faq) => ({
+      '@type': 'Question',
+      name: faq.question,
+      acceptedAnswer: { '@type': 'Answer', text: faq.answer },
+    })),
+  },
+]
+
+const button =
+  'inline-flex items-center justify-center gap-2 font-medium rounded-lg px-6 py-3 text-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
 
 export default function Landing() {
   return (
-    <>
-      <Helmet>
-        {/* 1. Title tag */}
-        <title>
-          ShootSync — Shooting Syndicate Management Software | UK
-        </title>
+    <PublicLayout>
+      <Seo title={TITLE} description={DESCRIPTION} path="/" jsonLd={jsonLd} />
 
-        {/* 2. Meta description */}
-        <meta
-          name="description"
-          content="Professional shooting syndicate management for UK syndicates. Manage members, shoots, peg allocation, bag recording and payments in one place. Plans from £49/month."
-        />
-
-        {/* 12. Robots */}
-        <meta name="robots" content="index, follow" />
-
-        {/* 3. Canonical */}
-        <link rel="canonical" href={SITE_URL} />
-
-        {/* 4. Open Graph */}
-        <meta property="og:type" content="website" />
-        <meta property="og:site_name" content={SITE_NAME} />
-        <meta
-          property="og:title"
-          content="ShootSync — Shooting Syndicate Management Software | UK"
-        />
-        <meta
-          property="og:description"
-          content="Professional shooting syndicate management for UK syndicates. Manage members, shoots, peg allocation, bag recording and payments in one place."
-        />
-        <meta property="og:url" content={SITE_URL} />
-        <meta property="og:image" content={`${SITE_URL}/og-image.png`} />
-        <meta property="og:image:width" content="1200" />
-        <meta property="og:image:height" content="630" />
-        <meta property="og:image:alt" content="ShootSync — manage your shooting syndicate professionally" />
-        <meta property="og:locale" content="en_GB" />
-
-        {/* 5. Twitter Card */}
-        <meta name="twitter:card" content="summary_large_image" />
-        <meta
-          name="twitter:title"
-          content="ShootSync — Shooting Syndicate Management Software | UK"
-        />
-        <meta
-          name="twitter:description"
-          content="Professional shooting syndicate management for UK syndicates. Manage members, shoots, peg allocation, bag recording and payments in one place."
-        />
-        <meta name="twitter:image" content={`${SITE_URL}/og-image.png`} />
-        <meta name="twitter:image:alt" content="ShootSync — manage your shooting syndicate professionally" />
-
-        {/* Geo */}
-        <meta name="geo.region" content="GB" />
-
-        {/* 6. JSON-LD structured data (3 schemas) */}
-        <script type="application/ld+json">
-          {JSON.stringify(JSON_LD_SOFTWARE)}
-        </script>
-        <script type="application/ld+json">
-          {JSON.stringify(JSON_LD_ORGANIZATION)}
-        </script>
-        <script type="application/ld+json">
-          {JSON.stringify(JSON_LD_FAQ)}
-        </script>
-      </Helmet>
-
-      <div className="min-h-screen bg-slate-900 text-slate-300">
-        {/* 15. Skip-nav for accessibility */}
-        <a
-          href="#main-content"
-          className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:px-4 focus:py-2 focus:bg-green-600 focus:text-white focus:rounded"
-        >
-          Skip to main content
-        </a>
-
-        {/* ── HEADER / NAV ── */}
-        {/* 8. Semantic <header> + <nav> */}
-        <header className="bg-slate-900 border-b border-slate-800">
-          <nav
-            className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"
-            aria-label="Primary navigation"
-          >
-            <div className="flex items-center justify-between h-16">
-              <Link
-                to="/"
-                className="flex items-center gap-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded"
-                aria-label="ShootSync home"
-              >
-                <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
-                  <span className="text-white font-bold text-sm" aria-hidden="true">
-                    SS
-                  </span>
-                </div>
-                <span className="text-white font-semibold text-lg">
-                  ShootSync
-                </span>
-              </Link>
-
-              <div className="hidden sm:flex items-center gap-6">
-                <Link
-                  to="/features"
-                  className="text-slate-400 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                >
-                  Features
-                </Link>
-                <Link
-                  to="/pricing"
-                  className="text-slate-400 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                >
-                  Pricing
-                </Link>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <Link to="/login">
-                  <Button variant="ghost" size="sm">
-                    Sign In
-                  </Button>
-                </Link>
-                <Link to="/signup">
-                  <Button size="sm">Get Started</Button>
-                </Link>
-              </div>
-            </div>
-          </nav>
-        </header>
-
-        {/* ── MAIN ── */}
-        <main id="main-content">
-          {/* ── HERO ── */}
-          {/* 7. Single semantic <h1> with primary keyword */}
-          <section
-            id="hero"
-            className="relative py-20 sm:py-28 px-4 overflow-hidden"
-            aria-labelledby="hero-heading"
-          >
-            {/* Subtle background grain */}
-            <div
-              className="absolute inset-0 opacity-[0.03]"
-              style={{
-                backgroundImage:
-                  'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 256 256\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noise\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.9\' numOctaves=\'4\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noise)\'/%3E%3C/svg%3E")',
-              }}
-              aria-hidden="true"
-            />
-
-            <div className="relative max-w-4xl mx-auto text-center">
-              <h1
-                id="hero-heading"
-                className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight"
-              >
-                Manage Your Shooting Syndicate{' '}
-                <span className="text-green-500">Professionally</span>
-              </h1>
-
-              <p className="text-lg sm:text-xl text-slate-400 mb-10 max-w-2xl mx-auto leading-relaxed">
-                Stop juggling WhatsApp groups and spreadsheets. ShootSync gives
-                you everything you need to run your syndicate smoothly — members,
-                shoots, pegs, bags, and payments in one place.
-              </p>
-
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-                <Link to="/signup">
-                  <Button size="lg">
-                    Get Started
-                    <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
-                  </Button>
-                </Link>
-                <Link to="/features">
-                  <Button variant="secondary" size="lg">
-                    See Features
-                  </Button>
-                </Link>
-              </div>
-
-              {/* Trust signal */}
-              <p className="text-slate-500 text-sm mt-6">
-                Built for UK shoot captains · Plans from £49/month
-              </p>
-
-              {/* Scroll hint */}
-              <div className="mt-12 animate-bounce" aria-hidden="true">
-                <ChevronDown className="h-6 w-6 text-slate-600 mx-auto" />
-              </div>
-            </div>
-          </section>
-
-          {/* ── FEATURES ── */}
-          {/* 13. Heading hierarchy: h2 under h1 */}
-          {/* 14. Descriptive section ID */}
-          <section
-            id="features"
-            className="py-16 sm:py-20 px-4 bg-slate-800/50"
-            aria-labelledby="features-heading"
-          >
-            <div className="max-w-6xl mx-auto">
-              <div className="text-center mb-14">
-                <h2
-                  id="features-heading"
-                  className="text-3xl sm:text-4xl font-bold text-white mb-4"
-                >
-                  Everything You Need to Run Your Syndicate
-                </h2>
-                <p className="text-slate-400 max-w-2xl mx-auto">
-                  From pre-season setup to end-of-day bag totals, ShootSync
-                  handles the admin so you can focus on the shooting.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                {FEATURES.map((feature) => (
-                  <FeatureCard
-                    key={feature.title}
-                    icon={feature.icon}
-                    title={feature.title}
-                    description={feature.description}
-                  />
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ── BENEFITS / WHY SHOOTSYNC ── */}
-          <section
-            id="benefits"
-            className="py-16 sm:py-20 px-4"
-            aria-labelledby="benefits-heading"
-          >
-            <div className="max-w-4xl mx-auto">
-              <div className="text-center mb-12">
-                <h2
-                  id="benefits-heading"
-                  className="text-3xl sm:text-4xl font-bold text-white mb-4"
-                >
-                  Why Captains Choose ShootSync
-                </h2>
-                <p className="text-slate-400">
-                  Purpose-built for how UK syndicates actually work.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {BENEFITS.map((benefit) => (
-                  <div
-                    key={benefit}
-                    className="flex items-start gap-3 p-4 rounded-lg bg-slate-800/40 border border-slate-700/50"
-                  >
-                    <CheckCircle
-                      className="h-5 w-5 text-green-500 mt-0.5 shrink-0"
-                      aria-hidden="true"
-                    />
-                    <span className="text-slate-300">{benefit}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ── FAQ ── */}
-          {/* Matches JSON-LD FAQPage schema above */}
-          <section
-            id="faq"
-            className="py-16 sm:py-20 px-4 bg-slate-800/50"
-            aria-labelledby="faq-heading"
-          >
-            <div className="max-w-3xl mx-auto">
-              <h2
-                id="faq-heading"
-                className="text-3xl sm:text-4xl font-bold text-white text-center mb-12"
-              >
-                Frequently Asked Questions
-              </h2>
-
-              <div className="space-y-6">
-                {JSON_LD_FAQ.mainEntity.map((item) => (
-                  <article
-                    key={item.name}
-                    className="bg-slate-800 border border-slate-700 rounded-xl p-6"
-                  >
-                    <h3 className="text-lg font-semibold text-white mb-2">
-                      {item.name}
-                    </h3>
-                    <p className="text-slate-400 text-sm leading-relaxed">
-                      {item.acceptedAnswer.text}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ── CTA ── */}
-          <section
-            id="cta"
-            className="py-16 sm:py-20 px-4"
-            aria-labelledby="cta-heading"
-          >
-            <div className="max-w-4xl mx-auto text-center">
-              <h2
-                id="cta-heading"
-                className="text-3xl sm:text-4xl font-bold text-white mb-4"
-              >
-                Ready to Run Your Syndicate Properly?
-              </h2>
-              <p className="text-slate-400 mb-8 max-w-xl mx-auto">
-                Join the growing number of shoot captains saving hours every
-                week with ShootSync.
-              </p>
-              <Link to="/signup">
-                <Button size="lg">
-                  Get Started
-                  <ArrowRight className="ml-2 h-5 w-5" aria-hidden="true" />
-                </Button>
-              </Link>
-            </div>
-          </section>
-        </main>
-
-        {/* ── FOOTER ── */}
-        {/* 8. Semantic <footer> */}
-        {/* 10. Internal links */}
-        <footer className="bg-slate-900 border-t border-slate-800 py-8 px-4">
-          <div className="max-w-6xl mx-auto">
-            <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-              <p className="text-slate-500 text-sm">
-                &copy; {new Date().getFullYear()} ShootSync. All rights
-                reserved.
-              </p>
-
-              <nav aria-label="Footer navigation">
-                <div className="flex items-center gap-6">
-                  <Link
-                    to="/features"
-                    className="text-slate-500 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                  >
-                    Features
-                  </Link>
-                  <Link
-                    to="/pricing"
-                    className="text-slate-500 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                  >
-                    Pricing
-                  </Link>
-                  <Link
-                    to="/privacy"
-                    className="text-slate-500 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                  >
-                    Privacy
-                  </Link>
-                  <Link
-                    to="/terms"
-                    className="text-slate-500 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                  >
-                    Terms
-                  </Link>
-                  <Link
-                    to="/contact"
-                    className="text-slate-500 hover:text-white text-sm transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded px-1"
-                  >
-                    Contact
-                  </Link>
-                </div>
-              </nav>
-            </div>
-
-            <div className="mt-4 text-center sm:text-left">
-              <p className="text-slate-600 text-xs">
-                Built by{' '}
-                <a
-                  href="https://autaimate.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-slate-500 hover:text-white transition-colors underline underline-offset-2 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded"
-                >
-                  Autaimate
-                </a>
-              </p>
-            </div>
+      {/* Hero */}
+      <section aria-labelledby="hero-heading" className="px-4 pt-20 pb-16 sm:pt-28 sm:pb-20">
+        <div className="max-w-4xl mx-auto text-center">
+          <p className="text-green-500 font-medium text-sm tracking-wide uppercase mb-4">For UK shoot captains</p>
+          <h1 id="hero-heading" className="text-4xl sm:text-5xl lg:text-6xl font-bold text-white tracking-tight leading-tight">
+            Shooting syndicate management software
+          </h1>
+          <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto">
+            Run your syndicate’s season from one place: members, shoot days, a fair peg draw, the bag
+            book, beaters’ pay and guest guns, instead of WhatsApp threads and a spreadsheet.
+          </p>
+          <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
+            <Link to="/signup" className={`${button} bg-green-600 hover:bg-green-700 text-white`}>
+              Create your syndicate
+              <ArrowRight className="w-5 h-5" aria-hidden="true" />
+            </Link>
+            <Link to="/features" className={`${button} bg-slate-700 hover:bg-slate-600 text-white`}>
+              See what it does
+            </Link>
           </div>
-        </footer>
-      </div>
-    </>
-  )
-}
+          <p className="mt-6 text-sm text-slate-500">
+            From £{LOWEST_MONTHLY_PRICE} a month · No contract · {BILLING_TERMS.moneyBackDays}-day money-back guarantee
+          </p>
+        </div>
+      </section>
 
-/* ── FEATURE CARD ── */
+      {/* Quick answer (Standard §05.1 point 14) */}
+      <section aria-label="ShootSync in one sentence" className="px-4 pb-16">
+        <p
+          id="quick-answer"
+          className="max-w-3xl mx-auto text-center text-slate-300 border border-slate-700 bg-slate-800/50 rounded-xl px-6 py-5"
+        >
+          {QUICK_ANSWER}
+        </p>
+      </section>
 
-interface FeatureCardProps {
-  icon: React.ComponentType<{ className?: string }>
-  title: string
-  description: string
-}
+      {/* The problem */}
+      <section aria-labelledby="problem-heading" className="bg-slate-800/40 px-4 py-20">
+        <div className="max-w-5xl mx-auto grid gap-12 lg:grid-cols-2 items-center">
+          <div>
+            <h2 id="problem-heading" className="text-3xl font-bold text-white">
+              Running a syndicate shouldn’t mean running the admin
+            </h2>
+            <p className="mt-4 text-slate-400">
+              Most syndicates are held together by one captain’s phone. The shooting is the easy part. It’s
+              the subs, the pegs, the guests, the beaters and the bag book that eat the evenings. ShootSync
+              puts all of it in one place the captain controls.
+            </p>
+          </div>
+          <ul className="space-y-3">
+            {PAINS.map((pain) => (
+              <li key={pain} className="flex items-start gap-3 bg-slate-900 border border-slate-700 rounded-lg px-4 py-3">
+                <span className="text-red-400 mt-0.5" aria-hidden="true">✕</span>
+                <span>{pain}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
 
-function FeatureCard({ icon: Icon, title, description }: FeatureCardProps) {
-  return (
-    <article className="bg-slate-800 border border-slate-700 rounded-xl p-6 transition-colors hover:border-slate-600">
-      <div className="w-10 h-10 bg-green-600/10 border border-green-600/20 rounded-lg flex items-center justify-center mb-4">
-        <Icon className="h-5 w-5 text-green-500" aria-hidden="true" />
-      </div>
-      <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
-      <p className="text-slate-400 text-sm leading-relaxed">{description}</p>
-    </article>
+      {/* Features */}
+      <section id="features" aria-labelledby="features-heading" className="px-4 py-20">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center max-w-3xl mx-auto mb-14">
+            <h2 id="features-heading" className="text-3xl sm:text-4xl font-bold text-white">
+              Everything a shoot captain does, in one place
+            </h2>
+            <p className="mt-4 text-slate-400">
+              From setting the season’s subscription to paying the beaters after the last drive.
+            </p>
+          </div>
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {FEATURES.map(({ icon: Icon, anchor, linkLabel, title, text }) => (
+              <article key={anchor} className="bg-slate-800 border border-slate-700 rounded-xl p-6">
+                <div className="w-11 h-11 bg-green-600/15 rounded-lg flex items-center justify-center mb-4" aria-hidden="true">
+                  <Icon className="w-6 h-6 text-green-500" />
+                </div>
+                <h3 className="text-lg font-semibold text-white mb-2">{title}</h3>
+                <p className="text-slate-400 text-sm leading-relaxed">{text}</p>
+                <Link
+                  to={`/features#${anchor}`}
+                  className="mt-4 inline-block text-sm text-green-500 hover:text-green-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded"
+                >
+                  {linkLabel}
+                </Link>
+              </article>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* How a season runs */}
+      <section aria-labelledby="season-heading" className="bg-slate-800/40 px-4 py-20">
+        <div className="max-w-5xl mx-auto">
+          <h2 id="season-heading" className="text-3xl sm:text-4xl font-bold text-white text-center">
+            How a syndicate season runs in ShootSync
+          </h2>
+          <ol className="mt-12 grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {SEASON_STEPS.map((step, index) => (
+              <li key={step.title} className="bg-slate-900 border border-slate-700 rounded-xl p-6">
+                <span className="text-green-500 font-semibold text-sm">Step {index + 1}</span>
+                <h3 className="mt-1 text-lg font-semibold text-white">{step.title}</h3>
+                <p className="mt-2 text-sm text-slate-400">{step.text}</p>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </section>
+
+      {/* Pricing summary */}
+      <section aria-labelledby="pricing-heading" className="px-4 py-20">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center">
+            <h2 id="pricing-heading" className="text-3xl sm:text-4xl font-bold text-white">
+              Simple monthly pricing
+            </h2>
+            <p className="mt-4 text-slate-400">
+              No contract and no set-up fee. {BILLING_TERMS.moneyBackDays}-day money-back guarantee on every plan.
+            </p>
+          </div>
+          <div className="mt-12 grid gap-6 md:grid-cols-2">
+            {PLANS.map((plan) => (
+              <article
+                key={plan.tier}
+                className={`rounded-xl p-8 border ${plan.popular ? 'border-green-500 bg-slate-800' : 'border-slate-700 bg-slate-800/50'}`}
+              >
+                <h3 className="text-xl font-semibold text-white">{plan.name}</h3>
+                <p className="mt-2 text-sm text-slate-400">{plan.summary}</p>
+                <p className="mt-6">
+                  <span className="text-4xl font-bold text-white">£{plan.monthlyPrice}</span>
+                  <span className="text-slate-400"> a month</span>
+                </p>
+                <ul className="mt-6 space-y-2 text-sm">
+                  {plan.features.slice(0, 4).map((feature) => (
+                    <li key={feature} className="flex gap-2">
+                      <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0" aria-hidden="true" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+          <p className="mt-8 text-center">
+            <Link to="/pricing" className="text-green-500 hover:text-green-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded">
+              Compare plans in full
+            </Link>
+          </p>
+        </div>
+      </section>
+
+      {/* Who builds it (E-E-A-T, §05.1 point 10) */}
+      <section aria-labelledby="about-heading" className="bg-slate-800/40 px-4 py-20">
+        <div className="max-w-3xl mx-auto">
+          <h2 id="about-heading" className="text-3xl font-bold text-white">Who’s behind ShootSync</h2>
+          <p className="mt-4 text-slate-400">
+            ShootSync is built and run in Cornwall by {SITE.operator.knownAs},
+            trading as {SITE.operator.tradingAs}, after more than forty years working in agriculture,
+            construction and hospitality. It is a small, independent business: when you email, you reach the
+            person who builds the software.
+          </p>
+          <p className="mt-4 text-slate-400">
+            Your syndicate’s information is yours. Each captain sees only their own syndicate, card payments
+            are handled by Stripe, and the site uses no advertising or tracking cookies. Read the{' '}
+            <Link to="/privacy" className="text-green-500 hover:text-green-400 underline underline-offset-2">
+              privacy notice
+            </Link>{' '}
+            for the detail.
+          </p>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" aria-labelledby="faq-heading" className="px-4 py-20">
+        <div className="max-w-3xl mx-auto">
+          <h2 id="faq-heading" className="text-3xl sm:text-4xl font-bold text-white text-center">
+            Questions shoot captains ask
+          </h2>
+          <div className="mt-12 space-y-4">
+            {FAQS.map((faq) => (
+              <details key={faq.question} className="group bg-slate-800 border border-slate-700 rounded-xl">
+                <summary className="cursor-pointer list-none px-6 py-4 flex justify-between items-center gap-4 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded-xl">
+                  <h3 className="text-base font-semibold text-white">{faq.question}</h3>
+                  <span className="text-green-500 text-xl group-open:rotate-45 transition-transform" aria-hidden="true">+</span>
+                </summary>
+                <p className="px-6 pb-5 text-slate-400 text-sm leading-relaxed">{faq.answer}</p>
+              </details>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Final call to action */}
+      <section aria-labelledby="cta-heading" className="px-4 pb-24">
+        <div className="max-w-4xl mx-auto text-center bg-green-700/20 border border-green-700/40 rounded-2xl px-6 py-14">
+          <h2 id="cta-heading" className="text-3xl font-bold text-white">Ready for a calmer season?</h2>
+          <p className="mt-4 text-slate-300">
+            Set up your syndicate in a few minutes, then choose a plan. No contract, and your money back
+            within {BILLING_TERMS.moneyBackDays} days if it isn’t right.
+          </p>
+          <Link to="/signup" className={`${button} mt-8 bg-green-600 hover:bg-green-700 text-white`}>
+            Create your syndicate
+            <ArrowRight className="w-5 h-5" aria-hidden="true" />
+          </Link>
+        </div>
+      </section>
+    </PublicLayout>
   )
 }

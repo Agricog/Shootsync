@@ -30,7 +30,6 @@ export default function Footer() {
             <ul className="space-y-2">
               <FooterLink to="/features">Features</FooterLink>
               <FooterLink to="/pricing">Pricing</FooterLink>
-              <FooterLink to="/about">About</FooterLink>
               <FooterLink to="/contact">Contact</FooterLink>
             </ul>
           </div>
@@ -38,9 +37,8 @@ export default function Footer() {
           <div>
             <h3 className="text-white font-semibold mb-4">Legal</h3>
             <ul className="space-y-2">
-              <FooterLink to="/privacy">Privacy Policy</FooterLink>
-              <FooterLink to="/terms">Terms of Service</FooterLink>
-              <FooterLink to="/cookies">Cookie Policy</FooterLink>
+              <FooterLink to="/privacy">Privacy and cookies</FooterLink>
+              <FooterLink to="/terms">Terms of service</FooterLink>
             </ul>
           </div>
         </div>
