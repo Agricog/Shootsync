@@ -7,6 +7,7 @@
 
 import { BILLING_TERMS, PLANS } from '../config/plans'
 import { SITE } from '../config/site'
+import { CASUAL_BEATERS } from '../data/payRules'
 
 const starter = PLANS.find((plan) => plan.tier === 'STARTER')!
 const standard = PLANS.find((plan) => plan.tier === 'STANDARD')!
@@ -45,7 +46,7 @@ export const FAQS: Faq[] = [
   {
     question: 'How does ShootSync help with paying beaters?',
     answer:
-      "Book your beaters onto each shoot day and mark who confirmed. When you mark the day complete, everyone confirmed is owed their day rate. You see what each beater is owed, day by day, mark them paid with your bank reference, and export a sheet with bank details and amounts for your bank. Each beater's days this tax year are counted too, with a flag past HMRC's 14-day casual limit. The money itself still moves through your own bank.",
+      `Book your beaters onto each shoot day and mark who confirmed. When you mark the day complete, everyone confirmed is owed their day rate. You see what each beater is owed, day by day, mark them paid with your bank reference, and export a sheet with bank details and amounts for your bank. Each beater's days this tax year are counted too, with a flag past HMRC's ${CASUAL_BEATERS.dayLimit}-day casual limit. The money itself still moves through your own bank.`,
   },
   {
     question: 'Do my guns need to sign up?',

@@ -15,6 +15,7 @@ import Seo from '../../components/public/Seo'
 import PublicLayout from '../../components/public/PublicLayout'
 import { LOWEST_MONTHLY_PRICE } from '../../config/plans'
 import { SITE } from '../../config/site'
+import { CASUAL_BEATERS } from '../../data/payRules'
 import type { GuidePath } from '../../content/guides'
 
 const TITLE = 'Features: Peg Draw, Bag Records, Beaters and Guests | ShootSync'
@@ -87,7 +88,7 @@ const SECTIONS: Section[] = [
       'Mark the day complete and everyone Confirmed is owed their day rate, once',
       'See what each beater is owed, day by day, and mark them paid with your bank reference',
       'Export everyone owed, with bank details and amounts, ready for your bank',
-      'Each beater’s days this tax year are counted, with a flag past HMRC’s 14-day casual limit',
+      `Each beater’s days this tax year are counted, with a flag past HMRC’s ${CASUAL_BEATERS.dayLimit}-day casual limit`,
     ],
     note: 'ShootSync keeps the record of what’s owed and paid; the money itself moves through your own bank, as it does now.',
     guide: { to: '/guides/paying-beaters-and-pickers-up', label: 'Guide: paying beaters and pickers-up' },

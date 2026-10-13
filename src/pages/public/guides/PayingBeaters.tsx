@@ -1,20 +1,26 @@
 /**
  * Guide: paying beaters and pickers-up.
- * Facts to re-check every April: minimum wage rates (gov.uk LPC press release),
- * and HMRC's casual beaters page. Update the rates, the worked example and
- * `reviewed` in src/content/guides.ts together.
+ * Every minimum wage and HMRC figure on this page comes from src/data/payRules.ts
+ * (Standard §05.7); none is typed here, and tests/typedFigures.test.ts fails if one is.
+ * Once the rates lapse, the page shows RatesReviewNotice in their place.
+ * When the rules file is updated in April, re-read this page and update `reviewed`
+ * in src/content/guides.ts.
  */
 
 import GuidePage from '../../../components/public/GuidePage'
+import RatesReviewNotice from '../../../components/public/RatesReviewNotice'
+import { useToday } from '../../../lib/today'
+import { CASUAL_BEATERS, MINIMUM_WAGE } from '../../../data/payRules'
+import { formatPence, minimumForMinutes, ratesInForce } from '../../../utils/beaterPayCalculator'
 
-const RATES = [
-  { band: '21 and over (National Living Wage)', hourly: '£12.71', sixHours: '£76.26' },
-  { band: '18 to 20', hourly: '£10.85', sixHours: '£65.10' },
-  { band: '16 and 17', hourly: '£8.00', sixHours: '£48.00' },
-  { band: 'Apprentices', hourly: '£8.00', sixHours: '£48.00' },
-]
+/** The example day in this guide: meet 8.30am, an hour's lunch, finish 3.30pm. */
+const EXAMPLE_MINUTES = 6 * 60
 
 export default function PayingBeaters() {
+  const rates = ratesInForce(useToday())
+  const adult = rates?.bands.find((band) => band.id === 'age21Plus')
+  const limit = CASUAL_BEATERS.dayLimit
+
   return (
     <GuidePage
       path="/guides/paying-beaters-and-pickers-up"
@@ -23,16 +29,25 @@ export default function PayingBeaters() {
       title="Paying beaters and pickers-up: pay, tax and the records to keep"
       inShort={
         <>
-          <p>
-            Most beaters are likely to count as <strong>workers</strong> in law, so they are owed at least the
-            minimum wage for every hour they work. From April 2026 that is <strong>£12.71 an hour</strong> for
-            anyone 21 or over: <strong>£76.26 for a six-hour day</strong>. Lunch and a brace of birds don’t count
-            towards it.
-          </p>
+          {rates && adult ? (
+            <p>
+              Most beaters are likely to count as <strong>workers</strong> in law, so they are owed at least the
+              minimum wage for every hour they work. From {rates.periodLabel} that is{' '}
+              <strong>{formatPence(adult.hourlyPence)} an hour</strong> for anyone 21 or over:{' '}
+              <strong>{formatPence(minimumForMinutes(EXAMPLE_MINUTES, adult.hourlyPence))} for a six-hour day</strong>.
+              Lunch and a brace of birds don’t count towards it.
+            </p>
+          ) : (
+            <p>
+              Most beaters are likely to count as <strong>workers</strong> in law, so they are owed at least the
+              minimum wage for every hour they work. Lunch and a brace of birds don’t count towards it.
+            </p>
+          )}
           <p>
             For tax, HMRC has a short-engagement rule for casual beaters: a shoot may not need to deduct tax for
-            someone engaged for two weeks or less, but must operate PAYE once a casual beater works more than
-            14 days in a tax year. Either way, keep a record of everyone you pay.
+            someone engaged for {CASUAL_BEATERS.shortEngagementWeeks} weeks or less, but must operate PAYE for a casual
+            beater who works, or is expected to work, more than {limit} days in a tax year. Either way, keep a record of
+            everyone you pay.
           </p>
         </>
       }
@@ -69,34 +84,46 @@ export default function PayingBeaters() {
           heading: 'The minimum wage for beaters in 2026',
           body: (
             <>
+              {rates ? (
+                <>
+                  <p>
+                    If your beaters are workers, every hour they work must be paid at least at the rate for their age.
+                    These rates apply from {rates.periodLabel}:
+                  </p>
+                  <div
+                    className="overflow-x-auto"
+                    tabIndex={0}
+                    role="region"
+                    aria-label="Minimum wage rates table, scrolls sideways on small screens"
+                    data-rates-until={rates.reviewBy}
+                  >
+                    <table className="w-full text-left text-sm border border-slate-700">
+                      <caption className="sr-only">Minimum hourly rates from {rates.periodLabel}, and the minimum for a six-hour day</caption>
+                      <thead className="bg-slate-800 text-white">
+                        <tr>
+                          <th scope="col" className="p-3">Age band</th>
+                          <th scope="col" className="p-3">Per hour</th>
+                          <th scope="col" className="p-3">Six-hour day</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {rates.bands.map((band) => (
+                          <tr key={band.id} className="border-t border-slate-700">
+                            <th scope="row" className="p-3 font-normal">{band.label}</th>
+                            <td className="p-3">{formatPence(band.hourlyPence)}</td>
+                            <td className="p-3">{formatPence(minimumForMinutes(EXAMPLE_MINUTES, band.hourlyPence))}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </>
+              ) : (
+                <RatesReviewNotice />
+              )}
               <p>
-                If your beaters are workers, every hour they work must be paid at least at the rate for their age.
-                These rates apply from April 2026:
-              </p>
-              <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Minimum wage rates table, scrolls sideways on small screens">
-                <table className="w-full text-left text-sm border border-slate-700">
-                  <caption className="sr-only">Minimum hourly rates from April 2026, and the minimum for a six-hour day</caption>
-                  <thead className="bg-slate-800 text-white">
-                    <tr>
-                      <th scope="col" className="p-3">Age band</th>
-                      <th scope="col" className="p-3">Per hour</th>
-                      <th scope="col" className="p-3">Six-hour day</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {RATES.map((rate) => (
-                      <tr key={rate.band} className="border-t border-slate-700">
-                        <th scope="row" className="p-3 font-normal">{rate.band}</th>
-                        <td className="p-3">{rate.hourly}</td>
-                        <td className="p-3">{rate.sixHours}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p>
-                <strong>Working it out.</strong> Count the hours a beater is required to be working, from the meet to
-                the end of the last drive, and leave out the lunch break. A typical day that meets at 8.30am, stops for
+                <strong>Working it out.</strong> Count the hours a beater is required to be at work, from the meet
+                until they are free to go, and leave out the lunch break. A typical day that meets at 8.30am, stops for
                 an hour’s lunch and finishes at 3.30pm is six hours’ work.
               </p>
               <p>
@@ -126,22 +153,27 @@ export default function PayingBeaters() {
               </p>
               <ul>
                 <li><strong>One-day engagements:</strong> the beater is taken on for a day or less, paid off at the end of it, and has no contract for further work.</li>
-                <li><strong>Short engagements:</strong> they are engaged for two weeks or less, and haven’t already been paid above the PAYE threshold by you since 6 April without PAYE being applied.</li>
-                <li><strong>Daily casuals:</strong> they work on a casual, daily basis (one or two days a week through the season) and their total is not expected to go over 14 days in the tax year.</li>
+                <li><strong>Short engagements:</strong> they are engaged for {CASUAL_BEATERS.shortEngagementWeeks} weeks or less, and haven’t already been paid above the PAYE threshold by you since 6 April without PAYE being applied.</li>
+                <li><strong>Daily casuals:</strong> they work on a casual, daily basis (one or two days a week through the season) and their total is not expected to go over {limit} days in the tax year.</li>
               </ul>
               <p>
-                <strong>Once a casual beater goes over 14 days in a tax year, you must operate PAYE</strong> and
-                deduct tax and National Insurance as normal. PAYE also applies to anyone engaged for more than two
-                weeks, anyone doing other work for the shoot, and family members.
+                <strong>
+                  If a casual beater works, or is expected to work, more than {limit} days in a tax year, you must operate
+                  PAYE
+                </strong>{' '}
+                and deduct tax and National Insurance as normal. The test is what you expect: a regular you know will come
+                every week is outside the rule from the start. PAYE also applies to anyone engaged for more than{' '}
+                {CASUAL_BEATERS.shortEngagementWeeks} weeks, anyone doing other work for the shoot, and family members.
               </p>
               <p>
                 HMRC is clear that this is not a tax exemption for the beater. The pay is still taxable, and they must
-                pay any tax due themselves. National Insurance is due when a day’s pay goes over the relevant
-                threshold.
+                pay any tax due themselves. HMRC also says National Insurance for casual beaters must be worked out as
+                normal, whatever the number of days.
               </p>
               <p>
                 Every Saturday from October to the end of January is 18 days in the 2026/27 season, so a regular
-                beater on a weekly shoot can pass 14 days with you before the season ends. It is worth counting each beater’s days as you go.
+                beater on a weekly shoot can pass {limit} days with you before the season ends. It is worth counting each
+                beater’s days as you go.
               </p>
             </>
           ),
@@ -162,7 +194,7 @@ export default function PayingBeaters() {
               </ul>
               <p>
                 If you don’t run a payroll because nobody is paid above the Lower Earnings Limit, keep these records
-                for three years after the end of the current tax year. For the minimum wage, it also pays to record the
+                for {CASUAL_BEATERS.recordYears} years after the end of the current tax year. For the minimum wage, it also pays to record the
                 hours each beater worked, so you can show the rate was met.
               </p>
             </>
@@ -181,7 +213,7 @@ export default function PayingBeaters() {
                 <li>Agree the rate before the season, in writing, so nobody is surprised.</li>
                 <li>Pay promptly. Beaters talk, and a shoot that pays late soon struggles to fill the line.</li>
                 <li>Keep a note of who worked each day, who has been paid, and the payment reference.</li>
-                <li>Count days per beater through the season, for the 14-day PAYE rule.</li>
+                <li>Count days per beater through the season, for the {limit}-day PAYE rule.</li>
               </ul>
             </>
           ),
@@ -194,9 +226,8 @@ export default function PayingBeaters() {
         </p>
       }
       sources={[
-        { label: 'GOV.UK: Paying harvest casuals and casual beaters (HMRC)', url: 'https://www.gov.uk/paying-harvest-casuals-and-casual-beaters' },
-        { label: 'GOV.UK: Low Pay Commission recommendations take the National Living Wage to £12.71', url: 'https://www.gov.uk/government/news/lpc-recommendations-take-the-national-living-wage-to-1271' },
-        { label: 'GOV.UK: National Minimum Wage and National Living Wage rates', url: 'https://www.gov.uk/national-minimum-wage-rates' },
+        ...CASUAL_BEATERS.sources,
+        ...MINIMUM_WAGE.sources,
         { label: 'Michelmores: Shoot beaters and pickers-up, employment law', url: 'https://michelmores.com/news-views/news/shoot-beaters-pickers-employment-law' },
         { label: 'Strutt & Parker: Shoot beaters and pickers-up, right to work, minimum wages and RTI', url: 'https://www.struttandparker.com/knowledge-and-research/shoot-beaters-and-pickers-up-right-to-work-minimum-wages-and-real-time-information' },
       ]}
@@ -204,7 +235,7 @@ export default function PayingBeaters() {
         to: '/features#beaters',
         heading: 'Know who is owed what, all season',
         text:
-          'ShootSync books your beaters onto each shoot day, works out what each confirmed beater is owed when the day is complete, records each payment with its bank reference, exports a sheet ready for your bank, and counts every beater’s days this tax year against HMRC’s 14-day casual limit.',
+          `ShootSync books your beaters onto each shoot day, works out what each confirmed beater is owed when the day is complete, records each payment with its bank reference, exports a sheet ready for your bank, and counts every beater’s days this tax year against HMRC’s ${CASUAL_BEATERS.dayLimit}-day casual limit.`,
       }}
     />
   )
