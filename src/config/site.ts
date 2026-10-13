@@ -31,9 +31,18 @@ export const PUBLIC_ROUTES = [
   { path: '/guides/guest-guns', file: 'guide-guest-guns', priority: '0.7' },
   { path: '/guides/shooting-season-dates', file: 'guide-shooting-season-dates', priority: '0.7' },
   { path: '/guides/tipping-the-keeper', file: 'guide-tipping-the-keeper', priority: '0.7' },
+  { path: '/tools/beater-pay-calculator', file: 'tool-beater-pay-calculator', priority: '0.8' },
   { path: '/contact', file: 'contact', priority: '0.5' },
   { path: '/privacy', file: 'privacy', priority: '0.3' },
   { path: '/terms', file: 'terms', priority: '0.3' },
 ] as const
+
+/**
+ * Free public tools. The footer lists every one, on every page (Standard §18.11), and
+ * tests/navigation.test.ts fails if a /tools page is missing from here or listed twice.
+ */
+export const TOOLS = [
+  { path: '/tools/beater-pay-calculator', label: 'Beater pay calculator' },
+] as const satisfies ReadonlyArray<{ path: (typeof PUBLIC_ROUTES)[number]['path']; label: string }>
 
 export const absoluteUrl = (path: string) => `${SITE.url}${path}`

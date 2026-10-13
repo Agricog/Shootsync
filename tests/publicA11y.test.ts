@@ -42,6 +42,7 @@ describe('public pages: accessibility guards', () => {
   it('reads every public page and component', () => {
     assert.ok(publicFiles.length >= 15, String(publicFiles.length))
     assert.ok(publicFiles.includes('src/components/public/PublicLayout.tsx'))
+    assert.ok(publicFiles.includes('src/pages/public/tools/BeaterPayCalculator.tsx'))
   })
 
   it('no text in slate-500 or darker on the dark public pages', () => {

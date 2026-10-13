@@ -6,7 +6,7 @@
 
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
-import { SITE } from '../../config/site'
+import { SITE, TOOLS } from '../../config/site'
 
 const NAV = [
   { to: '/features', label: 'Features' },
@@ -100,7 +100,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
       </main>
 
       <footer className="bg-slate-950 border-t border-slate-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid gap-10 sm:grid-cols-3">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid gap-10 sm:grid-cols-2 lg:grid-cols-4">
           <div>
             <Logo />
             <p className="mt-4 text-sm text-slate-400 max-w-xs">
@@ -123,6 +123,18 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                   Create your syndicate
                 </Link>
               </li>
+            </ul>
+          </div>
+          <div>
+            <p className="text-white font-semibold text-sm mb-3">Free tools</p>
+            <ul className="space-y-2 text-sm">
+              {TOOLS.map((tool) => (
+                <li key={tool.path}>
+                  <Link to={tool.path} className={`text-slate-400 hover:text-white ${focusRing}`}>
+                    {tool.label}
+                  </Link>
+                </li>
+              ))}
             </ul>
           </div>
           <div>

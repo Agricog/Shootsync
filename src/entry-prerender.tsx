@@ -28,6 +28,7 @@ import PegDraw from './pages/public/guides/PegDraw'
 import GuestGuns from './pages/public/guides/GuestGuns'
 import SeasonDates from './pages/public/guides/SeasonDates'
 import TippingTheKeeper from './pages/public/guides/TippingTheKeeper'
+import BeaterPayCalculator from './pages/public/tools/BeaterPayCalculator'
 import { PUBLIC_ROUTES, SITE } from './config/site'
 import { CASUAL_BEATERS, MINIMUM_WAGE } from './data/payRules'
 import { TodayProvider } from './lib/today'
@@ -48,6 +49,7 @@ const PAGES: Record<(typeof PUBLIC_ROUTES)[number]['path'], ComponentType> = {
   '/guides/guest-guns': GuestGuns,
   '/guides/shooting-season-dates': SeasonDates,
   '/guides/tipping-the-keeper': TippingTheKeeper,
+  '/tools/beater-pay-calculator': BeaterPayCalculator,
   '/contact': Contact,
   '/privacy': Privacy,
   '/terms': Terms,
