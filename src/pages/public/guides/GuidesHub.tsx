@@ -12,7 +12,7 @@ import { GUIDES, formatReviewed } from '../../../content/guides'
 
 const TITLE = 'Guides for Shoot Captains and Syndicates | ShootSync'
 const DESCRIPTION =
-  'Practical guides for UK shoot captains: paying beaters, the peg draw, guest guns and the law, shooting season dates and tipping the keeper, with sources.'
+  'Practical guides for UK shoot captains: syndicates, the pheasant season, paying beaters, the peg draw, guest guns, the game book and tipping the keeper.'
 
 const jsonLd = [
   {

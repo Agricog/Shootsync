@@ -61,6 +61,13 @@ export const GUIDES = [
     reviewed: '2026-10-13',
   },
   {
+    path: '/guides/shooting-syndicates',
+    shortTitle: 'Shooting syndicates: joining and running one',
+    summary:
+      'What a shooting syndicate is, how to find and join one, what the subscription pays for, and what running a pheasant syndicate takes.',
+    reviewed: '2026-10-13',
+  },
+  {
     path: '/guides/shooting-game-book',
     shortTitle: 'The shooting game book',
     summary:

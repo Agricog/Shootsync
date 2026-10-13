@@ -76,6 +76,7 @@ const SECTIONS: Section[] = [
       'Correct or delete a drive, and each drive is only ever counted once',
       'The season’s game book: totals for every species and each day’s bag, ready to export to a spreadsheet',
     ],
+    guide: { to: '/guides/shooting-game-book', label: 'Guide: the shooting game book' },
   },
   {
     id: 'beaters',

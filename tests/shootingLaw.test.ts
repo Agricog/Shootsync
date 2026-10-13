@@ -13,7 +13,7 @@ import { londonDate } from '../src/utils/beaterPayCalculator.js'
 import { stripComments } from './sourceText.js'
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
-const GUIDES = ['src/pages/public/guides/ShootingGameBook.tsx']
+const GUIDES = ['src/pages/public/guides/ShootingSyndicates.tsx', 'src/pages/public/guides/ShootingGameBook.tsx']
 
 describe('shooting law facts', () => {
   it('match their sources', () => {

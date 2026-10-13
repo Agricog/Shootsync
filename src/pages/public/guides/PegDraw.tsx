@@ -19,9 +19,9 @@ export default function PegDraw() {
   return (
     <GuidePage
       path="/guides/peg-draw-explained"
-      seoTitle="The Peg Draw Explained: How Shoot Pegs Work | ShootSync"
-      description="How a peg draw works on a driven shoot, why guns move up two or three pegs each drive, and how to keep pegs fair for every gun across a whole season."
-      title="The peg draw explained: how pegs are drawn and kept fair"
+      seoTitle="Shooting Peg Draw Explained: How Shoot Pegs Work | ShootSync"
+      description="How a shooting peg draw works on a driven shoot, why guns move up two or three pegs each drive, and how to keep pegs fair for every gun across a season."
+      title="The shooting peg draw explained: how pegs are drawn and kept fair"
       inShort={
         <>
           <p>
