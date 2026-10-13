@@ -22,6 +22,7 @@ import PegDraw from './pages/public/guides/PegDraw'
 import GuestGuns from './pages/public/guides/GuestGuns'
 import SeasonDates from './pages/public/guides/SeasonDates'
 import TippingTheKeeper from './pages/public/guides/TippingTheKeeper'
+import ShootingGameBook from './pages/public/guides/ShootingGameBook'
 import BeaterPayCalculator from './pages/public/tools/BeaterPayCalculator'
 
 // Captain pages
@@ -76,6 +77,7 @@ export default function App() {
             <Route path="/guides/guest-guns" element={<GuestGuns />} />
             <Route path="/guides/shooting-season-dates" element={<SeasonDates />} />
             <Route path="/guides/tipping-the-keeper" element={<TippingTheKeeper />} />
+            <Route path="/guides/shooting-game-book" element={<ShootingGameBook />} />
             <Route path="/tools/beater-pay-calculator" element={<BeaterPayCalculator />} />
             <Route
               path="/login/*"

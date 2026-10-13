@@ -31,6 +31,7 @@ export const PUBLIC_ROUTES = [
   { path: '/guides/guest-guns', file: 'guide-guest-guns', priority: '0.7' },
   { path: '/guides/shooting-season-dates', file: 'guide-shooting-season-dates', priority: '0.7' },
   { path: '/guides/tipping-the-keeper', file: 'guide-tipping-the-keeper', priority: '0.7' },
+  { path: '/guides/shooting-game-book', file: 'guide-shooting-game-book', priority: '0.7' },
   { path: '/tools/beater-pay-calculator', file: 'tool-beater-pay-calculator', priority: '0.8' },
   { path: '/contact', file: 'contact', priority: '0.5' },
   { path: '/privacy', file: 'privacy', priority: '0.3' },

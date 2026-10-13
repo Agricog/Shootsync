@@ -60,6 +60,13 @@ export const GUIDES = [
       'How much to tip the gamekeeper by the size of the bag, when and how to hand it over, and who tips on a syndicate day.',
     reviewed: '2026-10-13',
   },
+  {
+    path: '/guides/shooting-game-book',
+    shortTitle: 'The shooting game book',
+    summary:
+      'What to record for every shoot day and drive, what a game book tells you over the seasons, and sharing your bag with GWCT’s census.',
+    reviewed: '2026-10-13',
+  },
 ] as const satisfies readonly Guide[]
 
 export type GuidePath = (typeof GUIDES)[number]['path']
