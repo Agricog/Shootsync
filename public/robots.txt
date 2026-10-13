@@ -1,0 +1,22 @@
+# ShootSync - https://shootsync.co.uk
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /dashboard
+Disallow: /members
+Disallow: /beaters
+Disallow: /shoots
+Disallow: /pegs
+Disallow: /bags
+Disallow: /finances
+Disallow: /settings
+Disallow: /subscribe
+Disallow: /subscription/
+Disallow: /syndicate/
+Disallow: /guest/
+Disallow: /gun/
+Disallow: /beater/
+Disallow: /my-pegs
+Disallow: /my-payments
+
+Sitemap: https://shootsync.co.uk/sitemap.xml
