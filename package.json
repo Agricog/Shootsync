@@ -34,7 +34,7 @@
     "react-helmet-async": "2.0.5",
     "react-router-dom": "6.30.6",
     "stripe": "14.25.0",
-    "zod": "3.25.76"
+    "zod": "4.6.5"
   },
   "devDependencies": {
     "@types/cors": "2.8.19",
