@@ -89,7 +89,7 @@ export default function PegDraw() {
                 peg. The usual rule is <strong>two pegs with eight guns</strong> and <strong>three with ten</strong>.
               </p>
               <p>For example, a gun who draws peg 1 on an eight-gun day, moving up two:</p>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Peg rotation table, scrolls sideways on small screens">
                 <table className="w-full text-left text-sm border border-slate-700">
                   <caption className="sr-only">Pegs for a gun who draws peg 1, with eight guns moving up two</caption>
                   <thead className="bg-slate-800 text-white">

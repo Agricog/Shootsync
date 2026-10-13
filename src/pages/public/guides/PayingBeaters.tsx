@@ -73,7 +73,7 @@ export default function PayingBeaters() {
                 If your beaters are workers, every hour they work must be paid at least at the rate for their age.
                 These rates apply from April 2026:
               </p>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Minimum wage rates table, scrolls sideways on small screens">
                 <table className="w-full text-left text-sm border border-slate-700">
                   <caption className="sr-only">Minimum hourly rates from April 2026, and the minimum for a six-hour day</caption>
                   <thead className="bg-slate-800 text-white">

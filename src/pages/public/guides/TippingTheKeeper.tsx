@@ -42,7 +42,7 @@ export default function TippingTheKeeper() {
                 The long-standing rule, as reported by <em>The Field</em>, is an initial £10 plus £25 to £30 for every
                 100 birds. Worked through:
               </p>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Tipping table, scrolls sideways on small screens">
                 <table className="w-full text-left text-sm border border-slate-700">
                   <caption className="sr-only">Traditional tip by size of bag: £10 plus £25 to £30 per 100 birds</caption>
                   <thead className="bg-slate-800 text-white">

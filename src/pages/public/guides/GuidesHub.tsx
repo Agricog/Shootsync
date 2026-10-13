@@ -50,7 +50,7 @@ export default function GuidesHub() {
 
       <section aria-labelledby="guides-heading" className="px-4 py-16 sm:py-24">
         <div className="max-w-4xl mx-auto">
-          <nav aria-label="Breadcrumb" className="text-sm text-slate-500 mb-6">
+          <nav aria-label="Breadcrumb" className="text-sm text-slate-400 mb-6">
             <Link to="/" className="hover:text-white">Home</Link>
             <span aria-hidden="true"> / </span>
             <span aria-current="page" className="text-slate-300">Guides</span>
@@ -73,7 +73,7 @@ export default function GuidesHub() {
                   <h2 className="text-xl font-semibold text-white group-hover:text-green-400">{guide.shortTitle}</h2>
                   <p className="mt-3 text-slate-400 leading-relaxed">{guide.summary}</p>
                   <p className="mt-4 flex items-center justify-between text-sm">
-                    <span className="text-slate-500">
+                    <span className="text-slate-400">
                       Reviewed <time dateTime={guide.reviewed}>{formatReviewed(guide.reviewed)}</time>
                     </span>
                     <span className="flex items-center gap-1 text-green-500">

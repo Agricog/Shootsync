@@ -53,7 +53,7 @@ export default function SeasonDates() {
           body: (
             <>
               <p>Each season opens and closes on the dates shown, both days included.</p>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto" tabIndex={0} role="region" aria-label="Open seasons table, scrolls sideways on small screens">
                 <table className="w-full text-left text-sm border border-slate-700">
                   <caption className="sr-only">Open seasons for game birds and waterfowl in England and Wales, Scotland, and Northern Ireland</caption>
                   <thead className="bg-slate-800 text-white">
