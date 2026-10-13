@@ -1,5 +1,7 @@
 # Keeps pinned versions current (Autaimate Build Standard §01).
 # Every Dependabot PR goes through the CI gate before it can be merged.
+# Major versions arrive as ONE grouped PR, to be upgraded deliberately in a
+# planned batch, never merged on a green tick alone.
 version: 2
 updates:
   - package-ecosystem: npm
@@ -11,7 +13,11 @@ updates:
     open-pull-requests-limit: 10
     groups:
       minor-and-patch:
+        applies-to: version-updates
         update-types: [minor, patch]
+      major-versions:
+        applies-to: version-updates
+        update-types: [major]
     ignore:
       # Stack decision: React stays on 18 (Standard §01.1). Hold the whole family.
       - dependency-name: react
@@ -21,6 +27,9 @@ updates:
       - dependency-name: "@types/react"
         update-types: ["version-update:semver-major"]
       - dependency-name: "@types/react-dom"
+        update-types: ["version-update:semver-major"]
+      # Types must match the Node we run (.node-version is 24).
+      - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
 
   - package-ecosystem: github-actions
