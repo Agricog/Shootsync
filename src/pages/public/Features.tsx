@@ -147,7 +147,7 @@ export default function Features() {
 
       <section aria-labelledby="features-heading" className="px-4 pt-16 pb-10 sm:pt-24">
         <div className="max-w-3xl mx-auto text-center">
-          <nav aria-label="Breadcrumb" className="text-sm text-slate-500 mb-6">
+          <nav aria-label="Breadcrumb" className="text-sm text-slate-400 mb-6">
             <Link to="/" className="hover:text-white">Home</Link>
             <span aria-hidden="true"> / </span>
             <span aria-current="page" className="text-slate-300">Features</span>

@@ -54,7 +54,7 @@ export default function Pricing() {
 
       <section aria-labelledby="pricing-heading" className="px-4 pt-16 pb-12 sm:pt-24">
         <div className="max-w-3xl mx-auto text-center">
-          <nav aria-label="Breadcrumb" className="text-sm text-slate-500 mb-6">
+          <nav aria-label="Breadcrumb" className="text-sm text-slate-400 mb-6">
             <Link to="/" className="hover:text-white">Home</Link>
             <span aria-hidden="true"> / </span>
             <span aria-current="page" className="text-slate-300">Pricing</span>
@@ -105,7 +105,7 @@ export default function Pricing() {
             </article>
           ))}
         </div>
-        <p className="max-w-5xl mx-auto mt-6 text-center text-sm text-slate-500">
+        <p className="max-w-5xl mx-auto mt-6 text-center text-sm text-slate-400">
           Prices include everything listed. ShootSync is not VAT registered, so no VAT is added.
         </p>
       </section>

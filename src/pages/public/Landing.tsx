@@ -189,7 +189,7 @@ export default function Landing() {
               See what it does
             </Link>
           </div>
-          <p className="mt-6 text-sm text-slate-500">
+          <p className="mt-6 text-sm text-slate-400">
             From £{LOWEST_MONTHLY_PRICE} a month · No contract · {BILLING_TERMS.moneyBackDays}-day money-back guarantee
           </p>
         </div>
@@ -250,7 +250,7 @@ export default function Landing() {
                 <p className="text-slate-400 text-sm leading-relaxed">{text}</p>
                 <Link
                   to={`/features#${anchor}`}
-                  className="mt-4 inline-block text-sm text-green-500 hover:text-green-400 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded"
+                  className="mt-4 inline-block text-sm text-green-400 hover:text-green-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded"
                 >
                   {linkLabel}
                 </Link>

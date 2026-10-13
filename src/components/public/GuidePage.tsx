@@ -78,7 +78,7 @@ export default function GuidePage({ path, seoTitle, description, title, inShort,
 
       <article className="px-4 py-16 sm:py-24">
         <div className="max-w-3xl mx-auto">
-          <nav aria-label="Breadcrumb" className="text-sm text-slate-500 mb-6">
+          <nav aria-label="Breadcrumb" className="text-sm text-slate-400 mb-6">
             <Link to="/" className="hover:text-white">Home</Link>
             <span aria-hidden="true"> / </span>
             <Link to="/guides" className="hover:text-white">Guides</Link>
@@ -87,7 +87,7 @@ export default function GuidePage({ path, seoTitle, description, title, inShort,
           </nav>
 
           <h1 className="text-4xl font-bold text-white tracking-tight">{title}</h1>
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm text-slate-400">
             Last reviewed <time dateTime={guide.reviewed}>{formatReviewed(guide.reviewed)}</time> by{' '}
             {SITE.operator.knownAs}. Sources are listed at the end.
           </p>
@@ -141,7 +141,7 @@ export default function GuidePage({ path, seoTitle, description, title, inShort,
                 </li>
               ))}
             </ol>
-            <p className="mt-6 text-sm text-slate-500">
+            <p className="mt-6 text-sm text-slate-400">
               Spotted something out of date? Email <a href={`mailto:${SITE.email}`} className="text-green-500 underline underline-offset-2">{SITE.email}</a> and
               we will check it and correct the page.
             </p>

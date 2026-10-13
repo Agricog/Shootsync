@@ -25,13 +25,13 @@ export default function LegalPage({ title, intro, updated, sections, breadcrumb 
     <PublicLayout>
       <article className="px-4 py-16 sm:py-24">
         <div className="max-w-3xl mx-auto">
-          <nav aria-label="Breadcrumb" className="text-sm text-slate-500 mb-6">
+          <nav aria-label="Breadcrumb" className="text-sm text-slate-400 mb-6">
             <Link to="/" className="hover:text-white">Home</Link>
             <span aria-hidden="true"> / </span>
             <span aria-current="page" className="text-slate-300">{breadcrumb}</span>
           </nav>
           <h1 className="text-4xl font-bold text-white tracking-tight">{title}</h1>
-          {updated && <p className="mt-3 text-sm text-slate-500">Last updated {updated}</p>}
+          {updated && <p className="mt-3 text-sm text-slate-400">Last updated {updated}</p>}
           <div className="mt-6 text-slate-300 leading-relaxed space-y-4">{intro}</div>
 
           {sections.length > 2 && (

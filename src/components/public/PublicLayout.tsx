@@ -23,7 +23,7 @@ function Logo() {
       <span className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center" aria-hidden="true">
         <span className="text-white font-bold text-sm">SS</span>
       </span>
-      <span className="text-white font-semibold text-lg">ShootSync</span>
+      <span className="text-white font-semibold text-base sm:text-lg">ShootSync</span>
     </Link>
   )
 }
@@ -40,7 +40,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
 
       <header className="bg-slate-900 border-b border-slate-800">
         <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8" aria-label="Primary">
-          <div className="flex items-center justify-between h-16 gap-4">
+          <div className="flex items-center justify-between h-16 gap-2 sm:gap-4">
             <Logo />
             <ul className="hidden sm:flex items-center gap-6">
               {NAV.map((item) => (
@@ -56,7 +56,7 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
                 </li>
               ))}
             </ul>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-3">
               {/* Phones: a native disclosure, so the menu works in the prerendered page before any script loads. */}
               <details className="sm:hidden relative group">
                 <summary
@@ -142,10 +142,10 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
           </div>
         </div>
         <div className="border-t border-slate-800">
-          <p className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-xs text-slate-500">
+          <p className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 text-xs text-slate-400">
             ShootSync is run by {SITE.operator.legalName}, trading as {SITE.operator.tradingAs}, {SITE.operator.region}.
             ICO registration {SITE.operator.icoRegistration}. Contact{' '}
-            <a href={`mailto:${SITE.email}`} className={`text-slate-400 hover:text-white ${focusRing}`}>
+            <a href={`mailto:${SITE.email}`} className={`text-slate-300 underline underline-offset-2 hover:text-white ${focusRing}`}>
               {SITE.email}
             </a>
             .
