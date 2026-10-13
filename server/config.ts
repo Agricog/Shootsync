@@ -1,0 +1,74 @@
+/**
+ * Server configuration - ShootSync
+ *
+ * Every secret is read once, at boot, and validated. A missing value stops the
+ * server from starting rather than running with a blank key (Standard §03 Layer 3:
+ * no fallback secrets, fail fast on boot).
+ */
+
+export interface AppConfig {
+  isProduction: boolean
+  frontendUrl: string
+  /** Origins allowed to hold a ShootSync session (Clerk `azp` claim) and to call the API cross-origin. */
+  allowedOrigins: string[]
+  clerkSecretKey: string
+  stripeSecretKey: string
+  stripeWebhookSecret: string
+  stripePriceIds: {
+    STARTER: string
+    STANDARD: string
+  }
+}
+
+const REQUIRED = [
+  'DATABASE_URL',
+  'CLERK_SECRET_KEY',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_PRICE_STARTER',
+  'STRIPE_PRICE_STANDARD',
+] as const
+
+/** The public address of the site. Not a secret, so a default is safe. */
+const DEFAULT_FRONTEND_URL = 'https://shootsync.co.uk'
+
+export class ConfigError extends Error {
+  constructor(public readonly missing: string[]) {
+    super(`Missing required environment variables: ${missing.join(', ')}`)
+    this.name = 'ConfigError'
+  }
+}
+
+function originOf(url: string): string {
+  return new URL(url).origin
+}
+
+export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
+  const missing = REQUIRED.filter((key) => !env[key] || env[key]!.trim() === '')
+  if (missing.length > 0) {
+    throw new ConfigError([...missing])
+  }
+
+  const frontendUrl = originOf(env.FRONTEND_URL?.trim() || DEFAULT_FRONTEND_URL)
+
+  const extraOrigins = (env.ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map(originOf)
+
+  const allowedOrigins = [...new Set([frontendUrl, ...extraOrigins])]
+
+  return {
+    isProduction: env.NODE_ENV === 'production',
+    frontendUrl,
+    allowedOrigins,
+    clerkSecretKey: env.CLERK_SECRET_KEY!.trim(),
+    stripeSecretKey: env.STRIPE_SECRET_KEY!.trim(),
+    stripeWebhookSecret: env.STRIPE_WEBHOOK_SECRET!.trim(),
+    stripePriceIds: {
+      STARTER: env.STRIPE_PRICE_STARTER!.trim(),
+      STANDARD: env.STRIPE_PRICE_STANDARD!.trim(),
+    },
+  }
+}
