@@ -16,7 +16,7 @@
  * For every tool (/tools/*): a "Last checked" date, at least two sources, a quick answer of
  *   120-160 characters, WebApplication data, FAQPage data matching the questions shown, and a
  *   link from every page's footer.
- * Plus: sitemap lists exactly the public pages, robots.txt points at it,
+ * Plus: sitemap lists exactly the public pages, robots.txt points at it, llms.txt lists each once,
  * og-image.png is a real 1200x630 PNG, and the app shell is noindex.
  */
 
@@ -181,7 +181,7 @@ if (pages['/guides'] && guideRoutes.length === 0) fail('/guides', 'hub has no gu
 const text = (fragment) => decode(fragment.replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim()
 for (const { route, label, html } of copies.filter((copy) => copy.route.startsWith('/tools/'))) {
   const fail = (_page, message) => problems.push(`${label}: ${message}`)
-  if (!/Last checked against GOV\.UK on <time datetime="\d{4}-\d{2}-\d{2}"/i.test(html)) fail(route, 'tool has no "Last checked" date')
+  if (!/Last (checked|reviewed)[^<]{0,40}<time datetime="\d{4}-\d{2}-\d{2}"/i.test(html)) fail(route, 'tool has no "Last checked" or "Last reviewed" date')
   const sources = html.split('id="sources"')[1]
   const cited = sources ? new Set([...sources.split('</section>')[0].matchAll(/<a[^>]+href="(https:\/\/[^"]+)"/g)].map((m) => m[1])).size : 0
   if (cited < 2) fail(route, `tool cites ${cited} different sources, expected at least 2`)
@@ -221,6 +221,24 @@ const expected = Object.keys(pages).map((route) => `${SITE}${route}`).sort()
 if (JSON.stringify(sitemapUrls) !== JSON.stringify(expected)) fail('sitemap.xml', `lists ${sitemapUrls.join(', ')}`)
 
 if (!/^Sitemap: https:\/\/shootsync\.co\.uk\/sitemap\.xml$/m.test(read('robots.txt'))) fail('robots.txt', 'does not point at the sitemap')
+
+// llms.txt (llmstxt.org): starts with the site name, lists every public page exactly once, and
+// links only to this site.
+if (!existsSync(path.join(dist, 'llms.txt'))) {
+  fail('llms.txt', 'does not exist')
+} else {
+  const llms = read('llms.txt')
+  if (!llms.startsWith('# ShootSync\n\n> ')) fail('llms.txt', 'does not start with "# ShootSync" and a summary')
+  const linked = [...llms.matchAll(/\]\((https?:\/\/[^)]+)\)/g)].map((m) => m[1])
+  for (const url of linked) if (!url.startsWith(`${SITE}/`)) fail('llms.txt', `links off the site: ${url}`)
+  for (const route of Object.keys(pages)) {
+    const count = linked.filter((url) => url === `${SITE}${route}`).length
+    if (count !== 1) fail('llms.txt', `lists ${route} ${count} times, expected once`)
+  }
+  // Catches a link to this site that is not a public page (an app page, a typo): proved red on 13 Oct 2026
+  // by planting /dashboard. No build produces one today, so a mutant removing it survives (§20.7).
+  if (linked.length !== Object.keys(pages).length) fail('llms.txt', `has ${linked.length} links for ${Object.keys(pages).length} pages`)
+}
 
 if (!existsSync(path.join(dist, 'og-image.png'))) {
   fail('og-image.png', 'does not exist')
