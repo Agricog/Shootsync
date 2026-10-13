@@ -1,86 +1,155 @@
-import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Router } from 'express'
+import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
-import crypto from 'crypto'
+import type { Deps } from '../deps.js'
+import {
+  HttpError,
+  handle,
+  notFound,
+  queryString,
+  requireSyndicateAccess,
+  syndicateOfGuest,
+  syndicateOfMember,
+  syndicateOfShoot,
+  userIdOf,
+} from '../access.js'
 
-const router = Router()
+const optionalText = (max: number) => z.string().trim().max(max).optional()
 
-// Validation schemas
+/** Day fee is held in pence, the unit Stripe charges in. £50.00 = 5000. */
+const DEFAULT_GUEST_DAY_FEE = 5000
+
 const createGuestSchema = z.object({
   shootId: z.string().min(1),
   invitedByMemberId: z.string().min(1),
-  name: z.string().min(1).max(100),
-  email: z.string().email(),
-  phone: z.string().optional(),
-  dayFee: z.number().min(0).default(50),
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(254),
+  phone: optionalText(30),
+  dayFee: z.number().int().min(0).max(100_000).default(DEFAULT_GUEST_DAY_FEE),
 })
 
 const updateGuestSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  emergencyContactName: z.string().optional(),
-  emergencyContactPhone: z.string().optional(),
-  pegNumber: z.number().int().min(1).optional(),
-  dayFee: z.number().min(0).optional(),
-  notes: z.string().optional(),
+  name: z.string().trim().min(1).max(100).optional(),
+  email: z.string().trim().email().max(254).optional(),
+  phone: optionalText(30),
+  emergencyContactName: optionalText(100),
+  emergencyContactPhone: optionalText(30),
+  pegNumber: z.number().int().min(1).max(100).optional(),
+  dayFee: z.number().int().min(0).max(100_000).optional(),
+  notes: optionalText(2000),
 })
 
 const acceptGuestSchema = z.object({
-  emergencyContactName: z.string().min(1),
-  emergencyContactPhone: z.string().min(1),
-  waiverAccepted: z.boolean().refine(val => val === true, {
-    message: 'Waiver must be accepted',
-  }),
+  emergencyContactName: z.string().trim().min(1).max(100),
+  emergencyContactPhone: z.string().trim().min(1).max(30),
+  waiverAccepted: z.literal(true, { errorMap: () => ({ message: 'Waiver must be accepted' }) }),
 })
 
-// GET /api/guests - Get guests for a shoot
-router.get('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { shootId, syndicateId } = req.query
+export const INVITE_TOKEN_PATTERN = /^[a-f0-9]{64}$/
 
-  try {
-    if (shootId && typeof shootId === 'string') {
-      const guests = await prisma.guestGun.findMany({
-        where: { shootId },
-        include: {
-          invitedByMember: { select: { name: true, email: true } },
-          shootDay: { select: { date: true, locationName: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      return res.json(guests)
-    }
+/** What a guest sees about their own invite. No other guest, member or payment data. */
+const guestInviteSelect = {
+  name: true,
+  email: true,
+  dayFee: true,
+  rsvpStatus: true,
+  paymentStatus: true,
+  waiverAccepted: true,
+  invitedByMember: { select: { name: true } },
+  shootDay: {
+    select: {
+      date: true,
+      locationName: true,
+      locationAddress: true,
+      locationPostcode: true,
+      meetTime: true,
+      syndicate: { select: { name: true } },
+    },
+  },
+} as const
 
-    if (syndicateId && typeof syndicateId === 'string') {
-      const guests = await prisma.guestGun.findMany({
-        where: {
-          shootDay: { syndicateId },
-        },
-        include: {
-          invitedByMember: { select: { name: true, email: true } },
-          shootDay: { select: { date: true, locationName: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      })
-      return res.json(guests)
-    }
+const guestListInclude = {
+  invitedByMember: { select: { name: true, email: true } },
+  shootDay: { select: { date: true, locationName: true } },
+} as const
 
-    return res.status(400).json({ error: 'shootId or syndicateId is required' })
-  } catch (error) {
-    console.error('Error fetching guests:', error)
-    res.status(500).json({ error: 'Failed to fetch guests' })
+export function guestRoutes({ prisma }: Deps): Router {
+  const router = Router()
+
+  // ---- Public: the guest's own invite, authorised by the 64-hex token in the link ----
+
+  async function guestByToken(token: string) {
+    if (!INVITE_TOKEN_PATTERN.test(token)) throw notFound('This invitation is invalid or has expired.')
+    const guest = await prisma.guestGun.findUnique({ where: { inviteToken: token }, select: { id: true, rsvpStatus: true } })
+    if (!guest) throw notFound('This invitation is invalid or has expired.')
+    return guest
   }
-})
 
-// GET /api/guests/:id - Get single guest
-router.get('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+  // GET /api/guests/token/:token
+  router.get('/token/:token', handle(async (req, res) => {
+    const { id } = await guestByToken(req.params.token)
+    const guest = await prisma.guestGun.findUnique({ where: { id }, select: guestInviteSelect })
+    res.set('Cache-Control', 'no-store')
+    res.json(guest)
+  }))
 
-  try {
+  // POST /api/guests/token/:token/accept - RSVP yes and sign the waiver
+  router.post('/token/:token/accept', handle(async (req, res) => {
+    const guest = await guestByToken(req.params.token)
+    if (guest.rsvpStatus === 'DECLINED') throw new HttpError(409, 'This invitation was declined.')
+    const data = acceptGuestSchema.parse(req.body)
+
+    const updated = await prisma.guestGun.update({
+      where: { id: guest.id },
+      data: {
+        emergencyContactName: data.emergencyContactName,
+        emergencyContactPhone: data.emergencyContactPhone,
+        waiverAccepted: true,
+        waiverAcceptedAt: new Date(),
+        rsvpStatus: 'CONFIRMED',
+      },
+      select: guestInviteSelect,
+    })
+    res.json(updated)
+  }))
+
+  // POST /api/guests/token/:token/decline
+  router.post('/token/:token/decline', handle(async (req, res) => {
+    const guest = await guestByToken(req.params.token)
+    const updated = await prisma.guestGun.update({
+      where: { id: guest.id },
+      data: { rsvpStatus: 'DECLINED' },
+      select: guestInviteSelect,
+    })
+    res.json(updated)
+  }))
+
+  // ---- Signed in: captain manages guests; a member may invite their own guests ----
+
+  // GET /api/guests?shootId= or ?syndicateId= - captain only
+  router.get('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const shootId = queryString(req.query.shootId)
+    const syndicateId = shootId ? await syndicateOfShoot(prisma, shootId) : queryString(req.query.syndicateId)
+    if (!syndicateId) throw new HttpError(400, 'shootId or syndicateId is required')
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
+    const guests = await prisma.guestGun.findMany({
+      where: shootId ? { shootId } : { shootDay: { syndicateId } },
+      include: guestListInclude,
+      orderBy: { createdAt: 'desc' },
+    })
+    res.json(guests)
+  }))
+
+  // GET /api/guests/:id - captain only
+  router.get('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfGuest(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
     const guest = await prisma.guestGun.findUnique({
-      where: { id },
+      where: { id: req.params.id },
       include: {
         invitedByMember: { select: { name: true, email: true } },
         shootDay: {
@@ -95,62 +164,23 @@ router.get('/:id', async (req: Request, res: Response) => {
         },
       },
     })
-
-    if (!guest) {
-      return res.status(404).json({ error: 'Guest not found' })
-    }
-
+    if (!guest) throw notFound('Guest not found')
     res.json(guest)
-  } catch (error) {
-    console.error('Error fetching guest:', error)
-    res.status(500).json({ error: 'Failed to fetch guest' })
-  }
-})
+  }))
 
-// GET /api/guests/token/:token - Get guest by invite token (public)
-router.get('/token/:token', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { token } = req.params
-
-  try {
-    const guest = await prisma.guestGun.findFirst({
-      where: { inviteToken: token },
-      include: {
-        invitedByMember: { select: { name: true } },
-        shootDay: {
-          select: {
-            date: true,
-            locationName: true,
-            locationAddress: true,
-            locationPostcode: true,
-            meetTime: true,
-            syndicate: { select: { name: true } },
-          },
-        },
-      },
-    })
-
-    if (!guest) {
-      return res.status(404).json({ error: 'Invalid or expired invite' })
-    }
-
-    res.json(guest)
-  } catch (error) {
-    console.error('Error fetching guest by token:', error)
-    res.status(500).json({ error: 'Failed to fetch guest' })
-  }
-})
-
-// POST /api/guests - Create guest invite
-router.post('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-
-  try {
+  // POST /api/guests - invite a guest
+  router.post('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
     const data = createGuestSchema.parse(req.body)
-    
-    // Generate unique invite token
-    const inviteToken = crypto.randomBytes(32).toString('hex')
-    
+    const syndicateId = await syndicateOfShoot(prisma, data.shootId)
+    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+
+    // The inviting member must belong to the same syndicate, and a non-captain may only invite as themselves.
+    if ((await syndicateOfMember(prisma, data.invitedByMemberId)) !== syndicateId) {
+      throw new HttpError(400, 'Inviting member is not in this syndicate')
+    }
+    if (!access.isCaptain && access.memberId !== data.invitedByMemberId) throw notFound()
+
     const guest = await prisma.guestGun.create({
       data: {
         shootId: data.shootId,
@@ -158,113 +188,38 @@ router.post('/', async (req: Request, res: Response) => {
         name: data.name,
         email: data.email,
         phone: data.phone,
-        dayFee: data.dayFee,
-        inviteToken,
+        // Only the captain sets fees. A gun's invite always carries the standard fee.
+        dayFee: access.isCaptain ? data.dayFee : DEFAULT_GUEST_DAY_FEE,
+        inviteToken: randomBytes(32).toString('hex'),
         rsvpStatus: 'PENDING',
         paymentStatus: 'PENDING',
         waiverAccepted: false,
       },
-      include: {
-        shootDay: { select: { date: true, locationName: true } },
-      },
+      include: { shootDay: { select: { date: true, locationName: true } } },
     })
-
-    // TODO: Send invite email with link containing inviteToken
-
     res.status(201).json(guest)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error creating guest:', error)
-    res.status(500).json({ error: 'Failed to create guest' })
-  }
-})
+  }))
 
-// POST /api/guests/:id/accept - Guest accepts invite (RSVP + waiver)
-router.post('/:id/accept', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
-    const data = acceptGuestSchema.parse(req.body)
-    
-    const guest = await prisma.guestGun.update({
-      where: { id },
-      data: {
-        emergencyContactName: data.emergencyContactName,
-        emergencyContactPhone: data.emergencyContactPhone,
-        waiverAccepted: true,
-        waiverAcceptedAt: new Date(),
-        rsvpStatus: 'CONFIRMED',
-      },
-    })
-
-    res.json(guest)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error accepting invite:', error)
-    res.status(500).json({ error: 'Failed to accept invite' })
-  }
-})
-
-// POST /api/guests/:id/decline - Guest declines invite
-router.post('/:id/decline', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
-    const guest = await prisma.guestGun.update({
-      where: { id },
-      data: {
-        rsvpStatus: 'DECLINED',
-      },
-    })
-
-    res.json(guest)
-  } catch (error) {
-    console.error('Error declining invite:', error)
-    res.status(500).json({ error: 'Failed to decline invite' })
-  }
-})
-
-// PATCH /api/guests/:id - Update guest
-router.patch('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
+  // PATCH /api/guests/:id - captain only
+  router.patch('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfGuest(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
     const data = updateGuestSchema.parse(req.body)
-    
-    const guest = await prisma.guestGun.update({
-      where: { id },
-      data,
-    })
 
+    const guest = await prisma.guestGun.update({ where: { id: req.params.id }, data })
     res.json(guest)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error updating guest:', error)
-    res.status(500).json({ error: 'Failed to update guest' })
-  }
-})
+  }))
 
-// DELETE /api/guests/:id - Remove guest
-router.delete('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+  // DELETE /api/guests/:id - captain only
+  router.delete('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfGuest(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-  try {
-    await prisma.guestGun.delete({ where: { id } })
+    await prisma.guestGun.delete({ where: { id: req.params.id } })
     res.json({ success: true })
-  } catch (error) {
-    console.error('Error deleting guest:', error)
-    res.status(500).json({ error: 'Failed to delete guest' })
-  }
-})
+  }))
 
-export default router
+  return router
+}

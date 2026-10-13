@@ -58,6 +58,7 @@ export default function Subscribe() {
   const [syndicate, setSyndicate] = useState<Syndicate | null>(null)
   const [loading, setLoading] = useState(true)
   const [checkingOut, setCheckingOut] = useState<string | null>(null)
+  const [checkoutError, setCheckoutError] = useState<string | null>(null)
 
   const { isActive, startCheckout } = useSubscription(syndicate?.id || null)
 
@@ -85,8 +86,12 @@ export default function Subscribe() {
     if (!syndicate || !user?.email) return
     
     setCheckingOut(tier)
-    await startCheckout(tier, user.email, user.id)
-    setCheckingOut(null)
+    setCheckoutError(null)
+    const failure = await startCheckout(tier, user.email)
+    if (failure) {
+      setCheckoutError(failure)
+      setCheckingOut(null)
+    }
   }
 
   if (loading) {
@@ -134,6 +139,12 @@ export default function Subscribe() {
               Subscribe to start managing <span className="text-green-500">{syndicate.name}</span>
             </p>
           </div>
+
+          {checkoutError && (
+            <div role="alert" className="mb-6 rounded-lg border border-red-500/40 bg-red-900/20 p-4 text-center text-red-200">
+              {checkoutError}
+            </div>
+          )}
 
           {/* Plans */}
           <div className="grid md:grid-cols-2 gap-6">

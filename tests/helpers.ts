@@ -1,0 +1,215 @@
+/**
+ * Test harness - runs the real Express app against a real Postgres test database.
+ *
+ * The only stand-ins are at the edges: a token verifier (so tests can sign in as
+ * any user without a live Clerk call) and Stripe's network calls. Every
+ * authorisation decision under test is the production code path.
+ */
+
+import type { AddressInfo } from 'node:net'
+import type { Server } from 'node:http'
+import { PrismaClient } from '@prisma/client'
+import Stripe from 'stripe'
+import { createApp } from '../server/app.js'
+import type { AppConfig } from '../server/config.js'
+import type { TokenVerifier } from '../server/auth.js'
+
+export const TEST_WEBHOOK_SECRET = 'whsec_test_shootsync'
+
+export const testConfig: AppConfig = {
+  isProduction: false,
+  frontendUrl: 'https://shootsync.test',
+  allowedOrigins: ['https://shootsync.test'],
+  clerkSecretKey: 'sk_test_unused',
+  stripeSecretKey: 'sk_test_unused',
+  stripeWebhookSecret: TEST_WEBHOOK_SECRET,
+  stripePriceIds: { STARTER: 'price_starter_test', STANDARD: 'price_standard_test' },
+}
+
+/** "test-token.<userId>" signs in as <userId>; anything else is rejected, like a bad Clerk token. */
+export const testVerifier: TokenVerifier = async (token) => {
+  const match = /^test-token\.(user_[A-Za-z0-9_]+)$/.exec(token)
+  if (!match) throw new Error('invalid token')
+  return match[1]
+}
+
+export const tokenFor = (userId: string) => `test-token.${userId}`
+
+export function createTestPrisma(): PrismaClient {
+  if (!process.env.DATABASE_URL) {
+    throw new Error('DATABASE_URL must point at a disposable test database')
+  }
+  return new PrismaClient()
+}
+
+export interface StripeCalls {
+  checkoutCreates: Stripe.Checkout.SessionCreateParams[]
+  checkoutIdempotencyKeys: Array<string | undefined>
+  customersCreated: Stripe.CustomerCreateParams[]
+}
+
+/** A real Stripe SDK instance (so webhook signatures are verified for real) with its network calls stubbed. */
+export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscriptions: Map<string, Stripe.Subscription> } {
+  const stripe = new Stripe('sk_test_unused', { apiVersion: '2023-10-16' })
+  const calls: StripeCalls = { checkoutCreates: [], checkoutIdempotencyKeys: [], customersCreated: [] }
+  const subscriptions = new Map<string, Stripe.Subscription>()
+
+  const sessions = stripe.checkout.sessions as unknown as Record<string, unknown>
+  sessions.create = async (params: Stripe.Checkout.SessionCreateParams, options?: Stripe.RequestOptions) => {
+    calls.checkoutCreates.push(params)
+    calls.checkoutIdempotencyKeys.push(options?.idempotencyKey)
+    return { id: `cs_test_${calls.checkoutCreates.length}abcdefghij`, url: 'https://checkout.stripe.test/session' }
+  }
+  sessions.retrieve = async (id: string) => {
+    if (id === 'cs_test_guestpaymentabcdef') {
+      return { id, payment_status: 'paid', customer_email: 'guest@example.com', amount_total: 5000, metadata: { type: 'guest_day_fee' } }
+    }
+    if (id === 'cs_test_othersessionabcdef') {
+      return { id, payment_status: 'paid', customer_email: 'someone@example.com', amount_total: 99900, metadata: {} }
+    }
+    throw new Error('No such checkout session')
+  }
+
+  const customers = stripe.customers as unknown as Record<string, unknown>
+  customers.create = async (params: Stripe.CustomerCreateParams) => {
+    calls.customersCreated.push(params)
+    return { id: `cus_test_${calls.customersCreated.length}` }
+  }
+
+  const portal = stripe.billingPortal.sessions as unknown as Record<string, unknown>
+  portal.create = async () => ({ url: 'https://billing.stripe.test/session' })
+
+  const subs = stripe.subscriptions as unknown as Record<string, unknown>
+  subs.retrieve = async (id: string) => {
+    const sub = subscriptions.get(id)
+    if (!sub) throw new Error('No such subscription')
+    return sub
+  }
+
+  return { stripe, calls, subscriptions }
+}
+
+export interface TestServer {
+  baseUrl: string
+  close: () => Promise<void>
+}
+
+export async function startTestServer(prisma: PrismaClient, stripe: Stripe, verifyToken: TokenVerifier = testVerifier): Promise<TestServer> {
+  const app = createApp({ prisma, stripe, config: testConfig, verifyToken })
+  const server: Server = await new Promise((resolve) => {
+    const s = app.listen(0, '127.0.0.1', () => resolve(s))
+  })
+  const { port } = server.address() as AddressInfo
+  return {
+    baseUrl: `http://127.0.0.1:${port}`,
+    close: () => new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
+  }
+}
+
+export interface CallOptions {
+  method?: string
+  as?: string | null
+  body?: unknown
+  rawToken?: string
+  headers?: Record<string, string>
+}
+
+export async function call(server: TestServer, path: string, options: CallOptions = {}) {
+  const headers: Record<string, string> = { ...(options.headers ?? {}) }
+  if (options.as) headers.Authorization = `Bearer ${tokenFor(options.as)}`
+  if (options.rawToken) headers.Authorization = `Bearer ${options.rawToken}`
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json'
+
+  const response = await fetch(`${server.baseUrl}${path}`, {
+    method: options.method ?? 'GET',
+    headers,
+    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+  })
+  const text = await response.text()
+  let json: any = null
+  try {
+    json = text ? JSON.parse(text) : null
+  } catch {
+    json = text
+  }
+  return { status: response.status, json, headers: response.headers }
+}
+
+const TABLES = [
+  'activity_logs',
+  'bag_records',
+  'beater_bookings',
+  'beater_payments',
+  'member_payments',
+  'guest_guns',
+  'shoot_attendances',
+  'shoot_days',
+  'beaters',
+  'members',
+  'syndicates',
+]
+
+export async function resetDatabase(prisma: PrismaClient) {
+  await prisma.$executeRawUnsafe(`TRUNCATE ${TABLES.map((t) => `"${t}"`).join(', ')} CASCADE`)
+}
+
+export const CAPTAIN_A = 'user_captainA'
+export const CAPTAIN_B = 'user_captainB'
+export const GUN_A = 'user_gunA'
+export const STRANGER = 'user_stranger'
+export const BEATER_ROLE_A = 'user_captainA_beaterRole'
+
+export const INVITE_TOKEN_A = 'a'.repeat(64)
+
+/** Two complete, separate syndicates. Every test proves B can't reach A and A can. */
+export async function seed(prisma: PrismaClient) {
+  const makeSyndicate = async (captain: string, label: string, gunClerkId: string | null, inviteToken: string) => {
+    const syndicate = await prisma.syndicate.create({
+      data: {
+        name: `${label} Syndicate`,
+        captainClerkId: captain,
+        seasonStart: new Date('2026-10-01'),
+        seasonEnd: new Date('2027-02-01'),
+        subscriptionAmount: 800,
+        stripeCustomerId: `cus_secret_${label}`,
+      },
+    })
+    const captainMember = await prisma.member.create({
+      data: { syndicateId: syndicate.id, clerkUserId: captain, email: `${label}captain@example.com`, name: `${label} Captain`, role: 'CAPTAIN', status: 'ACTIVE' },
+    })
+    const gun = await prisma.member.create({
+      data: {
+        syndicateId: syndicate.id,
+        clerkUserId: gunClerkId ?? `pending_${label}`,
+        email: `${label}gun@example.com`,
+        name: `${label} Gun`,
+        role: 'GUN',
+        status: 'ACTIVE',
+        emergencyContactName: `${label} Next of kin`,
+      },
+    })
+    const beater = await prisma.beater.create({
+      data: { syndicateId: syndicate.id, name: `${label} Beater`, bankName: 'Bank', bankSortCode: '12-34-56', bankAccountNumber: '12345678' },
+    })
+    // A member with the BEATER role: signed in, active, but not a gun.
+    await prisma.member.create({
+      data: { syndicateId: syndicate.id, clerkUserId: `${captain}_beaterRole`, email: `${label}beaterrole@example.com`, name: `${label} Beater Member`, role: 'BEATER', status: 'ACTIVE' },
+    })
+    const shoot = await prisma.shootDay.create({
+      data: { syndicateId: syndicate.id, date: new Date('2026-11-14'), locationName: `${label} Farm`, captainNotes: `${label} captain-only notes`, weatherNotes: 'Windy' },
+    })
+    await prisma.shootAttendance.create({ data: { shootId: shoot.id, memberId: gun.id, pegNumber: 3 } })
+    const bag = await prisma.bagRecord.create({ data: { shootId: shoot.id, driveNumber: 1, pheasant: 12, recordedByMemberId: gun.id } })
+    const payment = await prisma.beaterPayment.create({
+      data: { syndicateId: syndicate.id, beaterId: beater.id, shootId: shoot.id, amount: 4000 },
+    })
+    const guest = await prisma.guestGun.create({
+      data: { shootId: shoot.id, invitedByMemberId: gun.id, name: `${label} Guest`, email: `${label}guest@example.com`, dayFee: 5000, inviteToken },
+    })
+    return { syndicate, captainMember, gun, beater, shoot, bag, payment, guest }
+  }
+
+  const a = await makeSyndicate(CAPTAIN_A, 'A', GUN_A, INVITE_TOKEN_A)
+  const b = await makeSyndicate(CAPTAIN_B, 'B', null, 'b'.repeat(64))
+  return { a, b }
+}

@@ -1,125 +1,106 @@
-import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Router } from 'express'
+import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
+import type { Deps } from '../deps.js'
+import {
+  handle,
+  notFound,
+  queryString,
+  requireSyndicateAccess,
+  syndicateOfMember,
+  syndicateSelect,
+  userIdOf,
+} from '../access.js'
 
-const router = Router()
+const optionalText = (max: number) => z.string().trim().max(max).optional()
+const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
 
-// Validation schemas
+// clerkUserId is never taken from the browser: an invited member gets a server-generated
+// placeholder until they sign in and accept.
 const createMemberSchema = z.object({
   syndicateId: z.string().min(1),
-  clerkUserId: z.string().min(1),
-  email: z.string().email(),
-  name: z.string().min(1).max(100),
-  phone: z.string().optional(),
+  email: z.string().trim().email().max(254),
+  name: z.string().trim().min(1).max(100),
+  phone: optionalText(30),
   role: z.enum(['CAPTAIN', 'GUN', 'BEATER', 'HYBRID']).optional(),
-  bascNumber: z.string().optional(),
-  insuranceExpiry: z.string().transform(s => new Date(s)).optional(),
-  emergencyContactName: z.string().optional(),
-  emergencyContactPhone: z.string().optional(),
+  bascNumber: optionalText(30),
+  insuranceExpiry: dateString.transform((s) => new Date(s)).optional(),
+  emergencyContactName: optionalText(100),
+  emergencyContactPhone: optionalText(30),
 })
 
-const updateMemberSchema = createMemberSchema.partial().omit({ syndicateId: true })
+const updateMemberSchema = createMemberSchema.omit({ syndicateId: true }).partial()
 
 const updateStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'PENDING', 'INACTIVE']),
 })
 
-// GET /api/members - Get members for a syndicate
-router.get('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { syndicateId, status, role } = req.query
+const statusFilter = z.enum(['ACTIVE', 'PENDING', 'INACTIVE']).optional()
+const roleFilter = z.enum(['CAPTAIN', 'GUN', 'BEATER', 'HYBRID']).optional()
 
-  if (!syndicateId || typeof syndicateId !== 'string') {
-    return res.status(400).json({ error: 'syndicateId is required' })
-  }
+export function memberRoutes({ prisma }: Deps): Router {
+  const router = Router()
 
-  try {
+  // GET /api/members?syndicateId= - captain only (contact and insurance details)
+  router.get('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = queryString(req.query.syndicateId)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const status = statusFilter.parse(queryString(req.query.status))
+    const role = roleFilter.parse(queryString(req.query.role))
+
     const members = await prisma.member.findMany({
-      where: { 
-        syndicateId,
-        ...(status && typeof status === 'string' ? { status: status as any } : {}),
-        ...(role && typeof role === 'string' ? { role: role as any } : {}),
-      },
+      where: { syndicateId, ...(status ? { status } : {}), ...(role ? { role } : {}) },
       orderBy: { name: 'asc' },
     })
     res.json(members)
-  } catch (error) {
-    console.error('Error fetching members:', error)
-    res.status(500).json({ error: 'Failed to fetch members' })
-  }
-})
+  }))
 
-// GET /api/members/:id - Get single member
-router.get('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+  // GET /api/members/by-clerk/:clerkUserId - the signed-in user's own membership only
+  router.get('/by-clerk/:clerkUserId', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    if (req.params.clerkUserId !== userId) throw notFound('Member not found')
+    const syndicateId = queryString(req.query.syndicateId)
 
-  try {
+    const member = await prisma.member.findFirst({
+      where: { clerkUserId: userId, ...(syndicateId ? { syndicateId } : {}) },
+      include: { syndicate: { select: syndicateSelect } },
+    })
+    if (!member) throw notFound('Member not found')
+    res.json(member)
+  }))
+
+  // GET /api/members/:id - captain only
+  router.get('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfMember(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
     const member = await prisma.member.findUnique({
-      where: { id },
+      where: { id: req.params.id },
       include: {
         shootAttendances: {
           include: { shootDay: true },
           orderBy: { shootDay: { date: 'desc' } },
           take: 10,
         },
-        memberPayments: {
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
+        memberPayments: { orderBy: { createdAt: 'desc' }, take: 10 },
       },
     })
-
-    if (!member) {
-      return res.status(404).json({ error: 'Member not found' })
-    }
-
+    if (!member) throw notFound('Member not found')
     res.json(member)
-  } catch (error) {
-    console.error('Error fetching member:', error)
-    res.status(500).json({ error: 'Failed to fetch member' })
-  }
-})
+  }))
 
-// GET /api/members/by-clerk/:clerkUserId - Get member by Clerk ID
-router.get('/by-clerk/:clerkUserId', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { clerkUserId } = req.params
-  const { syndicateId } = req.query
-
-  try {
-    const member = await prisma.member.findFirst({
-      where: { 
-        clerkUserId,
-        ...(syndicateId && typeof syndicateId === 'string' ? { syndicateId } : {}),
-      },
-      include: {
-        syndicate: true,
-      },
-    })
-
-    if (!member) {
-      return res.status(404).json({ error: 'Member not found' })
-    }
-
-    res.json(member)
-  } catch (error) {
-    console.error('Error fetching member:', error)
-    res.status(500).json({ error: 'Failed to fetch member' })
-  }
-})
-
-// POST /api/members - Create new member (invite)
-router.post('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-
-  try {
+  // POST /api/members - invite, captain only
+  router.post('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
     const data = createMemberSchema.parse(req.body)
-    
+    await requireSyndicateAccess(prisma, data.syndicateId, userId, 'captain')
+
     const member = await prisma.member.create({
       data: {
         syndicateId: data.syndicateId,
-        clerkUserId: data.clerkUserId,
+        clerkUserId: `pending_${randomUUID()}`,
         email: data.email,
         name: data.name,
         phone: data.phone,
@@ -132,110 +113,69 @@ router.post('/', async (req: Request, res: Response) => {
         status: 'PENDING',
       },
     })
-
     res.status(201).json(member)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error creating member:', error)
-    res.status(500).json({ error: 'Failed to create member' })
-  }
-})
+  }))
 
-// PATCH /api/members/:id - Update member
-router.patch('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
+  // PATCH /api/members/:id - captain only
+  router.patch('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfMember(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
     const data = updateMemberSchema.parse(req.body)
-    
-    const member = await prisma.member.update({
-      where: { id },
-      data,
-    })
 
+    const member = await prisma.member.update({ where: { id: req.params.id }, data })
     res.json(member)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error updating member:', error)
-    res.status(500).json({ error: 'Failed to update member' })
-  }
-})
+  }))
 
-// PATCH /api/members/:id/status - Update member status (captain action)
-router.patch('/:id/status', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
+  // PATCH /api/members/:id/status - captain only
+  router.patch('/:id/status', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfMember(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
     const { status } = updateStatusSchema.parse(req.body)
-    
-    const updateData: any = { status }
-    
-    // Set acceptedAt when activating for the first time
-    if (status === 'ACTIVE') {
-      const existingMember = await prisma.member.findUnique({ where: { id } })
-      if (existingMember && !existingMember.acceptedAt) {
-        updateData.acceptedAt = new Date()
-      }
-    }
-    
-    const member = await prisma.member.update({
-      where: { id },
-      data: updateData,
+
+    const existing = await prisma.member.findUnique({
+      where: { id: req.params.id },
+      select: { acceptedAt: true },
     })
-
-    res.json(member)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error updating member status:', error)
-    res.status(500).json({ error: 'Failed to update member status' })
-  }
-})
-
-// POST /api/members/:id/accept - Accept invitation
-router.post('/:id/accept', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
     const member = await prisma.member.update({
-      where: { id },
+      where: { id: req.params.id },
       data: {
-        status: 'ACTIVE',
-        acceptedAt: new Date(),
+        status,
+        ...(status === 'ACTIVE' && !existing?.acceptedAt ? { acceptedAt: new Date() } : {}),
       },
     })
-
     res.json(member)
-  } catch (error) {
-    console.error('Error accepting invitation:', error)
-    res.status(500).json({ error: 'Failed to accept invitation' })
-  }
-})
+  }))
 
-// DELETE /api/members/:id - Remove member
-router.delete('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+  // POST /api/members/:id/accept - only the invited person themselves
+  router.post('/:id/accept', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const existing = await prisma.member.findUnique({
+      where: { id: req.params.id },
+      select: { clerkUserId: true },
+    })
+    if (!existing || existing.clerkUserId !== userId) throw notFound('Member not found')
 
-  try {
     const member = await prisma.member.update({
-      where: { id },
+      where: { id: req.params.id },
+      data: { status: 'ACTIVE', acceptedAt: new Date() },
+    })
+    res.json(member)
+  }))
+
+  // DELETE /api/members/:id - mark inactive, captain only
+  router.delete('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfMember(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
+    const member = await prisma.member.update({
+      where: { id: req.params.id },
       data: { status: 'INACTIVE' },
     })
-
     res.json(member)
-  } catch (error) {
-    console.error('Error removing member:', error)
-    res.status(500).json({ error: 'Failed to remove member' })
-  }
-})
+  }))
 
-export default router
+  return router
+}

@@ -16,11 +16,11 @@ import { formatLongDate, formatTime } from '../../utils/dateHelpers'
 type Step = 'loading' | 'details' | 'waiver' | 'payment' | 'confirmed' | 'declined' | 'error'
 
 interface GuestInvite {
-  id: string
   name: string
   email: string
   dayFee: number
   rsvpStatus: string
+  paymentStatus: string
   waiverAccepted: boolean
   invitedByMember?: {
     name: string
@@ -86,7 +86,7 @@ export default function GuestAccept() {
 
   const loadInvite = async () => {
     try {
-      const response = await fetch(`/api/guests/token/${inviteToken}`)
+      const response = await fetch(`/api/guests/token/${encodeURIComponent(inviteToken ?? '')}`)
       
       if (!response.ok) {
         if (response.status === 404) {
@@ -102,7 +102,10 @@ export default function GuestAccept() {
       setInvite(data)
 
       // Determine initial step based on current status
-      if (data.rsvpStatus === 'CONFIRMED') {
+      if (data.rsvpStatus === 'CONFIRMED' && data.dayFee > 0 && data.paymentStatus !== 'PAID') {
+        // Accepted earlier but did not finish paying: take them straight to payment.
+        setStep('payment')
+      } else if (data.rsvpStatus === 'CONFIRMED') {
         setStep('confirmed')
       } else if (data.rsvpStatus === 'DECLINED') {
         setStep('declined')
@@ -121,7 +124,7 @@ export default function GuestAccept() {
 
     setIsProcessing(true)
     try {
-      const response = await fetch(`/api/guests/${invite.id}/decline`, {
+      const response = await fetch(`/api/guests/token/${encodeURIComponent(inviteToken ?? '')}/decline`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       })
@@ -164,7 +167,7 @@ export default function GuestAccept() {
 
     setIsProcessing(true)
     try {
-      const response = await fetch(`/api/guests/${invite.id}/accept`, {
+      const response = await fetch(`/api/guests/token/${encodeURIComponent(inviteToken ?? '')}/accept`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -202,7 +205,7 @@ export default function GuestAccept() {
     const response = await fetch('/api/stripe/create-checkout-session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ guestId: invite.id }),
+      body: JSON.stringify({ token: inviteToken }),
     })
 
     if (!response.ok) {

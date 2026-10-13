@@ -1,120 +1,102 @@
-import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Router } from 'express'
 import { z } from 'zod'
+import type { Deps } from '../deps.js'
+import {
+  handle,
+  notFound,
+  queryString,
+  requireSyndicateAccess,
+  syndicateOfBag,
+  syndicateOfShoot,
+  userIdOf,
+} from '../access.js'
 
-const router = Router()
+const count = z.number().int().min(0).max(100_000).optional()
 
 const createBagSchema = z.object({
   shootId: z.string().min(1),
-  driveNumber: z.number().int().min(1),
-  pheasant: z.number().int().min(0).optional(),
-  partridge: z.number().int().min(0).optional(),
-  duck: z.number().int().min(0).optional(),
-  woodcock: z.number().int().min(0).optional(),
-  other: z.number().int().min(0).optional(),
-  otherDescription: z.string().optional(),
-  notes: z.string().optional(),
+  driveNumber: z.number().int().min(1).max(50),
+  pheasant: count,
+  partridge: count,
+  duck: count,
+  woodcock: count,
+  other: count,
+  otherDescription: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(2000).optional(),
 })
 
-const updateBagSchema = createBagSchema.partial().omit({ shootId: true })
+const updateBagSchema = createBagSchema.omit({ shootId: true }).partial()
 
-router.get('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { shootId } = req.query
+// Per the role matrix, captain and guns may record and view bags.
+export function bagRoutes({ prisma }: Deps): Router {
+  const router = Router()
 
-  if (!shootId || typeof shootId !== 'string') {
-    return res.status(400).json({ error: 'shootId is required' })
-  }
+  // GET /api/bags?shootId=
+  router.get('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const shootId = queryString(req.query.shootId)
+    const syndicateId = await syndicateOfShoot(prisma, shootId)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
-  try {
     const bags = await prisma.bagRecord.findMany({
       where: { shootId },
       orderBy: { driveNumber: 'asc' },
     })
     res.json(bags)
-  } catch (error) {
-    console.error('Error fetching bags:', error)
-    res.status(500).json({ error: 'Failed to fetch bag records' })
-  }
-})
+  }))
 
-router.get('/season', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { syndicateId } = req.query
+  // GET /api/bags/season?syndicateId=
+  router.get('/season', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = queryString(req.query.syndicateId)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
-  if (!syndicateId || typeof syndicateId !== 'string') {
-    return res.status(400).json({ error: 'syndicateId is required' })
-  }
+    const [totals, shootsCompleted] = await Promise.all([
+      prisma.bagRecord.aggregate({
+        where: { shootDay: { syndicateId } },
+        _sum: { pheasant: true, partridge: true, duck: true, woodcock: true, other: true },
+      }),
+      prisma.shootDay.count({ where: { syndicateId, status: 'COMPLETED' } }),
+    ])
 
-  try {
-    const totals = await prisma.bagRecord.aggregate({
-      where: {
-        shootDay: { syndicateId },
-      },
-      _sum: {
-        pheasant: true,
-        partridge: true,
-        duck: true,
-        woodcock: true,
-        other: true,
-      },
-    })
-
-    const shootCount = await prisma.shootDay.count({
-      where: {
-        syndicateId,
-        status: 'COMPLETED',
-      },
-    })
+    const pheasant = totals._sum.pheasant || 0
+    const partridge = totals._sum.partridge || 0
+    const duck = totals._sum.duck || 0
+    const woodcock = totals._sum.woodcock || 0
+    const other = totals._sum.other || 0
 
     res.json({
-      pheasant: totals._sum.pheasant || 0,
-      partridge: totals._sum.partridge || 0,
-      duck: totals._sum.duck || 0,
-      woodcock: totals._sum.woodcock || 0,
-      other: totals._sum.other || 0,
-      total: (totals._sum.pheasant || 0) + 
-             (totals._sum.partridge || 0) + 
-             (totals._sum.duck || 0) + 
-             (totals._sum.woodcock || 0) + 
-             (totals._sum.other || 0),
-      shootsCompleted: shootCount,
+      pheasant,
+      partridge,
+      duck,
+      woodcock,
+      other,
+      total: pheasant + partridge + duck + woodcock + other,
+      shootsCompleted,
     })
-  } catch (error) {
-    console.error('Error fetching season totals:', error)
-    res.status(500).json({ error: 'Failed to fetch season totals' })
-  }
-})
+  }))
 
-router.get('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+  // GET /api/bags/:id
+  router.get('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBag(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
-  try {
     const bag = await prisma.bagRecord.findUnique({
-      where: { id },
-      include: {
-        shootDay: true,
-      },
+      where: { id: req.params.id },
+      include: { shootDay: true },
     })
-
-    if (!bag) {
-      return res.status(404).json({ error: 'Bag record not found' })
-    }
-
+    if (!bag) throw notFound('Bag record not found')
     res.json(bag)
-  } catch (error) {
-    console.error('Error fetching bag:', error)
-    res.status(500).json({ error: 'Failed to fetch bag record' })
-  }
-})
+  }))
 
-router.post('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-
-  try {
+  // POST /api/bags
+  router.post('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
     const data = createBagSchema.parse(req.body)
-    
+    const syndicateId = await syndicateOfShoot(prisma, data.shootId)
+    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+
     const bag = await prisma.bagRecord.create({
       data: {
         shootId: data.shootId,
@@ -126,52 +108,38 @@ router.post('/', async (req: Request, res: Response) => {
         other: data.other ?? 0,
         otherDescription: data.otherDescription,
         notes: data.notes,
+        recordedByMemberId: access.memberId,
       },
     })
-
     res.status(201).json(bag)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error creating bag:', error)
-    res.status(500).json({ error: 'Failed to create bag record' })
-  }
-})
+  }))
 
-router.patch('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
+  // PATCH /api/bags/:id
+  router.patch('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBag(prisma, req.params.id)
+    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
     const data = updateBagSchema.parse(req.body)
-    
-    const bag = await prisma.bagRecord.update({
-      where: { id },
-      data,
-    })
 
-    res.json(bag)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
+    // The captain can correct any bag; a gun only the ones they recorded.
+    if (!access.isCaptain) {
+      const bag = await prisma.bagRecord.findUnique({ where: { id: req.params.id }, select: { recordedByMemberId: true } })
+      if (!bag || bag.recordedByMemberId !== access.memberId) throw notFound()
     }
-    console.error('Error updating bag:', error)
-    res.status(500).json({ error: 'Failed to update bag record' })
-  }
-})
 
-router.delete('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+    const bag = await prisma.bagRecord.update({ where: { id: req.params.id }, data })
+    res.json(bag)
+  }))
 
-  try {
-    await prisma.bagRecord.delete({ where: { id } })
+  // DELETE /api/bags/:id - captain only
+  router.delete('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBag(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
+    await prisma.bagRecord.delete({ where: { id: req.params.id } })
     res.json({ success: true })
-  } catch (error) {
-    console.error('Error deleting bag:', error)
-    res.status(500).json({ error: 'Failed to delete bag record' })
-  }
-})
+  }))
 
-export default router
+  return router
+}

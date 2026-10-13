@@ -1,47 +1,42 @@
-import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
-import Stripe from 'stripe'
+/**
+ * Guest day-fee payments - ShootSync
+ *
+ * Public routes: a guest has no account. The invite token from their link is
+ * what authorises the payment, never a guest ID the browser chooses.
+ */
 
-const router = Router()
+import { Router } from 'express'
+import { z } from 'zod'
+import type { Deps } from '../deps.js'
+import { HttpError, handle, notFound } from '../access.js'
+import { INVITE_TOKEN_PATTERN } from './guests.js'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
-  apiVersion: '2023-10-16',
+const checkoutSchema = z.object({
+  token: z.string().regex(INVITE_TOKEN_PATTERN),
 })
 
-// POST /api/stripe/create-checkout-session - Create checkout for guest payment
-router.post('/create-checkout-session', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { guestId } = req.body
+const SESSION_ID_PATTERN = /^cs_[A-Za-z0-9_]{10,200}$/
 
-  if (!guestId) {
-    return res.status(400).json({ error: 'guestId is required' })
-  }
+export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
+  const router = Router()
 
-  try {
+  // POST /api/stripe/create-checkout-session { token }
+  router.post('/create-checkout-session', handle(async (req, res) => {
+    const parsed = checkoutSchema.safeParse(req.body)
+    if (!parsed.success) throw notFound('This invitation is invalid or has expired.')
+
     const guest = await prisma.guestGun.findUnique({
-      where: { id: guestId },
+      where: { inviteToken: parsed.data.token },
       include: {
-        shootDay: {
-          select: {
-            date: true,
-            locationName: true,
-            syndicate: { select: { name: true } },
-          },
-        },
+        shootDay: { select: { date: true, locationName: true, syndicate: { select: { name: true } } } },
       },
     })
-
-    if (!guest) {
-      return res.status(404).json({ error: 'Guest not found' })
+    if (!guest) throw notFound('This invitation is invalid or has expired.')
+    if (guest.paymentStatus === 'PAID') throw new HttpError(409, 'Already paid')
+    if (guest.rsvpStatus !== 'CONFIRMED' || !guest.waiverAccepted) {
+      throw new HttpError(409, 'Please accept the invitation and waiver first')
     }
-
-    if (guest.paymentStatus === 'PAID') {
-      return res.status(400).json({ error: 'Already paid' })
-    }
-
-    if (guest.dayFee <= 0) {
-      return res.status(400).json({ error: 'No payment required' })
-    }
+    if (guest.dayFee <= 0) throw new HttpError(400, 'No payment required')
 
     const shootDate = new Date(guest.shootDay.date).toLocaleDateString('en-GB', {
       day: 'numeric',
@@ -57,101 +52,43 @@ router.post('/create-checkout-session', async (req: Request, res: Response) => {
             currency: 'gbp',
             product_data: {
               name: `Guest Day - ${guest.shootDay.locationName}`,
-              description: `Shoot day on ${shootDate} with ${guest.shootDay.syndicate?.name || 'the syndicate'}`,
+              description: `Shoot day on ${shootDate} with ${guest.shootDay.syndicate.name}`,
             },
-            unit_amount: guest.dayFee,
+            unit_amount: guest.dayFee, // pence
           },
           quantity: 1,
         },
       ],
       mode: 'payment',
-      success_url: `${process.env.FRONTEND_URL || 'https://shootsync.co.uk'}/guest/payment-success?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${process.env.FRONTEND_URL || 'https://shootsync.co.uk'}/guest/accept/${guest.inviteToken}`,
+      success_url: `${config.frontendUrl}/guest/payment-success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${config.frontendUrl}/guest/accept/${guest.inviteToken}`,
       customer_email: guest.email,
-      metadata: {
-        guestId: guest.id,
-        type: 'guest_day_fee',
-      },
+      metadata: { guestId: guest.id, type: 'guest_day_fee' },
     })
 
     res.json({ url: session.url })
-  } catch (error) {
-    console.error('Error creating checkout session:', error)
-    res.status(500).json({ error: 'Failed to create checkout session' })
-  }
-})
+  }))
 
-// POST /api/stripe/webhook - Handle Stripe webhooks
-router.post('/webhook', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const sig = req.headers['stripe-signature'] as string
-  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET
+  // GET /api/stripe/session/:sessionId - guest payment confirmation page
+  router.get('/session/:sessionId', handle(async (req, res) => {
+    if (!SESSION_ID_PATTERN.test(req.params.sessionId)) throw notFound()
 
-  if (!webhookSecret) {
-    console.error('STRIPE_WEBHOOK_SECRET not configured')
-    return res.status(500).json({ error: 'Webhook not configured' })
-  }
-
-  let event: Stripe.Event
-
-  try {
-    event = stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
-  } catch (err: any) {
-    console.error('Webhook signature verification failed:', err.message)
-    return res.status(400).json({ error: `Webhook Error: ${err.message}` })
-  }
-
-  // Handle the event
-  switch (event.type) {
-    case 'checkout.session.completed': {
-      const session = event.data.object as Stripe.Checkout.Session
-      
-      if (session.metadata?.type === 'guest_day_fee' && session.metadata?.guestId) {
-        try {
-          await prisma.guestGun.update({
-            where: { id: session.metadata.guestId },
-            data: {
-              paymentStatus: 'PAID',
-              stripePaymentId: session.payment_intent as string,
-            },
-          })
-          console.log(`Payment confirmed for guest ${session.metadata.guestId}`)
-        } catch (err) {
-          console.error('Error updating guest payment status:', err)
-        }
-      }
-      break
+    let session
+    try {
+      session = await stripe.checkout.sessions.retrieve(req.params.sessionId)
+    } catch {
+      throw notFound()
     }
+    // Only ShootSync guest payments, never any other session on the Stripe account.
+    if (session.metadata?.type !== 'guest_day_fee') throw notFound()
 
-    case 'checkout.session.expired': {
-      const session = event.data.object as Stripe.Checkout.Session
-      console.log(`Checkout session expired: ${session.id}`)
-      break
-    }
-
-    default:
-      console.log(`Unhandled event type: ${event.type}`)
-  }
-
-  res.json({ received: true })
-})
-
-// GET /api/stripe/session/:sessionId - Get session status
-router.get('/session/:sessionId', async (req: Request, res: Response) => {
-  const { sessionId } = req.params
-
-  try {
-    const session = await stripe.checkout.sessions.retrieve(sessionId)
-    
+    res.set('Cache-Control', 'no-store')
     res.json({
       status: session.payment_status,
       customerEmail: session.customer_email,
       amountTotal: session.amount_total,
     })
-  } catch (error) {
-    console.error('Error retrieving session:', error)
-    res.status(500).json({ error: 'Failed to retrieve session' })
-  }
-})
+  }))
 
-export default router
+  return router
+}

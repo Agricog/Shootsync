@@ -13,10 +13,11 @@
     "build": "prisma generate && npm run build:client && npm run build:server",
     "build:client": "tsc -p tsconfig.client.json && vite build",
     "build:server": "tsc -p tsconfig.server.json",
-    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "tsc -p tsconfig.client.json && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.test.json",
     "start": "node dist/server/index.js",
     "db:generate": "prisma generate",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test": "node --import tsx --test --test-concurrency=1 --test-reporter=spec --test-reporter-destination=stdout --test-reporter=tap --test-reporter-destination=test-results.tap \"tests/**/*.test.ts\""
   },
   "dependencies": {
     "@clerk/backend": "3.11.4",

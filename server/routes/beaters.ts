@@ -1,78 +1,85 @@
-import { Router, Request, Response } from 'express'
-import { PrismaClient } from '@prisma/client'
+import { Router } from 'express'
 import { z } from 'zod'
+import type { Deps } from '../deps.js'
+import {
+  HttpError,
+  handle,
+  maskBankDetails,
+  notFound,
+  queryString,
+  requireSyndicateAccess,
+  syndicateOfBeater,
+  syndicateOfShoot,
+  userIdOf,
+} from '../access.js'
 
-const router = Router()
+const optionalText = (max: number) => z.string().trim().max(max).optional()
 
-// Validation schemas
 const createBeaterSchema = z.object({
   syndicateId: z.string().min(1),
-  name: z.string().min(1).max(100),
-  email: z.string().email().optional(),
-  phone: z.string().optional(),
-  dayRate: z.number().int().min(0).optional(),
-  bankName: z.string().optional(),
-  bankSortCode: z.string().optional(),
-  bankAccountNumber: z.string().optional(),
-  notes: z.string().optional(),
+  name: z.string().trim().min(1).max(100),
+  email: z.string().trim().email().max(254).optional().or(z.literal('').transform(() => undefined)),
+  phone: optionalText(30),
+  dayRate: z.number().int().min(0).max(10_000).optional(),
+  bankName: optionalText(100),
+  bankSortCode: optionalText(20),
+  bankAccountNumber: optionalText(20),
+  notes: optionalText(2000),
 })
 
-const updateBeaterSchema = createBeaterSchema.partial().omit({ syndicateId: true })
+const updateBeaterSchema = createBeaterSchema.omit({ syndicateId: true }).partial()
 
-// GET /api/beaters - Get beaters for a syndicate
-router.get('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { syndicateId, status } = req.query
+const bookSchema = z.object({
+  shootId: z.string().min(1),
+  dayRate: z.number().int().min(0).max(10_000).optional(),
+})
 
-  if (!syndicateId || typeof syndicateId !== 'string') {
-    return res.status(400).json({ error: 'syndicateId is required' })
-  }
+const paySchema = z.object({
+  paymentIds: z.array(z.string().min(1)).min(1).max(500),
+  paymentReference: optionalText(100),
+})
 
-  try {
+const payAllSchema = z.object({
+  paymentReference: optionalText(100),
+})
+
+const statusFilter = z.enum(['ACTIVE', 'INACTIVE']).optional()
+
+// Every beater route is captain only: beaters' contact and bank details are the captain's to manage.
+export function beaterRoutes({ prisma }: Deps): Router {
+  const router = Router()
+
+  // GET /api/beaters?syndicateId= - bank details masked
+  router.get('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = queryString(req.query.syndicateId)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const status = statusFilter.parse(queryString(req.query.status))
+
     const beaters = await prisma.beater.findMany({
-      where: { 
-        syndicateId,
-        ...(status && typeof status === 'string' ? { status: status as any } : {}),
-      },
+      where: { syndicateId, ...(status ? { status } : {}) },
       orderBy: { name: 'asc' },
     })
-    res.json(beaters)
-  } catch (error) {
-    console.error('Error fetching beaters:', error)
-    res.status(500).json({ error: 'Failed to fetch beaters' })
-  }
-})
+    res.json(beaters.map(maskBankDetails))
+  }))
 
-// GET /api/beaters/payments/summary - Get payment summary for all beaters
-router.get('/payments/summary', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { syndicateId } = req.query
+  // GET /api/beaters/payments/summary?syndicateId= - full bank details, needed to pay beaters
+  router.get('/payments/summary', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = queryString(req.query.syndicateId)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-  if (!syndicateId || typeof syndicateId !== 'string') {
-    return res.status(400).json({ error: 'syndicateId is required' })
-  }
-
-  try {
     const beaters = await prisma.beater.findMany({
       where: { syndicateId, status: 'ACTIVE' },
-      include: {
-        payments: true,
-        bookings: {
-          where: { status: 'CONFIRMED' },
-        },
-      },
+      include: { payments: true, bookings: { where: { status: 'CONFIRMED' } } },
       orderBy: { name: 'asc' },
     })
 
-    const summary = beaters.map(beater => {
-      const totalEarned = beater.payments.reduce((sum, p) => sum + p.amount, 0)
-      const totalPaid = beater.payments
-        .filter(p => p.status === 'PAID')
-        .reduce((sum, p) => sum + p.amount, 0)
-      const totalOutstanding = beater.payments
-        .filter(p => p.status === 'PENDING')
-        .reduce((sum, p) => sum + p.amount, 0)
-      const daysWorked = beater.bookings.length
+    const summary = beaters.map((beater) => {
+      const sum = (status?: 'PAID' | 'PENDING') =>
+        beater.payments
+          .filter((p) => (status ? p.status === status : true))
+          .reduce((total, p) => total + p.amount, 0)
 
       return {
         id: beater.id,
@@ -83,81 +90,57 @@ router.get('/payments/summary', async (req: Request, res: Response) => {
         bankSortCode: beater.bankSortCode,
         bankAccountNumber: beater.bankAccountNumber,
         dayRate: beater.dayRate,
-        daysWorked,
-        totalEarned,
-        totalPaid,
-        totalOutstanding,
-        payments: beater.payments.filter(p => p.status === 'PENDING'),
+        daysWorked: beater.bookings.length,
+        totalEarned: sum(),
+        totalPaid: sum('PAID'),
+        totalOutstanding: sum('PENDING'),
+        payments: beater.payments.filter((p) => p.status === 'PENDING'),
       }
     })
 
     const totals = {
-      totalOutstanding: summary.reduce((sum, b) => sum + b.totalOutstanding, 0),
-      totalPaid: summary.reduce((sum, b) => sum + b.totalPaid, 0),
-      totalEarned: summary.reduce((sum, b) => sum + b.totalEarned, 0),
+      totalOutstanding: summary.reduce((total, b) => total + b.totalOutstanding, 0),
+      totalPaid: summary.reduce((total, b) => total + b.totalPaid, 0),
+      totalEarned: summary.reduce((total, b) => total + b.totalEarned, 0),
     }
 
+    res.set('Cache-Control', 'no-store')
     res.json({ beaters: summary, totals })
-  } catch (error) {
-    console.error('Error fetching payment summary:', error)
-    res.status(500).json({ error: 'Failed to fetch payment summary' })
-  }
-})
+  }))
 
-// GET /api/beaters/:id - Get single beater with payment history
-router.get('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
+  // GET /api/beaters/:id - bank details masked
+  router.get('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-  try {
     const beater = await prisma.beater.findUnique({
-      where: { id },
+      where: { id: req.params.id },
       include: {
-        payments: {
-          orderBy: { createdAt: 'desc' },
-          take: 20,
-          include: { shootDay: true },
-        },
-        bookings: {
-          orderBy: { shootDay: { date: 'desc' } },
-          take: 10,
-          include: { shootDay: true },
-        },
+        payments: { orderBy: { createdAt: 'desc' }, take: 20, include: { shootDay: true } },
+        bookings: { orderBy: { shootDay: { date: 'desc' } }, take: 10, include: { shootDay: true } },
       },
     })
+    if (!beater) throw notFound('Beater not found')
 
-    if (!beater) {
-      return res.status(404).json({ error: 'Beater not found' })
-    }
-
-    const totalOwed = await prisma.beaterPayment.aggregate({
-      where: { beaterId: id, status: 'PENDING' },
-      _sum: { amount: true },
-    })
-
-    const totalPaid = await prisma.beaterPayment.aggregate({
-      where: { beaterId: id, status: 'PAID' },
-      _sum: { amount: true },
-    })
+    const [owed, paid] = await Promise.all([
+      prisma.beaterPayment.aggregate({ where: { beaterId: beater.id, status: 'PENDING' }, _sum: { amount: true } }),
+      prisma.beaterPayment.aggregate({ where: { beaterId: beater.id, status: 'PAID' }, _sum: { amount: true } }),
+    ])
 
     res.json({
-      ...beater,
-      totalOwed: totalOwed._sum.amount || 0,
-      totalPaid: totalPaid._sum.amount || 0,
+      ...maskBankDetails(beater),
+      totalOwed: owed._sum.amount || 0,
+      totalPaid: paid._sum.amount || 0,
     })
-  } catch (error) {
-    console.error('Error fetching beater:', error)
-    res.status(500).json({ error: 'Failed to fetch beater' })
-  }
-})
+  }))
 
-// POST /api/beaters - Create new beater
-router.post('/', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-
-  try {
+  // POST /api/beaters
+  router.post('/', handle(async (req, res) => {
+    const userId = userIdOf(req)
     const data = createBeaterSchema.parse(req.body)
-    
+    await requireSyndicateAccess(prisma, data.syndicateId, userId, 'captain')
+
     const beater = await prisma.beater.create({
       data: {
         syndicateId: data.syndicateId,
@@ -171,137 +154,83 @@ router.post('/', async (req: Request, res: Response) => {
         notes: data.notes,
       },
     })
+    res.status(201).json(maskBankDetails(beater))
+  }))
 
-    res.status(201).json(beater)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error creating beater:', error)
-    res.status(500).json({ error: 'Failed to create beater' })
-  }
-})
-
-// PATCH /api/beaters/:id - Update beater
-router.patch('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
+  // PATCH /api/beaters/:id
+  router.patch('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
     const data = updateBeaterSchema.parse(req.body)
-    
+
+    const beater = await prisma.beater.update({ where: { id: req.params.id }, data })
+    res.json(maskBankDetails(beater))
+  }))
+
+  // DELETE /api/beaters/:id - mark inactive
+  router.delete('/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
     const beater = await prisma.beater.update({
-      where: { id },
-      data,
-    })
-
-    res.json(beater)
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ error: 'Validation failed', details: error.errors })
-    }
-    console.error('Error updating beater:', error)
-    res.status(500).json({ error: 'Failed to update beater' })
-  }
-})
-
-// DELETE /api/beaters/:id - Deactivate beater
-router.delete('/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-
-  try {
-    const beater = await prisma.beater.update({
-      where: { id },
+      where: { id: req.params.id },
       data: { status: 'INACTIVE' },
     })
+    res.json(maskBankDetails(beater))
+  }))
 
-    res.json(beater)
-  } catch (error) {
-    console.error('Error deactivating beater:', error)
-    res.status(500).json({ error: 'Failed to deactivate beater' })
-  }
-})
+  // POST /api/beaters/:id/book - book beater for one of the same syndicate's shoots
+  router.post('/:id/book', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const { shootId, dayRate } = bookSchema.parse(req.body)
 
-// POST /api/beaters/:id/book - Book beater for a shoot
-router.post('/:id/book', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-  const { shootId, dayRate } = req.body
+    const shootSyndicateId = await syndicateOfShoot(prisma, shootId)
+    if (shootSyndicateId !== syndicateId) throw new HttpError(400, 'Shoot is not in this syndicate')
 
-  try {
-    const beater = await prisma.beater.findUnique({ where: { id } })
-    if (!beater) {
-      return res.status(404).json({ error: 'Beater not found' })
-    }
-
+    const beater = await prisma.beater.findUnique({ where: { id: req.params.id }, select: { dayRate: true } })
     const booking = await prisma.beaterBooking.create({
       data: {
-        syndicateId: beater.syndicateId,
-        beaterId: id,
+        syndicateId,
+        beaterId: req.params.id,
         shootId,
-        dayRate: dayRate ?? beater.dayRate,
+        dayRate: dayRate ?? beater?.dayRate ?? 40,
         status: 'INVITED',
       },
     })
-
     res.status(201).json(booking)
-  } catch (error) {
-    console.error('Error booking beater:', error)
-    res.status(500).json({ error: 'Failed to book beater' })
-  }
-})
+  }))
 
-// POST /api/beaters/:id/pay - Record payment to beater
-router.post('/:id/pay', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-  const { paymentIds, paymentReference } = req.body
+  // POST /api/beaters/:id/pay - mark chosen payments paid
+  router.post('/:id/pay', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const { paymentIds, paymentReference } = paySchema.parse(req.body)
 
-  try {
     const updated = await prisma.beaterPayment.updateMany({
-      where: { 
-        id: { in: paymentIds },
-        beaterId: id,
-      },
-      data: {
-        status: 'PAID',
-        paidDate: new Date(),
-        paymentReference,
-      },
+      where: { id: { in: paymentIds }, beaterId: req.params.id, syndicateId },
+      data: { status: 'PAID', paidDate: new Date(), paymentReference },
     })
-
     res.json({ updated: updated.count })
-  } catch (error) {
-    console.error('Error recording payment:', error)
-    res.status(500).json({ error: 'Failed to record payment' })
-  }
-})
+  }))
 
-// POST /api/beaters/pay-all - Mark all outstanding payments as paid for a beater
-router.post('/pay-all/:id', async (req: Request, res: Response) => {
-  const prisma: PrismaClient = req.app.locals.prisma
-  const { id } = req.params
-  const { paymentReference } = req.body
+  // POST /api/beaters/pay-all/:id - mark all outstanding payments paid
+  router.post('/pay-all/:id', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const { paymentReference } = payAllSchema.parse(req.body ?? {})
 
-  try {
     const updated = await prisma.beaterPayment.updateMany({
-      where: { 
-        beaterId: id,
-        status: 'PENDING',
-      },
-      data: {
-        status: 'PAID',
-        paidDate: new Date(),
-        paymentReference,
-      },
+      where: { beaterId: req.params.id, syndicateId, status: 'PENDING' },
+      data: { status: 'PAID', paidDate: new Date(), paymentReference },
     })
-
     res.json({ updated: updated.count })
-  } catch (error) {
-    console.error('Error recording payments:', error)
-    res.status(500).json({ error: 'Failed to record payments' })
-  }
-})
+  }))
 
-export default router
+  return router
+}
