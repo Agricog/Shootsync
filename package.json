@@ -23,7 +23,7 @@
   "dependencies": {
     "@clerk/backend": "3.11.4",
     "@clerk/clerk-react": "5.61.10",
-    "@prisma/client": "5.22.0",
+    "@prisma/client": "7.10.0",
     "cors": "2.8.6",
     "express": "4.22.3",
     "helmet": "7.2.0",
