@@ -67,10 +67,10 @@ async function api<T>(path: string, init?: RequestInit): Promise<Result<T>> {
 const shortDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 
-const text = 'text-gray-900 dark:text-gray-100'
-const muted = 'text-gray-600 dark:text-gray-400'
+const text = 'text-white'
+const muted = 'text-slate-400'
 const field =
-  'px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
+  'px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500'
 
 export default function PegAllocation() {
   const { user } = useAuth()
@@ -313,7 +313,7 @@ export default function PegAllocation() {
                   <p className={`text-sm mb-4 ${muted}`}>
                     Untick anyone not out on this day. Pegs so far are from saved draws this season, before this day.
                   </p>
-                  <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                  <ul className="divide-y divide-slate-700">
                     {sheet.guns.map((gun) => (
                       <li key={gun.id} className="py-2">
                         <label className="flex items-start gap-3 cursor-pointer">
@@ -399,7 +399,7 @@ export default function PegAllocation() {
                     const gun = gunsById.get(allocation.memberId)
                     const had = gun?.history.filter((h) => h.pegNumber === allocation.pegNumber).length ?? 0
                     return (
-                      <li key={allocation.memberId} className="flex items-center justify-between gap-3 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg">
+                      <li key={allocation.memberId} className="flex items-center justify-between gap-3 p-3 bg-slate-900 rounded-lg">
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="w-11 h-11 shrink-0 flex items-center justify-center bg-green-600 text-white rounded-full font-bold text-lg" aria-hidden="true">
                             {allocation.pegNumber}

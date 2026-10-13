@@ -19,7 +19,7 @@ import type { GuidePath } from '../../content/guides'
 
 const TITLE = 'Features: Peg Draw, Bag Records, Beaters and Guests | ShootSync'
 const DESCRIPTION =
-  'How ShootSync runs a shooting syndicate: a fair peg draw, shoot day briefing sheets, bag records by drive, your beating team, and guest guns who pay online.'
+  'How ShootSync runs a shooting syndicate: a fair peg draw, shoot day briefing sheets, bag records by drive, beaters’ pay, and guest guns who pay online.'
 
 interface Section {
   id: string
@@ -57,8 +57,8 @@ const SECTIONS: Section[] = [
     points: [
       'Date, location and postcode, meet time and the number of drives',
       'Expected bag and the captain’s notes for the day',
-      'Guns and their pegs, and guest guns, for the day in one view',
-      'A PDF briefing sheet with the date, meeting details, drives, expected bag, the guns and their pegs, and your notes, ready to print or send',
+      'Guns and their pegs, guest guns and beaters for the day in one view',
+      'A PDF briefing sheet with the date, meeting details, drives, expected bag, the guns and their pegs, the confirmed beaters and your notes, ready to print or send',
     ],
     guide: { to: '/guides/shooting-season-dates', label: 'Guide: UK shooting season dates' },
   },
@@ -78,15 +78,17 @@ const SECTIONS: Section[] = [
   {
     id: 'beaters',
     icon: PoundSterling,
-    heading: 'Your beating team in one list',
+    heading: 'Beaters booked, and paid what they’re owed',
     intro:
-      'Keep the beating team’s details in one place the captain controls, instead of scattered across old texts.',
+      'Keep the beating team in one list, book them onto each day, and always know who is owed what.',
     points: [
-      'Each beater’s name, phone, email and notes',
-      'Their day rate, starting from the syndicate’s usual rate',
-      'Bank details for paying them, shown in full only to the captain',
+      'Book beaters onto a shoot day and mark each one Confirmed, Can’t make it or Didn’t turn up',
+      'Mark the day complete and everyone Confirmed is owed their day rate, once',
+      'See what each beater is owed, day by day, and mark them paid with your bank reference',
+      'Export everyone owed, with bank details and amounts, ready for your bank',
+      'Each beater’s days this tax year are counted, with a flag past HMRC’s 14-day casual limit',
     ],
-    note: 'The money itself moves through your own bank, as it does now.',
+    note: 'ShootSync keeps the record of what’s owed and paid; the money itself moves through your own bank, as it does now.',
     guide: { to: '/guides/paying-beaters-and-pickers-up', label: 'Guide: paying beaters and pickers-up' },
   },
   {

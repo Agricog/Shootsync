@@ -202,9 +202,9 @@ export default function PayingBeaters() {
       ]}
       feature={{
         to: '/features#beaters',
-        heading: 'Your beating team in one list',
+        heading: 'Know who is owed what, all season',
         text:
-          'ShootSync keeps your beating team in one place the captain controls: each beater’s phone, email and day rate, and the bank details you need to pay them.',
+          'ShootSync books your beaters onto each shoot day, works out what each confirmed beater is owed when the day is complete, records each payment with its bank reference, exports a sheet ready for your bank, and counts every beater’s days this tax year against HMRC’s 14-day casual limit.',
       }}
     />
   )

@@ -208,11 +208,11 @@ export default function BagRecord() {
 
         {/* Shoot Selector */}
         <Card>
-          <label className="block text-sm font-medium text-gray-900 mb-2">Select Shoot Day</label>
+          <label className="block text-sm font-medium text-white mb-2">Select Shoot Day</label>
           <select
             value={selectedShoot || ''}
             onChange={(e) => setSelectedShoot(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-900"
+            className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white"
           >
             <option value="">-- Select a shoot --</option>
             {shoots.map((shoot) => (
@@ -230,23 +230,23 @@ export default function BagRecord() {
               <h2 className="text-lg font-semibold text-green-600 mb-4">Running Total: {totalBirds} birds</h2>
               <div className="grid grid-cols-5 gap-4 text-center">
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{totals.pheasant}</p>
+                  <p className="text-2xl font-bold text-white">{totals.pheasant}</p>
                   <p className="text-amber-600 text-sm">Pheasant</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{totals.partridge}</p>
+                  <p className="text-2xl font-bold text-white">{totals.partridge}</p>
                   <p className="text-amber-600 text-sm">Partridge</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{totals.duck}</p>
+                  <p className="text-2xl font-bold text-white">{totals.duck}</p>
                   <p className="text-amber-600 text-sm">Duck</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{totals.woodcock}</p>
+                  <p className="text-2xl font-bold text-white">{totals.woodcock}</p>
                   <p className="text-amber-600 text-sm">Woodcock</p>
                 </div>
                 <div>
-                  <p className="text-2xl font-bold text-gray-900">{totals.other}</p>
+                  <p className="text-2xl font-bold text-white">{totals.other}</p>
                   <p className="text-amber-600 text-sm">Other</p>
                 </div>
               </div>
@@ -266,7 +266,7 @@ export default function BagRecord() {
               </div>
 
               {transcript && (
-                <p className="text-sm text-gray-600 mb-4 italic">Heard: "{transcript}"</p>
+                <p className="text-sm text-slate-400 mb-4 italic">Heard: "{transcript}"</p>
               )}
 
               <form onSubmit={handleSubmit} className="space-y-4">
@@ -324,13 +324,13 @@ export default function BagRecord() {
                 )}
 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                  <label className="block text-sm font-medium text-slate-300 mb-1">Notes</label>
                   <textarea
                     name="notes"
                     value={formData.notes}
                     onChange={handleChange}
                     rows={2}
-                    className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-900"
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white"
                     placeholder="Optional notes for this drive..."
                   />
                 </div>
@@ -347,9 +347,9 @@ export default function BagRecord() {
                 <h2 className="text-lg font-semibold text-green-600 mb-4">Recorded Drives</h2>
                 <div className="space-y-2">
                   {bags.sort((a, b) => a.driveNumber - b.driveNumber).map((bag) => (
-                    <div key={bag.id} className="flex justify-between items-center p-3 bg-gray-100 rounded-lg">
-                      <span className="font-medium text-gray-900">Drive {bag.driveNumber}</span>
-                      <span className="text-gray-700">
+                    <div key={bag.id} className="flex justify-between items-center p-3 bg-slate-900 rounded-lg">
+                      <span className="font-medium text-white">Drive {bag.driveNumber}</span>
+                      <span className="text-slate-300">
                         {bag.pheasant}P {bag.partridge}Pa {bag.duck}D {bag.woodcock}W {bag.other}O
                       </span>
                       <span className="font-semibold text-green-600">

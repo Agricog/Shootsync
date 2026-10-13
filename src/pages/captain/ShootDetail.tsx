@@ -11,6 +11,7 @@ import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatLongDate } from '../../utils/dateHelpers'
 import { formatCurrency } from '../../config/stripe'
 import { generateShootBriefingPDF } from '../../utils/pdfGenerator'
+import ShootBeaters, { type Booking, type PaymentLine } from '../../components/shoots/ShootBeaters'
 
 interface Member {
   id: string
@@ -47,15 +48,8 @@ interface ShootDay {
     inviteToken?: string
     invitedByMember?: Member
   }>
-  beaterBookings: Array<{
-    id: string
-    dayRate: number
-    status: string
-    beater: {
-      id: string
-      name: string
-    }
-  }>
+  beaterBookings: Booking[]
+  beaterPayments: PaymentLine[]
   bagRecords: Array<{
     id: string
     driveNumber: number
@@ -96,11 +90,39 @@ export default function ShootDetail() {
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
+  // Completing the day
+  const [confirmingComplete, setConfirmingComplete] = useState(false)
+  const [completing, setCompleting] = useState(false)
+  const [completeError, setCompleteError] = useState<string | null>(null)
+
   useEffect(() => {
     if (id) {
       loadShoot()
     }
   }, [id])
+
+  const refreshShoot = async () => {
+    const data = await shootApi.fetchOne(id!)
+    if (data) setShoot(data)
+  }
+
+  const completeShoot = async () => {
+    if (!shoot) return
+    setCompleting(true)
+    setCompleteError(null)
+    try {
+      const response = await fetch(`/api/shoots/${encodeURIComponent(shoot.id)}/complete`, { method: 'POST' })
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.error || `Something went wrong (${response.status})`)
+      }
+      setConfirmingComplete(false)
+      await refreshShoot()
+    } catch (err) {
+      setCompleteError(err instanceof Error ? err.message : 'Could not complete the day.')
+    }
+    setCompleting(false)
+  }
 
   const loadShoot = async () => {
     setLoading(true)
@@ -190,17 +212,17 @@ export default function ShootDetail() {
 
   const getRsvpStatusColor = (status: string) => {
     switch (status) {
-      case 'CONFIRMED': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      case 'DECLINED': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-      default: return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+      case 'CONFIRMED': return 'bg-green-900 text-green-200'
+      case 'DECLINED': return 'bg-red-900 text-red-200'
+      default: return 'bg-yellow-900 text-yellow-200'
     }
   }
 
   const getPaymentStatusColor = (status: string) => {
     switch (status) {
-      case 'PAID': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      case 'REFUNDED': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-      default: return 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200'
+      case 'PAID': return 'bg-green-900 text-green-200'
+      case 'REFUNDED': return 'bg-slate-700 text-slate-200'
+      default: return 'bg-amber-900 text-amber-200'
     }
   }
 
@@ -288,16 +310,47 @@ export default function ShootDetail() {
           </div>
         </div>
 
-        {/* Status Badge */}
-        <div>
+        {/* Status, and completing the day */}
+        <div className="flex flex-wrap items-center gap-3">
           <span className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-            shoot.status === 'COMPLETED' ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200' :
-            shoot.status === 'CANCELLED' ? 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200' :
-            'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200'
+            shoot.status === 'COMPLETED' ? 'bg-green-900 text-green-200' :
+            shoot.status === 'CANCELLED' ? 'bg-red-900 text-red-200' :
+            'bg-blue-900 text-blue-200'
           }`}>
-            {shoot.status}
+            {shoot.status === 'COMPLETED' ? 'Completed' : shoot.status === 'CANCELLED' ? 'Cancelled' : 'Scheduled'}
           </span>
+          {shoot.status === 'SCHEDULED' && !confirmingComplete && new Date(shoot.date).getTime() <= Date.now() && (
+            <Button size="sm" variant="secondary" onClick={() => setConfirmingComplete(true)}>
+              Mark day complete
+            </Button>
+          )}
         </div>
+        {confirmingComplete && (() => {
+          const confirmed = shoot.beaterBookings.filter((b) => b.status === 'CONFIRMED')
+          const asked = shoot.beaterBookings.filter((b) => b.status === 'INVITED').length
+          const owed = confirmed.reduce((sum, b) => sum + b.dayRate * 100, 0)
+          return (
+            <Card>
+              <h2 className="text-lg font-semibold text-white">Mark this day complete?</h2>
+              <p className="mt-2 text-slate-300">
+                {confirmed.length === 0
+                  ? 'No beaters are marked Confirmed, so nobody will be owed beating pay for this day.'
+                  : `${confirmed.length} confirmed ${confirmed.length === 1 ? 'beater' : 'beaters'} will be owed ${formatCurrency(owed)} in total, shown under Finances.`}
+                {asked > 0 && ` ${asked} still marked Asked ${asked === 1 ? 'is' : 'are'} not included: mark them Confirmed first if they came.`}
+              </p>
+              <p className="mt-2 text-sm text-slate-400">You can still change the beaters afterwards, and what’s owed will follow.</p>
+              {completeError && <p role="alert" className="mt-3 text-red-300">{completeError}</p>}
+              <div className="mt-4 flex gap-3">
+                <Button onClick={completeShoot} isLoading={completing} disabled={completing}>
+                  Mark complete
+                </Button>
+                <Button variant="ghost" onClick={() => setConfirmingComplete(false)} disabled={completing}>
+                  Not yet
+                </Button>
+              </div>
+            </Card>
+          )
+        })()}
 
         {/* Details Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -475,32 +528,14 @@ export default function ShootDetail() {
         </Card>
 
         {/* Beaters */}
-        <Card>
-          <h2 className="text-lg font-semibold text-green-500 mb-4">
-            Beaters ({shoot.beaterBookings?.length || 0})
-          </h2>
-          {shoot.beaterBookings?.length > 0 ? (
-            <div className="space-y-2">
-              {shoot.beaterBookings.map((booking) => (
-                <div key={booking.id} className="flex justify-between items-center p-3 bg-slate-800 rounded-lg">
-                  <div>
-                    <span className="text-white font-medium">{booking.beater?.name}</span>
-                    <span className={`ml-3 px-2 py-1 rounded text-xs font-medium ${
-                      booking.status === 'CONFIRMED' ? 'bg-green-900 text-green-200' :
-                      booking.status === 'DECLINED' ? 'bg-red-900 text-red-200' :
-                      'bg-yellow-900 text-yellow-200'
-                    }`}>
-                      {booking.status}
-                    </span>
-                  </div>
-                  <span className="text-amber-500 font-medium">£{booking.dayRate}</span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-slate-400">No beaters booked yet.</p>
-          )}
-        </Card>
+        <ShootBeaters
+          shootId={shoot.id}
+          syndicateId={shoot.syndicateId}
+          shootStatus={shoot.status}
+          bookings={shoot.beaterBookings ?? []}
+          payments={shoot.beaterPayments ?? []}
+          onChanged={refreshShoot}
+        />
 
         {/* Bag Totals */}
         <Card>

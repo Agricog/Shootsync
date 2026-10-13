@@ -57,9 +57,7 @@ const CASES: Case[] = [
   { name: 'add beater', method: 'POST', path: () => '/api/beaters', body: (x) => ({ syndicateId: x.syndicate.id, name: 'New Beater' }), level: 'captain' },
   { name: 'update beater', method: 'PATCH', path: (x) => `/api/beaters/${x.beater.id}`, body: () => ({ bankAccountNumber: '99999999' }), level: 'captain' },
   { name: 'deactivate beater', method: 'DELETE', path: (x) => `/api/beaters/${x.beater.id}`, level: 'captain' },
-  { name: 'book beater', method: 'POST', path: (x) => `/api/beaters/${x.beater.id}/book`, body: (x) => ({ shootId: x.shoot.id }), level: 'captain' },
-  { name: 'pay beater', method: 'POST', path: (x) => `/api/beaters/${x.beater.id}/pay`, body: (x) => ({ paymentIds: [x.payment.id], paymentReference: 'REF' }), level: 'captain' },
-  { name: 'pay beater in full', method: 'POST', path: (x) => `/api/beaters/pay-all/${x.beater.id}`, body: () => ({ paymentReference: 'REF' }), level: 'captain' },
+  { name: 'pay beater', method: 'POST', path: (x) => `/api/beaters/${x.beater.id}/pay`, body: (x) => ({ payments: [{ paymentId: x.payment.id, amount: 4000 }], paymentReference: 'REF' }), level: 'captain' },
   // Shoots
   { name: 'list shoots', method: 'GET', path: (x) => `/api/shoots?syndicateId=${x.syndicate.id}`, level: 'member' },
   { name: 'read shoot sheet', method: 'GET', path: (x) => `/api/shoots/${x.shoot.id}`, level: 'captain' },
@@ -67,6 +65,9 @@ const CASES: Case[] = [
   { name: 'update shoot', method: 'PATCH', path: (x) => `/api/shoots/${x.shoot.id}`, body: () => ({ locationName: 'Moved' }), level: 'captain' },
   { name: 'complete shoot', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/complete`, level: 'captain' },
   { name: 'cancel shoot', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/cancel`, level: 'captain' },
+  { name: 'book beaters onto a day', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/beaters`, body: (x) => ({ beaterIds: [x.beater.id] }), level: 'captain' },
+  { name: 'change a beater booking', method: 'PATCH', path: (x) => `/api/shoots/${x.shoot.id}/beaters/${x.booking.id}`, body: () => ({ status: 'NO_SHOW' }), level: 'captain' },
+  { name: 'remove a beater booking', method: 'DELETE', path: (x) => `/api/shoots/${x.shoot.id}/beaters/${x.booking.id}`, level: 'captain' },
   { name: 'read peg sheet', method: 'GET', path: (x) => `/api/shoots/${x.shoot.id}/pegs`, level: 'captain' },
   { name: 'draw pegs', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/pegs/draw`, body: (x) => ({ method: 'fair', numberOfPegs: 4, memberIds: [x.gun.id, x.captainMember.id] }), level: 'captain' },
   { name: 'save pegs', method: 'PUT', path: (x) => `/api/shoots/${x.shoot.id}/pegs`, body: (x) => ({ allocations: [{ memberId: x.gun.id, pegNumber: 2 }] }), level: 'captain' },
@@ -176,12 +177,26 @@ describe('cross-account isolation', () => {
   }
 
   describe('records from another syndicate cannot be linked in', () => {
-    it("captain A cannot book their beater onto B's shoot", async () => {
-      const res = await call(server, `/api/beaters/${data.a.beater.id}/book`, {
-        method: 'POST', as: CAPTAIN_A, body: { shootId: data.b.shoot.id },
+    it("captain A cannot book their beater onto B's shoot, or B's beater onto their own", async () => {
+      const before = await prisma.beaterBooking.count()
+      const ontoB = await call(server, `/api/shoots/${data.b.shoot.id}/beaters`, {
+        method: 'POST', as: CAPTAIN_A, body: { beaterIds: [data.a.beater.id] },
       })
-      assert.equal(res.status, 400)
-      assert.equal(await prisma.beaterBooking.count(), 0)
+      assert.equal(ontoB.status, 404)
+      const bsBeater = await call(server, `/api/shoots/${data.a.shoot.id}/beaters`, {
+        method: 'POST', as: CAPTAIN_A, body: { beaterIds: [data.b.beater.id] },
+      })
+      assert.equal(bsBeater.status, 400)
+      assert.equal(await prisma.beaterBooking.count(), before)
+    })
+
+    it("captain A cannot change B's booking through their own shoot", async () => {
+      const res = await call(server, `/api/shoots/${data.a.shoot.id}/beaters/${data.b.booking.id}`, {
+        method: 'PATCH', as: CAPTAIN_A, body: { status: 'NO_SHOW' },
+      })
+      assert.equal(res.status, 404)
+      const booking = await prisma.beaterBooking.findUniqueOrThrow({ where: { id: data.b.booking.id } })
+      assert.equal(booking.status, 'CONFIRMED')
     })
 
     it("captain A cannot save B's member onto their peg list", async () => {
@@ -211,7 +226,7 @@ describe('cross-account isolation', () => {
 
     it("captain A cannot mark B's beater payment as paid through their own beater", async () => {
       await call(server, `/api/beaters/${data.a.beater.id}/pay`, {
-        method: 'POST', as: CAPTAIN_A, body: { paymentIds: [data.b.payment.id] },
+        method: 'POST', as: CAPTAIN_A, body: { payments: [{ paymentId: data.b.payment.id, amount: 4000 }] },
       })
       const payment = await prisma.beaterPayment.findUnique({ where: { id: data.b.payment.id } })
       assert.equal(payment?.status, 'PENDING')

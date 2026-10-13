@@ -12,7 +12,7 @@ const createSyndicateSchema = z.object({
   seasonEnd: dateString.transform((s) => new Date(s)),
   subscriptionAmount: z.number().int().min(0).max(1_000_000).optional(),
   subscriptionType: z.enum(['ANNUAL', 'PER_SHOOT', 'HYBRID']).optional(),
-  defaultBeaterRate: z.number().int().min(0).max(10_000).optional(),
+  defaultBeaterRate: z.number().int().min(0).max(1000).optional(),
   pegRotationRule: z.enum(['FAIR_ROTATION', 'RANDOM', 'MANUAL']).optional(),
 })
 

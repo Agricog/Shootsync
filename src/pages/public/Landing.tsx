@@ -18,9 +18,9 @@ import { SITE } from '../../config/site'
 import { FAQS } from '../../content/faq'
 
 const TITLE = 'Shooting Syndicate Management Software for UK | ShootSync'
-const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, a fair peg draw, bag records by drive, the beating team and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
+const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, a fair peg draw, bag records, beaters' pay and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
 const QUICK_ANSWER =
-  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, a fair peg draw, bag records, the beating team and guest guns in one place.'
+  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, a fair peg draw, bag records, beaters’ pay and guest guns in one place.'
 
 const FEATURES = [
   {
@@ -47,9 +47,9 @@ const FEATURES = [
   {
     icon: PoundSterling,
     anchor: 'beaters',
-    linkLabel: 'The beating team',
-    title: 'Your beating team in one list',
-    text: 'Every beater with their day rate, phone, email and bank details, kept by the captain in one place.',
+    linkLabel: 'Paying beaters',
+    title: 'Beaters’ day rates and pay',
+    text: 'Book beaters onto each day. Complete the day and see who’s owed what, mark it paid, and export a sheet for your bank.',
   },
   {
     icon: UserPlus,
@@ -89,8 +89,8 @@ const SEASON_STEPS = [
     text: 'Drive by drive on the day, so the numbers are there when the game book needs filling in.',
   },
   {
-    title: 'No fees to chase',
-    text: 'Guests have paid their day fee by card before they reach the meet, and you can see who has paid.',
+    title: 'Settle up',
+    text: 'Guests have already paid by card. Mark the day complete, pay the beaters what they’re owed, and mark them paid.',
   },
 ] as const
 
@@ -98,7 +98,7 @@ const PAINS = [
   'The peg draw argued over in the car park',
   'A spreadsheet only the captain can find',
   'Guest day fees chased by text for a fortnight',
-  'Beaters’ bank details scattered across old texts',
+  'Beaters’ money worked out on the back of the game card',
   'Bag numbers lost in a WhatsApp thread',
 ] as const
 
@@ -178,7 +178,7 @@ export default function Landing() {
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto">
             Run your syndicate’s season from one place: members, shoot days, a fair peg draw, the bag
-            book, the beating team and guest guns, instead of WhatsApp threads and a spreadsheet.
+            book, beaters’ pay and guest guns, instead of WhatsApp threads and a spreadsheet.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/signup" className={`${button} bg-green-600 hover:bg-green-700 text-white`}>
@@ -237,7 +237,7 @@ export default function Landing() {
               Everything a shoot captain does, in one place
             </h2>
             <p className="mt-4 text-slate-400">
-              From setting up the season to recording the last drive.
+              From setting up the season to paying the beaters after the last drive.
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

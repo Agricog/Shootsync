@@ -105,9 +105,9 @@ export default function Beaters() {
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'ACTIVE': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-      case 'INACTIVE': return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
-      default: return 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200'
+      case 'ACTIVE': return 'bg-green-900 text-green-200'
+      case 'INACTIVE': return 'bg-slate-700 text-slate-200'
+      default: return 'bg-slate-700 text-slate-200'
     }
   }
 
@@ -222,7 +222,7 @@ export default function Beaters() {
         {beaters.length === 0 ? (
           <Card>
             <div className="text-center py-8">
-              <p className="text-gray-900 mb-4">No beaters added yet.</p>
+              <p className="text-white mb-4">No beaters added yet.</p>
               <Button onClick={() => setShowAddForm(true)}>Add Your First Beater</Button>
             </div>
           </Card>
@@ -232,10 +232,10 @@ export default function Beaters() {
               <Card key={beater.id} hover>
                 <div className="flex justify-between items-start">
                   <div>
-                    <h3 className="text-lg font-semibold text-gray-900">{beater.name}</h3>
+                    <h3 className="text-lg font-semibold text-white">{beater.name}</h3>
                     <p className="text-amber-600">£{beater.dayRate}/day</p>
-                    {beater.phone && <p className="text-gray-700 text-sm mt-1">{beater.phone}</p>}
-                    {beater.email && <p className="text-gray-700 text-sm">{beater.email}</p>}
+                    {beater.phone && <p className="text-slate-300 text-sm mt-1">{beater.phone}</p>}
+                    {beater.email && <p className="text-slate-300 text-sm">{beater.email}</p>}
                   </div>
                   <div className="flex items-center gap-3">
                     <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(beater.status)}`}>

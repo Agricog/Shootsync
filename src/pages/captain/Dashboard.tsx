@@ -146,8 +146,8 @@ export default function CaptainDashboard() {
     return (
       <DashboardLayout>
         <div className="max-w-2xl mx-auto text-center py-12">
-          <h1 className="text-3xl font-bold mb-4">Welcome to ShootSync! 🎯</h1>
-          <p className="text-gray-600 dark:text-gray-400 mb-8">
+          <h1 className="text-3xl font-bold text-white mb-4">Welcome to ShootSync! 🎯</h1>
+          <p className="text-slate-400 mb-8">
             Let's get started by creating your first syndicate.
           </p>
           <Link to="/syndicate/create">
@@ -209,7 +209,7 @@ export default function CaptainDashboard() {
         </div>
 
         <Card>
-          <h2 className="text-lg font-semibold mb-4">Quick Actions</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <Link to="/shoots/new" className="block">
               <Button variant="primary" className="w-full">Schedule Shoot Day</Button>
@@ -224,8 +224,8 @@ export default function CaptainDashboard() {
         </Card>
 
         <Card>
-          <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
-          <p className="text-gray-600 dark:text-gray-400">
+          <h2 className="text-lg font-semibold text-white mb-4">Recent Activity</h2>
+          <p className="text-slate-400">
             No recent activity yet. Start by inviting members or scheduling a shoot day.
           </p>
         </Card>

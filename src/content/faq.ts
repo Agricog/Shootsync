@@ -25,7 +25,7 @@ export const FAQS: Faq[] = [
   {
     question: 'Who is ShootSync for?',
     answer:
-      'Captains and organisers of UK driven shooting syndicates: pheasant, partridge and duck days run by a group of guns who share the costs and the work. It is built around how a syndicate season actually runs, from setting up the season to recording the last drive.',
+      'Captains and organisers of UK driven shooting syndicates: pheasant, partridge and duck days run by a group of guns who share the costs and the work. It is built around how a syndicate season actually runs, from setting up the season to paying the beaters after the last drive.',
   },
   {
     question: 'How does the peg draw work?',
@@ -43,9 +43,9 @@ export const FAQS: Faq[] = [
       'No. You invite a guest from the shoot day and copy them their own link to send by text or email. They read and accept the guest waiver, give an emergency contact, and pay the day fee by card. Card payments are handled by Stripe, so card details never reach ShootSync.',
   },
   {
-    question: 'How does ShootSync help with beaters?',
+    question: 'How does ShootSync help with paying beaters?',
     answer:
-      "Keep your beating team in one list, with each beater's day rate, phone, email and bank details, so the details you need on the day and for paying them are in one place, seen only by you. The money itself moves through your own bank, as it does now.",
+      "Book your beaters onto each shoot day and mark who confirmed. When you mark the day complete, everyone confirmed is owed their day rate. You see what each beater is owed, day by day, mark them paid with your bank reference, and export a sheet with bank details and amounts for your bank. Each beater's days this tax year are counted too, with a flag past HMRC's 14-day casual limit. The money itself still moves through your own bank.",
   },
   {
     question: 'Do my guns need to sign up?',

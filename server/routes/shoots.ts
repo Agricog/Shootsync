@@ -1,4 +1,5 @@
 import { Router } from 'express'
+import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
 import {
@@ -14,6 +15,7 @@ import {
   withoutCaptainOnlyFields,
 } from '../access.js'
 import { fairDraw, randomDraw } from '../pegDraw.js'
+import { lockShoot, syncBeaterPayments } from '../beaterPay.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
@@ -51,6 +53,21 @@ const drawSchema = z.object({
     .max(MAX_PEGS)
     .refine((ids) => new Set(ids).size === ids.length, 'A gun is listed twice'),
 })
+
+const bookBeatersSchema = z.object({
+  beaterIds: z
+    .array(z.string().min(1).max(64))
+    .min(1, 'Choose at least one beater')
+    .max(100)
+    .refine((ids) => new Set(ids).size === ids.length, 'A beater is listed twice'),
+})
+
+const updateBookingSchema = z
+  .object({
+    status: z.enum(['INVITED', 'CONFIRMED', 'DECLINED', 'NO_SHOW']).optional(),
+    dayRate: z.number().int().min(0).max(1000).optional(),
+  })
+  .refine((d) => d.status !== undefined || d.dayRate !== undefined, 'Nothing to change')
 
 const savePegsSchema = z.object({
   allocations: z
@@ -98,7 +115,9 @@ export function shootRoutes({ prisma }: Deps): Router {
         guestGuns: { include: { invitedByMember: { select: { id: true, name: true } } } },
         beaterBookings: {
           include: { beater: { select: { id: true, name: true, phone: true, email: true, dayRate: true } } },
+          orderBy: { beater: { name: 'asc' } },
         },
+        beaterPayments: { select: { beaterId: true, amount: true, status: true } },
         bagRecords: { orderBy: { driveNumber: 'asc' } },
       },
     })
@@ -152,24 +171,129 @@ export function shootRoutes({ prisma }: Deps): Router {
     res.json(shoot)
   }))
 
-  // POST /api/shoots/:id/complete - captain only
+  // POST /api/shoots/:id/complete - captain only.
+  // Completing the day records what each confirmed beater is owed (server/beaterPay.ts).
+  // Completing again is harmless: the records are brought into line, never doubled.
   router.post('/:id/complete', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-    const shoot = await prisma.shootDay.update({ where: { id: req.params.id }, data: { status: 'COMPLETED' } })
+    const shoot = await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
+      if (!current) throw notFound('Shoot not found')
+      if (current.status === 'CANCELLED') throw new HttpError(400, 'A cancelled shoot day cannot be completed')
+      const updated = await tx.shootDay.update({ where: { id: req.params.id }, data: { status: 'COMPLETED' } })
+      await syncBeaterPayments(tx, req.params.id)
+      return updated
+    })
     res.json(shoot)
   }))
 
-  // POST /api/shoots/:id/cancel - captain only
+  // POST /api/shoots/:id/cancel - captain only. Not once beaters have been paid for the day.
   router.post('/:id/cancel', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-    const shoot = await prisma.shootDay.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } })
+    const shoot = await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const paid = await tx.beaterPayment.count({ where: { shootId: req.params.id, status: 'PAID' } })
+      if (paid > 0) throw new HttpError(409, 'Beaters have already been paid for this day, so it cannot be cancelled')
+      const updated = await tx.shootDay.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } })
+      await syncBeaterPayments(tx, req.params.id)
+      return updated
+    })
     res.json(shoot)
+  }))
+
+  // ---- Beaters on the day --------------------------------------------------------
+  // The captain books beaters onto the day and marks how each one stands. On a completed
+  // day every change is followed by syncBeaterPayments, so what's owed always matches.
+  // A booking whose pay has been marked paid can't be changed or removed.
+
+  const requirePaidNot = async (tx: Prisma.TransactionClient, shootId: string, beaterId: string) => {
+    const paid = await tx.beaterPayment.count({ where: { shootId, beaterId, status: 'PAID' } })
+    if (paid > 0) throw new HttpError(409, 'This beater has already been paid for the day')
+  }
+
+  /** Read inside the locked transaction, so a booking removed a moment ago is a clean 404. */
+  const bookingOnShoot = async (tx: Prisma.TransactionClient, shootId: string, bookingId: string) => {
+    const booking = await tx.beaterBooking.findUnique({ where: { id: bookingId }, select: { id: true, shootId: true, beaterId: true } })
+    if (!booking || booking.shootId !== shootId) throw notFound('Booking not found')
+    return booking
+  }
+
+  // POST /api/shoots/:id/beaters - book beaters at their own day rate, captain only
+  router.post('/:id/beaters', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfShoot(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const { beaterIds } = bookBeatersSchema.parse(req.body)
+
+    await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const shoot = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
+      if (shoot?.status === 'CANCELLED') throw new HttpError(400, 'This shoot day is cancelled')
+      const beaters = await tx.beater.findMany({
+        where: { id: { in: beaterIds }, syndicateId: syndicateId!, status: 'ACTIVE' },
+        select: { id: true, dayRate: true },
+      })
+      if (beaters.length !== beaterIds.length) throw new HttpError(400, 'Every beater must be an active beater in this syndicate')
+      await tx.beaterBooking.createMany({
+        data: beaters.map((b) => ({ syndicateId: syndicateId!, beaterId: b.id, shootId: req.params.id, dayRate: b.dayRate, status: 'INVITED' as const })),
+        skipDuplicates: true,
+      })
+      await syncBeaterPayments(tx, req.params.id)
+    })
+
+    const bookings = await prisma.beaterBooking.findMany({
+      where: { shootId: req.params.id },
+      include: { beater: { select: { id: true, name: true, phone: true } } },
+      orderBy: { beater: { name: 'asc' } },
+    })
+    res.status(201).json(bookings)
+  }))
+
+  // PATCH /api/shoots/:id/beaters/:bookingId - status or day rate, captain only
+  router.patch('/:id/beaters/:bookingId', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfShoot(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const data = updateBookingSchema.parse(req.body)
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const booking = await bookingOnShoot(tx, req.params.id, req.params.bookingId)
+      await requirePaidNot(tx, req.params.id, booking.beaterId)
+      const result = await tx.beaterBooking.update({
+        where: { id: booking.id },
+        data: {
+          ...data,
+          ...(data.status === 'CONFIRMED' ? { confirmedAt: new Date() } : {}),
+        },
+      })
+      await syncBeaterPayments(tx, req.params.id)
+      return result
+    })
+    res.json(updated)
+  }))
+
+  // DELETE /api/shoots/:id/beaters/:bookingId - take a beater off the day, captain only
+  router.delete('/:id/beaters/:bookingId', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfShoot(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+
+    await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const booking = await bookingOnShoot(tx, req.params.id, req.params.bookingId)
+      await requirePaidNot(tx, req.params.id, booking.beaterId)
+      await tx.beaterBooking.delete({ where: { id: booking.id } })
+      await syncBeaterPayments(tx, req.params.id)
+    })
+    res.json({ success: true })
   }))
 
   // ---- Peg draw ----------------------------------------------------------------
@@ -283,7 +407,7 @@ export function shootRoutes({ prisma }: Deps): Router {
     // One save per shoot day at a time: the row lock makes a second save (another tab or
     // device) wait, then replace the list whole, so two guns can never end up on one peg.
     await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT id FROM shoot_days WHERE id = ${shoot.id} FOR UPDATE`
+      await lockShoot(tx, shoot.id)
       await requireActiveGuns(shoot.syndicateId, memberIds, tx)
       await tx.shootAttendance.updateMany({
         where: { shootId: shoot.id, memberId: { notIn: memberIds } },
@@ -322,17 +446,21 @@ export function shootRoutes({ prisma }: Deps): Router {
     res.json(attendance)
   }))
 
-  // DELETE /api/shoots/:id - captain only, not once completed
+  // DELETE /api/shoots/:id - captain only, not once completed, never once anyone has been paid for it
   router.delete('/:id', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-    const shoot = await prisma.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
-    if (!shoot) throw notFound('Shoot not found')
-    if (shoot.status === 'COMPLETED') throw new HttpError(400, 'Cannot delete completed shoots')
-
-    await prisma.shootDay.delete({ where: { id: req.params.id } })
+    await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const shoot = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
+      if (!shoot) throw notFound('Shoot not found')
+      if (shoot.status === 'COMPLETED') throw new HttpError(400, 'Cannot delete completed shoots')
+      const paid = await tx.beaterPayment.count({ where: { shootId: req.params.id, status: 'PAID' } })
+      if (paid > 0) throw new HttpError(409, 'Beaters have been paid for this day, so it cannot be deleted')
+      await tx.shootDay.delete({ where: { id: req.params.id } })
+    })
     res.json({ success: true })
   }))
 

@@ -26,7 +26,7 @@ export default function Card({
 
   return (
     <div 
-      className={`bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 shadow-sm ${paddingClasses[padding]} ${hoverClass} ${className}`}
+      className={`bg-slate-800 rounded-lg border border-slate-700 shadow-sm ${paddingClasses[padding]} ${hoverClass} ${className}`}
       onClick={onClick}
     >
       {children}
@@ -59,12 +59,12 @@ export function CardHeader({
       <div className="flex items-start justify-between">
         <div>
           {title && (
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <h3 className="text-lg font-semibold text-white">
               {title}
             </h3>
           )}
           {subtitle && (
-            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+            <p className="text-sm text-slate-400 mt-1">
               {subtitle}
             </p>
           )}
@@ -82,7 +82,7 @@ export function CardContent({ children, className = '' }: { children: ReactNode;
 
 export function CardFooter({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`mt-4 pt-4 border-t border-gray-200 dark:border-gray-700 ${className}`}>
+    <div className={`mt-4 pt-4 border-t border-slate-700 ${className}`}>
       {children}
     </div>
   )
@@ -112,13 +112,13 @@ export function StatCard({
     <Card className={className}>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mb-1">{displayTitle}</p>
-          <p className="text-2xl font-bold text-gray-900 dark:text-gray-100">{value}</p>
+          <p className="text-sm text-slate-400 mb-1">{displayTitle}</p>
+          <p className="text-2xl font-bold text-white">{value}</p>
           {subtitle && (
-            <p className="text-sm text-gray-500 dark:text-gray-500 mt-1">{subtitle}</p>
+            <p className="text-sm text-slate-500 mt-1">{subtitle}</p>
           )}
         </div>
-        {icon && <div className="text-gray-400 dark:text-gray-600">{icon}</div>}
+        {icon && <div className="text-slate-500">{icon}</div>}
       </div>
     </Card>
   )

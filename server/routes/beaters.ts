@@ -9,9 +9,9 @@ import {
   queryString,
   requireSyndicateAccess,
   syndicateOfBeater,
-  syndicateOfShoot,
   userIdOf,
 } from '../access.js'
+import { HMRC_CASUAL_DAY_LIMIT, lockShoots, normaliseAccountNumber, normaliseSortCode, poundsToPence, taxYearOf } from '../beaterPay.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 
@@ -20,26 +20,41 @@ const createBeaterSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().email().max(254).optional().or(z.literal('').transform(() => undefined)),
   phone: optionalText(30),
-  dayRate: z.number().int().min(0).max(10_000).optional(),
+  dayRate: z.number().int().min(0).max(1000).optional(),
   bankName: optionalText(100),
-  bankSortCode: optionalText(20),
-  bankAccountNumber: optionalText(20),
+  bankSortCode: z
+    .string()
+    .trim()
+    .max(20)
+    .optional()
+    .transform((v, ctx) => {
+      if (!v) return undefined
+      const sortCode = normaliseSortCode(v)
+      if (!sortCode) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Sort code must be 6 digits, like 12-34-56' })
+      return sortCode ?? undefined
+    }),
+  bankAccountNumber: z
+    .string()
+    .trim()
+    .max(20)
+    .optional()
+    .transform((v, ctx) => {
+      if (!v) return undefined
+      const account = normaliseAccountNumber(v)
+      if (!account) ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Account number must be 8 digits' })
+      return account ?? undefined
+    }),
   notes: optionalText(2000),
 })
 
 const updateBeaterSchema = createBeaterSchema.omit({ syndicateId: true }).partial()
 
-const bookSchema = z.object({
-  shootId: z.string().min(1),
-  dayRate: z.number().int().min(0).max(10_000).optional(),
-})
-
 const paySchema = z.object({
-  paymentIds: z.array(z.string().min(1)).min(1).max(500),
-  paymentReference: optionalText(100),
-})
-
-const payAllSchema = z.object({
+  payments: z
+    .array(z.object({ paymentId: z.string().min(1).max(64), amount: z.number().int().min(0) }))
+    .min(1)
+    .max(500)
+    .refine((list) => new Set(list.map((p) => p.paymentId)).size === list.length, 'A payment is listed twice'),
   paymentReference: optionalText(100),
 })
 
@@ -63,49 +78,91 @@ export function beaterRoutes({ prisma }: Deps): Router {
     res.json(beaters.map(maskBankDetails))
   }))
 
-  // GET /api/beaters/payments/summary?syndicateId= - full bank details, needed to pay beaters
+  // GET /api/beaters/payments/summary?syndicateId= - full bank details, needed to pay beaters.
+  // Money is in pence. A day counts once the shoot is completed and the beater was confirmed
+  // (server/beaterPay.ts). Inactive beaters still appear while they are owed money.
   router.get('/payments/summary', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const taxYear = taxYearOf(new Date())
 
     const beaters = await prisma.beater.findMany({
-      where: { syndicateId, status: 'ACTIVE' },
-      include: { payments: true, bookings: { where: { status: 'CONFIRMED' } } },
+      where: { syndicateId, OR: [{ status: 'ACTIVE' }, { payments: { some: { status: 'PENDING' } } }] },
+      include: {
+        payments: {
+          include: { shootDay: { select: { date: true, locationName: true } } },
+          orderBy: { shootDay: { date: 'asc' } },
+        },
+        // Days still to come this tax year that the beater has confirmed for: HMRC's test is
+        // whether a casual is expected to go over the limit, not only whether they already have.
+        bookings: {
+          where: {
+            status: 'CONFIRMED',
+            shootDay: { status: 'SCHEDULED', date: { gte: taxYear.start, lt: taxYear.end } },
+          },
+          select: { shootDay: { select: { date: true } } },
+        },
+      },
       orderBy: { name: 'asc' },
     })
 
     const summary = beaters.map((beater) => {
-      const sum = (status?: 'PAID' | 'PENDING') =>
-        beater.payments
-          .filter((p) => (status ? p.status === status : true))
-          .reduce((total, p) => total + p.amount, 0)
+      const pending = beater.payments.filter((p) => p.status === 'PENDING')
+      const paid = beater.payments.filter((p) => p.status === 'PAID')
+      const total = (list: typeof beater.payments) => list.reduce((sum, p) => sum + p.amount, 0)
+      // Days are calendar dates: a morning and an afternoon shoot on one date are one day.
+      const dayKey = (d: Date) => d.toISOString().slice(0, 10)
+      const worked = new Set(
+        beater.payments.filter((p) => p.shootDay.date >= taxYear.start && p.shootDay.date < taxYear.end).map((p) => dayKey(p.shootDay.date))
+      )
+      const expected = new Set([...worked, ...beater.bookings.map((b) => dayKey(b.shootDay.date))])
+      const daysThisTaxYear = worked.size
+      const daysExpectedThisTaxYear = expected.size
 
       return {
         id: beater.id,
         name: beater.name,
         email: beater.email,
         phone: beater.phone,
+        status: beater.status,
         bankName: beater.bankName,
         bankSortCode: beater.bankSortCode,
         bankAccountNumber: beater.bankAccountNumber,
-        dayRate: beater.dayRate,
-        daysWorked: beater.bookings.length,
-        totalEarned: sum(),
-        totalPaid: sum('PAID'),
-        totalOutstanding: sum('PENDING'),
-        payments: beater.payments.filter((p) => p.status === 'PENDING'),
+        dayRatePence: poundsToPence(beater.dayRate),
+        daysWorked: new Set(beater.payments.map((p) => dayKey(p.shootDay.date))).size,
+        daysThisTaxYear,
+        daysExpectedThisTaxYear,
+        // over: already past the limit. expectedOver: booked days will take them past it.
+        // atLimit: exactly at it, so the next day takes them over.
+        casualLimit:
+          daysThisTaxYear > HMRC_CASUAL_DAY_LIMIT
+            ? 'over'
+            : daysExpectedThisTaxYear > HMRC_CASUAL_DAY_LIMIT
+              ? 'expectedOver'
+              : daysExpectedThisTaxYear === HMRC_CASUAL_DAY_LIMIT
+                ? 'atLimit'
+                : 'under',
+        totalEarned: total(beater.payments),
+        totalPaid: total(paid),
+        totalOutstanding: total(pending),
+        owed: pending.map((p) => ({
+          paymentId: p.id,
+          amount: p.amount,
+          shootDate: p.shootDay.date,
+          locationName: p.shootDay.locationName,
+        })),
       }
     })
 
     const totals = {
-      totalOutstanding: summary.reduce((total, b) => total + b.totalOutstanding, 0),
-      totalPaid: summary.reduce((total, b) => total + b.totalPaid, 0),
-      totalEarned: summary.reduce((total, b) => total + b.totalEarned, 0),
+      totalOutstanding: summary.reduce((sum, b) => sum + b.totalOutstanding, 0),
+      totalPaid: summary.reduce((sum, b) => sum + b.totalPaid, 0),
+      totalEarned: summary.reduce((sum, b) => sum + b.totalEarned, 0),
     }
 
     res.set('Cache-Control', 'no-store')
-    res.json({ beaters: summary, totals })
+    res.json({ beaters: summary, totals, taxYear, casualDayLimit: HMRC_CASUAL_DAY_LIMIT })
   }))
 
   // GET /api/beaters/:id - bank details masked
@@ -181,55 +238,37 @@ export function beaterRoutes({ prisma }: Deps): Router {
     res.json(maskBankDetails(beater))
   }))
 
-  // POST /api/beaters/:id/book - book beater for one of the same syndicate's shoots
-  router.post('/:id/book', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
-    const { shootId, dayRate } = bookSchema.parse(req.body)
-
-    const shootSyndicateId = await syndicateOfShoot(prisma, shootId)
-    if (shootSyndicateId !== syndicateId) throw new HttpError(400, 'Shoot is not in this syndicate')
-
-    const beater = await prisma.beater.findUnique({ where: { id: req.params.id }, select: { dayRate: true } })
-    const booking = await prisma.beaterBooking.create({
-      data: {
-        syndicateId,
-        beaterId: req.params.id,
-        shootId,
-        dayRate: dayRate ?? beater?.dayRate ?? 40,
-        status: 'INVITED',
-      },
-    })
-    res.status(201).json(booking)
-  }))
-
-  // POST /api/beaters/:id/pay - mark chosen payments paid
+  // POST /api/beaters/:id/pay - mark exactly what the captain saw as paid.
+  // Each line names the payment and the amount shown. If any is no longer owed at that
+  // amount (paid elsewhere, rate changed, day changed), nothing is marked and the page reloads.
   router.post('/:id/pay', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
-    const { paymentIds, paymentReference } = paySchema.parse(req.body)
+    const { payments, paymentReference } = paySchema.parse(req.body)
+    const ids = payments.map((p) => p.paymentId)
 
-    const updated = await prisma.beaterPayment.updateMany({
-      where: { id: { in: paymentIds }, beaterId: req.params.id, syndicateId },
-      data: { status: 'PAID', paidDate: new Date(), paymentReference },
+    const result = await prisma.$transaction(async (tx) => {
+      const rows = await tx.beaterPayment.findMany({
+        where: { id: { in: ids }, beaterId: req.params.id, syndicateId: syndicateId! },
+        select: { shootId: true },
+      })
+      await lockShoots(tx, rows.map((r) => r.shootId))
+      const owed = await tx.beaterPayment.findMany({
+        where: { id: { in: ids }, beaterId: req.params.id, syndicateId: syndicateId!, status: 'PENDING' },
+        select: { id: true, amount: true },
+      })
+      const current = new Map(owed.map((p) => [p.id, p.amount]))
+      const stale = payments.some((p) => current.get(p.paymentId) !== p.amount)
+      if (stale) throw new HttpError(409, 'What this beater is owed has changed since the page loaded. Check the amounts and try again.')
+
+      const updated = await tx.beaterPayment.updateMany({
+        where: { id: { in: ids }, status: 'PENDING' },
+        data: { status: 'PAID', paidDate: new Date(), paymentReference },
+      })
+      return { updated: updated.count, total: owed.reduce((sum, p) => sum + p.amount, 0) }
     })
-    res.json({ updated: updated.count })
-  }))
-
-  // POST /api/beaters/pay-all/:id - mark all outstanding payments paid
-  router.post('/pay-all/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
-    const { paymentReference } = payAllSchema.parse(req.body ?? {})
-
-    const updated = await prisma.beaterPayment.updateMany({
-      where: { beaterId: req.params.id, syndicateId, status: 'PENDING' },
-      data: { status: 'PAID', paidDate: new Date(), paymentReference },
-    })
-    res.json({ updated: updated.count })
+    res.json(result)
   }))
 
   return router

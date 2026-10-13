@@ -33,7 +33,7 @@ export const PLANS: readonly Plan[] = [
       'Fair peg rotation across the season',
       'Bag recording by drive, with voice input',
       'Guest gun invites, waivers and online day fees',
-      'Beater list with day rates and bank details',
+      'Beater bookings, pay owed and bank export',
     ],
   },
   {

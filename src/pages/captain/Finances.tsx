@@ -1,143 +1,157 @@
 /**
- * Finances Page - ShootSync
- * Financial overview for captains
+ * Finances - beaters' pay, captain only.
+ *
+ * What's owed comes from completed shoot days: each beater booked and marked Confirmed
+ * on a completed day is owed their booked day rate (server/beaterPay.ts). Money from the
+ * API is in pence. The captain pays through their own bank, then marks the beater paid
+ * here with the bank reference. The export lists everyone owed, ready for the bank.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
-import Card, { CardHeader, CardContent, StatCard } from '../../components/common/Card'
+import Card, { StatCard } from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatCurrency } from '../../config/stripe'
+import { toCsv } from '../../utils/csv'
 
-interface Syndicate {
-  id: string
-  name: string
-}
-
-interface BeaterPayment {
-  id: string
+interface Owed {
+  paymentId: string
   amount: number
-  status: string
+  shootDate: string
+  locationName: string
 }
 
-interface BeaterSummary {
+interface BeaterPay {
   id: string
   name: string
-  email?: string
-  phone?: string
-  bankName?: string
-  bankSortCode?: string
-  bankAccountNumber?: string
-  dayRate: number
+  email?: string | null
+  phone?: string | null
+  status: string
+  bankName?: string | null
+  bankSortCode?: string | null
+  bankAccountNumber?: string | null
+  dayRatePence: number
   daysWorked: number
+  daysThisTaxYear: number
+  daysExpectedThisTaxYear: number
+  casualLimit: 'under' | 'atLimit' | 'expectedOver' | 'over'
   totalEarned: number
   totalPaid: number
   totalOutstanding: number
-  payments: BeaterPayment[]
+  owed: Owed[]
 }
 
-interface PaymentSummary {
-  beaters: BeaterSummary[]
-  totals: {
-    totalOutstanding: number
-    totalPaid: number
-    totalEarned: number
-  }
+interface PaySummary {
+  beaters: BeaterPay[]
+  totals: { totalOutstanding: number; totalPaid: number; totalEarned: number }
+  taxYear: { start: string; end: string }
+  casualDayLimit: number
+}
+
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+const taxYearLabel = (start: string) => {
+  const y = new Date(start).getUTCFullYear()
+  return `${y}/${String((y + 1) % 100).padStart(2, '0')}`
 }
 
 export default function Finances() {
   const { user } = useAuth()
-  const syndicateApi = useApi<Syndicate>('syndicates')
-  
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'overview' | 'beaters'>('overview')
   const [loading, setLoading] = useState(true)
-  const [paymentData, setPaymentData] = useState<PaymentSummary | null>(null)
-  const [paying, setPaying] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const [data, setData] = useState<PaySummary | null>(null)
+  const [payingId, setPayingId] = useState<string | null>(null)
+  const [reference, setReference] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const load = useCallback(async (id: string) => {
+    try {
+      const response = await fetch(`/api/beaters/payments/summary?syndicateId=${encodeURIComponent(id)}`)
+      if (!response.ok) throw new Error(String(response.status))
+      setData(await response.json())
+      setError(null)
+    } catch {
+      setError('Could not load beaters’ pay. Check your connection and try again.')
+    }
+  }, [])
 
   useEffect(() => {
-    if (user?.id) {
-      loadData()
-    }
-  }, [user?.id])
-
-  const loadData = async () => {
-    setLoading(true)
-    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
-    if (syndicates.length > 0) {
-      setSyndicateId(syndicates[0].id)
-      await loadPaymentData(syndicates[0].id)
-    }
-    setLoading(false)
-  }
-
-  const loadPaymentData = async (synId: string) => {
-    try {
-      const response = await fetch(`/api/beaters/payments/summary?syndicateId=${synId}`)
-      if (response.ok) {
-        const data = await response.json()
-        setPaymentData(data)
+    if (!user?.id) return
+    ;(async () => {
+      setLoading(true)
+      try {
+        const response = await fetch('/api/syndicates')
+        const syndicates: { id: string }[] = response.ok ? await response.json() : []
+        if (syndicates.length > 0) {
+          setSyndicateId(syndicates[0].id)
+          await load(syndicates[0].id)
+        }
+      } catch {
+        setError('Could not load your syndicate. Check your connection and try again.')
       }
-    } catch (err) {
-      console.error('Error loading payment data:', err)
-    }
-  }
+      setLoading(false)
+    })()
+  }, [user?.id, load])
 
-  const handlePayBeater = async (beaterId: string) => {
-    const reference = prompt('Enter payment reference (e.g., bank transfer ref):')
-    if (!reference) return
-
-    setPaying(beaterId)
+  const markPaid = async (beater: BeaterPay) => {
+    if (!syndicateId) return
+    setSaving(true)
+    setError(null)
     try {
-      const response = await fetch(`/api/beaters/pay-all/${beaterId}`, {
+      const response = await fetch(`/api/beaters/${encodeURIComponent(beater.id)}/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paymentReference: reference }),
+        // Exactly what's on screen: if any amount has changed since, nothing is marked.
+        body: JSON.stringify({
+          payments: beater.owed.map((o) => ({ paymentId: o.paymentId, amount: o.amount })),
+          paymentReference: reference.trim() || undefined,
+        }),
       })
-
-      if (response.ok) {
-        if (syndicateId) {
-          await loadPaymentData(syndicateId)
-        }
+      const body = await response.json().catch(() => null)
+      if (response.status === 409) {
+        await load(syndicateId)
+        setPayingId(null)
+        setError(`Nothing marked paid: what ${beater.name} is owed has changed. The amounts below are up to date; check them against your bank before marking paid.`)
+      } else if (!response.ok) {
+        throw new Error(String(response.status))
+      } else {
+        setNotice(`${beater.name} marked paid ${formatCurrency(body?.total ?? beater.totalOutstanding)}.`)
+        setPayingId(null)
+        setReference('')
+        await load(syndicateId)
       }
-    } catch (err) {
-      console.error('Error paying beater:', err)
+    } catch {
+      setError(`Not saved: ${beater.name} is still shown as owed. Try again.`)
     }
-    setPaying(null)
+    setSaving(false)
   }
 
-  const exportCSV = () => {
-    if (!paymentData) return
-
-    const headers = ['Name', 'Email', 'Phone', 'Bank Name', 'Sort Code', 'Account Number', 'Days Worked', 'Day Rate', 'Total Earned', 'Total Paid', 'Outstanding']
-    const rows = paymentData.beaters.map(b => [
+  const exportForBank = () => {
+    if (!data) return
+    const owed = data.beaters.filter((b) => b.totalOutstanding > 0)
+    const header = ['Name', 'Bank', 'Sort code', 'Account number', 'Amount (£)', 'Days', 'Reference']
+    const rows = owed.map((b) => [
       b.name,
-      b.email || '',
-      b.phone || '',
-      b.bankName || '',
-      b.bankSortCode || '',
-      b.bankAccountNumber || '',
-      b.daysWorked.toString(),
-      (b.dayRate / 100).toFixed(2),
-      (b.totalEarned / 100).toFixed(2),
-      (b.totalPaid / 100).toFixed(2),
+      b.bankName ?? '',
+      b.bankSortCode ?? '',
+      b.bankAccountNumber ?? '',
       (b.totalOutstanding / 100).toFixed(2),
+      String(b.owed.length),
+      'Beating',
     ])
-
-    const csvContent = [
-      headers.join(','),
-      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
-    ].join('\n')
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const csv = toCsv([header, ...rows])
+    // The byte-order mark makes Excel read names with accents and apostrophes correctly.
+    const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a')
-    link.href = URL.createObjectURL(blob)
-    link.download = `beater-payments-${new Date().toISOString().split('T')[0]}.csv`
+    link.href = url
+    link.download = `beaters-owed-${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
+    URL.revokeObjectURL(url)
   }
 
   if (loading) {
@@ -150,193 +164,161 @@ export default function Finances() {
     )
   }
 
-  const totals = paymentData?.totals || { totalOutstanding: 0, totalPaid: 0, totalEarned: 0 }
+  const totals = data?.totals ?? { totalOutstanding: 0, totalPaid: 0, totalEarned: 0 }
+  const owedCount = data?.beaters.filter((b) => b.totalOutstanding > 0).length ?? 0
+  const owedWithoutBank = data?.beaters.filter((b) => b.totalOutstanding > 0 && !(b.bankSortCode && b.bankAccountNumber)) ?? []
 
   return (
     <>
       <Helmet>
-        <title>Finances - ShootSync</title>
+        <title>Beaters’ Pay | ShootSync</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
       <DashboardLayout>
-        <div className="space-y-6">
-          <div className="flex justify-between items-center">
+        <div className="space-y-6 max-w-4xl">
+          <div className="flex flex-wrap justify-between items-start gap-4">
             <div>
-              <h1 className="text-2xl font-bold text-white">Finances</h1>
-              <p className="text-slate-400">Season 2025-26 financial overview</p>
+              <h1 className="text-2xl font-bold text-white">Beaters’ pay</h1>
+              <p className="text-slate-400">
+                What’s owed comes from completed shoot days: every beater marked Confirmed is owed their day rate.
+              </p>
             </div>
-            <Button variant="secondary" onClick={exportCSV}>
-              Export CSV
+            <Button variant="secondary" onClick={exportForBank} disabled={owedCount === 0}>
+              Export for bank
             </Button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <StatCard
-              title="Total Earned (Beaters)"
-              value={formatCurrency(totals.totalEarned)}
-              subtitle="This season"
-            />
-            <StatCard
-              title="Total Paid"
-              value={formatCurrency(totals.totalPaid)}
-              subtitle="Payments made"
-            />
-            <StatCard
-              title="Outstanding"
-              value={formatCurrency(totals.totalOutstanding)}
-              subtitle="Payments due"
-            />
-          </div>
-
-          <div className="flex gap-2">
-            <TabButton active={activeTab === 'overview'} onClick={() => setActiveTab('overview')}>
-              Overview
-            </TabButton>
-            <TabButton active={activeTab === 'beaters'} onClick={() => setActiveTab('beaters')}>
-              Beater Payments
-            </TabButton>
-          </div>
-
-          {activeTab === 'overview' && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Card>
-                <CardHeader title="Outstanding Beater Payments" />
-                <CardContent>
-                  {paymentData?.beaters.filter(b => b.totalOutstanding > 0).length === 0 ? (
-                    <p className="text-slate-400">No outstanding payments</p>
-                  ) : (
-                    <div className="space-y-3">
-                      {paymentData?.beaters
-                        .filter(b => b.totalOutstanding > 0)
-                        .map(beater => (
-                          <div key={beater.id} className="flex items-center justify-between py-2 border-b border-slate-700 last:border-0">
-                            <div>
-                              <p className="text-white text-sm">{beater.name}</p>
-                              <p className="text-slate-500 text-xs">{beater.daysWorked} days worked</p>
-                            </div>
-                            <span className="text-amber-400">{formatCurrency(beater.totalOutstanding)}</span>
-                          </div>
-                        ))}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader title="Payment Summary" />
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-slate-400">Active Beaters</span>
-                      <span className="text-white font-medium">{paymentData?.beaters.length || 0}</span>
-                    </div>
-                    <div className="flex justify-between items-center py-2">
-                      <span className="text-slate-400">Total Days Worked</span>
-                      <span className="text-white font-medium">
-                        {paymentData?.beaters.reduce((sum, b) => sum + b.daysWorked, 0) || 0}
-                      </span>
-                    </div>
-                    <div className="flex justify-between items-center py-2 border-t border-slate-700">
-                      <span className="text-slate-400">Beaters with Outstanding</span>
-                      <span className="text-amber-400 font-medium">
-                        {paymentData?.beaters.filter(b => b.totalOutstanding > 0).length || 0}
-                      </span>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+          {error && (
+            <p role="alert" className="rounded-lg px-4 py-3 bg-red-900/40 text-red-200 border border-red-800">
+              {error}
+            </p>
+          )}
+          {notice && (
+            <p role="status" className="rounded-lg px-4 py-3 bg-green-900/40 text-green-200 border border-green-800">
+              {notice}
+            </p>
           )}
 
-          {activeTab === 'beaters' && (
+          {owedCount > 0 && (
+            <p className="text-sm text-slate-400">
+              Upload the export to your bank as it is. Opening and re-saving it in Excel can strip leading zeros
+              from account numbers.
+              {owedWithoutBank.length > 0 &&
+                ` ${owedWithoutBank.map((b) => b.name).join(', ')} ${owedWithoutBank.length === 1 ? 'has' : 'have'} no bank details yet, so ${owedWithoutBank.length === 1 ? 'is' : 'are'} exported without them.`}
+            </p>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <StatCard title="Owed now" value={formatCurrency(totals.totalOutstanding)} subtitle={`${owedCount} ${owedCount === 1 ? 'beater' : 'beaters'}`} />
+            <StatCard title="Paid so far" value={formatCurrency(totals.totalPaid)} subtitle="Marked paid" />
+            <StatCard title="Total earned" value={formatCurrency(totals.totalEarned)} subtitle="All completed days" />
+          </div>
+
+          {data && data.beaters.length === 0 && (
             <Card>
-              <CardHeader title="Beater Payments" />
-              <CardContent>
-                {paymentData?.beaters.length === 0 ? (
-                  <p className="text-slate-400">No beaters found. Add beaters from the Beaters page.</p>
-                ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b border-slate-700">
-                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Beater</th>
-                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Days</th>
-                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Earned</th>
-                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Paid</th>
-                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Outstanding</th>
-                          <th className="text-left py-3 px-4 text-slate-400 font-medium text-sm">Bank Details</th>
-                          <th className="text-right py-3 px-4 text-slate-400 font-medium text-sm">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paymentData?.beaters.map(beater => (
-                          <tr key={beater.id} className="border-b border-slate-700/50">
-                            <td className="py-3 px-4">
-                              <p className="text-white">{beater.name}</p>
-                              {beater.email && <p className="text-slate-500 text-xs">{beater.email}</p>}
-                            </td>
-                            <td className="py-3 px-4 text-slate-300">{beater.daysWorked}</td>
-                            <td className="py-3 px-4 text-slate-300">{formatCurrency(beater.totalEarned)}</td>
-                            <td className="py-3 px-4 text-green-400">{formatCurrency(beater.totalPaid)}</td>
-                            <td className="py-3 px-4 text-amber-400">
-                              {beater.totalOutstanding > 0 ? formatCurrency(beater.totalOutstanding) : '-'}
-                            </td>
-                            <td className="py-3 px-4">
-                              {beater.bankSortCode && beater.bankAccountNumber ? (
-                                <div className="text-xs text-slate-400">
-                                  <p>{beater.bankName || 'Bank'}</p>
-                                  <p>{beater.bankSortCode} / {beater.bankAccountNumber}</p>
-                                </div>
-                              ) : (
-                                <span className="text-slate-500 text-xs">Not provided</span>
-                              )}
-                            </td>
-                            <td className="py-3 px-4 text-right">
-                              {beater.totalOutstanding > 0 && (
-                                <Button 
-                                  size="sm" 
-                                  onClick={() => handlePayBeater(beater.id)}
-                                  disabled={paying === beater.id}
-                                >
-                                  {paying === beater.id ? 'Processing...' : 'Mark Paid'}
-                                </Button>
-                              )}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-              </CardContent>
+              <p className="text-slate-300">
+                No beaters yet. Add your beating team under <Link to="/beaters" className="text-green-400 underline">Beaters</Link>, book
+                them onto a shoot day, and mark the day complete afterwards.
+              </p>
             </Card>
           )}
+
+          {data?.beaters.map((beater) => (
+            <Card key={beater.id}>
+              <div className="flex flex-wrap justify-between gap-4">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-semibold text-white">
+                    {beater.name}
+                    {beater.status !== 'ACTIVE' && <span className="ml-2 text-xs text-slate-400">(inactive)</span>}
+                  </h2>
+                  <p className="text-sm text-slate-400">
+                    {formatCurrency(beater.dayRatePence)} a day · {beater.daysWorked} {beater.daysWorked === 1 ? 'day' : 'days'} worked ·{' '}
+                    {beater.daysThisTaxYear} in the {taxYearLabel(data.taxYear.start)} tax year
+                    {beater.daysExpectedThisTaxYear > beater.daysThisTaxYear &&
+                      ` (${beater.daysExpectedThisTaxYear} with days booked)`}
+                  </p>
+                  {beater.casualLimit !== 'under' && (
+                    <p className="mt-2 text-sm text-amber-300 border-l-2 border-amber-500 pl-3">
+                      {beater.casualLimit === 'over'
+                        ? `Over ${data.casualDayLimit} days this tax year. Under HMRC’s casual beaters rules, PAYE applies.`
+                        : beater.casualLimit === 'expectedOver'
+                          ? `Days booked will take them over ${data.casualDayLimit} this tax year. HMRC’s rules look at days expected, so PAYE applies.`
+                          : `At ${data.casualDayLimit} days this tax year. One more day takes them over HMRC’s casual limit, and PAYE applies.`}{' '}
+                      <Link to="/guides/paying-beaters-and-pickers-up#tax" className="underline">What that means</Link>
+                    </p>
+                  )}
+                  <p className="mt-2 text-sm text-slate-400">
+                    {beater.bankSortCode || beater.bankAccountNumber
+                      ? `${beater.bankName ?? 'Bank'} · ${beater.bankSortCode ?? '—'} · ${beater.bankAccountNumber ?? '—'}`
+                      : 'No bank details yet'}
+                  </p>
+                </div>
+                <div className="text-right ml-auto">
+                  <p className="text-2xl font-bold text-white">{formatCurrency(beater.totalOutstanding)}</p>
+                  <p className="text-sm text-slate-400">{beater.totalOutstanding > 0 ? 'owed' : 'nothing owed'}</p>
+                </div>
+              </div>
+
+              {beater.owed.length > 0 && (
+                <>
+                  <ul className="mt-4 divide-y divide-slate-700 text-sm">
+                    {beater.owed.map((o) => (
+                      <li key={o.paymentId} className="flex justify-between py-2 text-slate-300">
+                        <span>
+                          {shortDate(o.shootDate)} · {o.locationName}
+                        </span>
+                        <span>{formatCurrency(o.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+
+                  {payingId === beater.id ? (
+                    <form
+                      className="mt-4 flex flex-wrap items-end gap-3"
+                      onSubmit={(e) => {
+                        e.preventDefault()
+                        markPaid(beater)
+                      }}
+                    >
+                      <label className="flex-1 min-w-[12rem]">
+                        <span className="block text-sm text-slate-300 mb-1">Bank reference (optional)</span>
+                        <input
+                          value={reference}
+                          onChange={(e) => setReference(e.target.value)}
+                          maxLength={100}
+                          className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white"
+                          placeholder="e.g. BEATING DEC"
+                          autoFocus
+                        />
+                      </label>
+                      <Button type="submit" isLoading={saving} disabled={saving}>
+                        Mark {formatCurrency(beater.totalOutstanding)} paid
+                      </Button>
+                      <Button type="button" variant="ghost" onClick={() => setPayingId(null)} disabled={saving}>
+                        Cancel
+                      </Button>
+                    </form>
+                  ) : (
+                    <div className="mt-4">
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          setPayingId(beater.id)
+                          setReference('')
+                          setNotice(null)
+                        }}
+                      >
+                        Mark paid
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </Card>
+          ))}
         </div>
       </DashboardLayout>
     </>
-  )
-}
-
-interface TabButtonProps {
-  active: boolean
-  onClick: () => void
-  children: React.ReactNode
-}
-
-function TabButton({ active, onClick, children }: TabButtonProps) {
-  return (
-    <button
-      onClick={onClick}
-      className={`
-        px-4 py-2 text-sm font-medium rounded-lg transition-colors
-        ${active 
-          ? 'bg-slate-700 text-white' 
-          : 'text-slate-400 hover:text-white hover:bg-slate-800'
-        }
-      `}
-    >
-      {children}
-    </button>
   )
 }

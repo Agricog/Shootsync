@@ -46,7 +46,7 @@ export default function CreateSyndicate() {
   return (
     <DashboardLayout>
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold mb-6">Create Your Syndicate</h1>
+        <h1 className="text-2xl font-bold text-white mb-6">Create Your Syndicate</h1>
         
         <Card>
           <form onSubmit={handleSubmit} className="space-y-6">
