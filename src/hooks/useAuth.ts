@@ -4,6 +4,7 @@
  */
 
 import { useUser, useClerk } from '@clerk/clerk-react'
+import { clearLocalAccountData } from '../lib/session'
 
 export type UserRole = 'captain' | 'gun' | 'beater' | 'guest'
 
@@ -35,6 +36,8 @@ export function useAuth(): UseAuthReturn {
   const syndicateId = (user?.publicMetadata?.syndicateId as string) || null
 
   const signOut = async () => {
+    // Clear this browser's copy of the account before the session ends (Standard §03 Layer 5).
+    await clearLocalAccountData()
     await clerkSignOut()
   }
 

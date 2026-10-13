@@ -12,7 +12,7 @@
  * so old caches are deleted on activate.
  */
 
-const CACHE_NAME = 'shootsync-v2';
+const CACHE_NAME = 'shootsync-v3';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_ASSETS = [
@@ -108,6 +108,21 @@ self.addEventListener('fetch', (event) => {
         return cached || new Response('Offline', { status: 503, statusText: 'Service Unavailable' });
       })
   );
+});
+
+// Purge all ShootSync caches - posted by the app before sign-out (Standard §03 Layer 5)
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'PURGE_CACHES') {
+    event.waitUntil(
+      caches.keys().then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key.startsWith('shootsync-'))
+            .map((key) => caches.delete(key))
+        )
+      )
+    );
+  }
 });
 
 // Background sync for offline bag records
