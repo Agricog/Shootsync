@@ -52,13 +52,17 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
 
         if (session.metadata?.type === 'guest_day_fee' && session.metadata.guestId) {
           if (session.payment_status !== 'paid') return
-          await prisma.guestGun.updateMany({
+          const recorded = await prisma.guestGun.updateMany({
             where: { id: session.metadata.guestId },
             data: {
               paymentStatus: 'PAID',
               stripePaymentId: typeof session.payment_intent === 'string' ? session.payment_intent : null,
             },
           })
+          if (recorded.count === 0) {
+            // The guest was removed: the money arrived but there is no record to attach it to.
+            console.error(`[stripe] guest day fee paid for a guest who no longer exists (guest ${session.metadata.guestId}, session ${session.id}): refund it in Stripe`)
+          }
           console.log(`[stripe] guest day fee paid: guest ${session.metadata.guestId}`)
           return
         }

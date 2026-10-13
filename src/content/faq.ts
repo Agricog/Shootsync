@@ -64,7 +64,7 @@ export const FAQS: Faq[] = [
   },
   {
     question: 'Can I cancel at any time?',
-    answer: `Yes. There is no contract. Email ${SITE.email} and your subscription stops at the end of the month you have paid for.`,
+    answer: `Yes. There is no contract. Cancel in ShootSync under Settings, Manage billing, or email ${SITE.email}, and your subscription stops at the end of the month you have paid for.`,
   },
   {
     question: 'Who can see my syndicate’s information?',

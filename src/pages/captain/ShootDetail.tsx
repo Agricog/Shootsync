@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
 import { useApi } from '../../hooks/useApi'
@@ -12,6 +12,7 @@ import { formatLongDate } from '../../utils/dateHelpers'
 import { formatCurrency } from '../../config/stripe'
 import { generateShootBriefingPDF } from '../../utils/pdfGenerator'
 import ShootBeaters, { type Booking, type PaymentLine } from '../../components/shoots/ShootBeaters'
+import ShootDayEditor from '../../components/shoots/ShootDayEditor'
 
 interface Member {
   id: string
@@ -27,6 +28,7 @@ interface ShootDay {
   locationName: string
   locationAddress?: string
   locationPostcode?: string
+  locationWhat3Words?: string
   meetTime: string
   status: string
   drivesPlanned: number
@@ -89,6 +91,9 @@ export default function ShootDetail() {
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
+
+  const navigate = useNavigate()
+  const [editingDay, setEditingDay] = useState(false)
 
   // Completing the day
   const [confirmingComplete, setConfirmingComplete] = useState(false)
@@ -235,6 +240,7 @@ export default function ShootDetail() {
       locationName: shoot.locationName,
       locationAddress: shoot.locationAddress,
       locationPostcode: shoot.locationPostcode,
+      locationWhat3Words: shoot.locationWhat3Words,
       meetTime: shoot.meetTime,
       drivesPlanned: shoot.drivesPlanned,
       expectedBag: shoot.expectedBag,
@@ -292,23 +298,38 @@ export default function ShootDetail() {
 
       <div className="space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-start">
+        <div className="flex flex-wrap justify-between items-start gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">{shoot.locationName}</h1>
             <p className="text-amber-500">{formatLongDate(shoot.date)} • Meet {shoot.meetTime}</p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Button onClick={handleGenerateBriefing}>
               Generate Briefing
             </Button>
             <Link to={`/pegs?shootId=${shoot.id}`}>
               <Button variant="secondary">Allocate Pegs</Button>
             </Link>
+            {!editingDay && (
+              <Button variant="secondary" onClick={() => setEditingDay(true)}>
+                Edit day
+              </Button>
+            )}
             <Link to="/shoots">
               <Button variant="secondary">Back</Button>
             </Link>
           </div>
         </div>
+
+        {editingDay && (
+          <ShootDayEditor
+            shoot={shoot}
+            paidGuests={shoot.guestGuns.filter((g) => g.paymentStatus === 'PAID').length}
+            onSaved={refreshShoot}
+            onClose={() => setEditingDay(false)}
+            onDeleted={() => navigate('/shoots')}
+          />
+        )}
 
         {/* Status, and completing the day */}
         <div className="flex flex-wrap items-center gap-3">
@@ -512,12 +533,20 @@ export default function ShootDetail() {
                     {guest.waiverAccepted && (
                       <span className="text-sm text-slate-500">Waiver signed ✓</span>
                     )}
-                    <button
-                      onClick={() => handleRemoveGuest(guest.id)}
-                      className="text-sm text-red-400 hover:text-red-300 ml-auto"
-                    >
-                      Remove
-                    </button>
+                    {guest.paymentStatus === 'PAID' && guest.rsvpStatus === 'DECLINED' ? (
+                      <span className="text-sm text-amber-300 ml-auto">Paid after being withdrawn: refund them in Stripe</span>
+                    ) : guest.paymentStatus !== 'PENDING' ? (
+                      <span className="text-sm text-slate-500 ml-auto">Paid, so kept on record</span>
+                    ) : guest.rsvpStatus === 'DECLINED' && guest.waiverAccepted ? (
+                      <span className="text-sm text-slate-500 ml-auto">Withdrawn</span>
+                    ) : (
+                      <button
+                        onClick={() => handleRemoveGuest(guest.id)}
+                        className="text-sm text-red-400 hover:text-red-300 ml-auto"
+                      >
+                        Remove
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -542,7 +571,7 @@ export default function ShootDetail() {
           <h2 className="text-lg font-semibold text-green-500 mb-4">
             Bag Total ({totalBag})
           </h2>
-          <div className="grid grid-cols-5 gap-4 text-center">
+          <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 sm:gap-4 text-center">
             <div className="p-3 bg-slate-800 rounded-lg">
               <p className="text-2xl font-bold text-white">{shoot.bagTotals?.pheasant || 0}</p>
               <p className="text-amber-500 text-sm">Pheasant</p>

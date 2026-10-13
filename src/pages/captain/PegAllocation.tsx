@@ -86,6 +86,8 @@ export default function PegAllocation() {
   const [sheetLoading, setSheetLoading] = useState(false)
   const [shooting, setShooting] = useState<Set<string>>(new Set())
   const [numberOfPegs, setNumberOfPegs] = useState(1)
+  // The syndicate's usual draw (Settings) is shown first; both are always available.
+  const [preferRandom, setPreferRandom] = useState(false)
   const [allocations, setAllocations] = useState<Allocation[]>([])
   const [dirty, setDirty] = useState(false)
 
@@ -102,11 +104,12 @@ export default function PegAllocation() {
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const syndicates = await api<{ id: string }[]>('/api/syndicates')
+      const syndicates = await api<{ id: string; pegRotationRule?: string }[]>('/api/syndicates')
       if (cancelled) return
       if (!syndicates.ok) {
         setLoadError(syndicates.error)
       } else if (syndicates.data.length > 0) {
+        setPreferRandom(syndicates.data[0].pegRotationRule === 'RANDOM')
         const list = await api<ShootOption[]>(`/api/shoots?syndicateId=${encodeURIComponent(syndicates.data[0].id)}`)
         if (cancelled) return
         if (list.ok) setShoots(list.data.filter((s) => s.status !== 'CANCELLED'))
@@ -355,12 +358,17 @@ export default function PegAllocation() {
                         className={`w-24 ${field}`}
                       />
                     </div>
-                    <Button onClick={() => draw('fair')} isLoading={busy === 'fair'} disabled={busy !== null}>
-                      Fair draw
-                    </Button>
-                    <Button variant="secondary" onClick={() => draw('random')} isLoading={busy === 'random'} disabled={busy !== null}>
-                      Random draw
-                    </Button>
+                    {(preferRandom ? (['random', 'fair'] as const) : (['fair', 'random'] as const)).map((method, index) => (
+                      <Button
+                        key={method}
+                        variant={index === 0 ? 'primary' : 'secondary'}
+                        onClick={() => draw(method)}
+                        isLoading={busy === method}
+                        disabled={busy !== null}
+                      >
+                        {method === 'fair' ? 'Fair draw' : 'Random draw'}
+                      </Button>
+                    ))}
                   </div>
                   <p className={`mt-3 text-sm ${muted}`}>
                     <strong>Fair draw:</strong> across the whole line, guns are kept off pegs they have already stood on

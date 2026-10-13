@@ -27,13 +27,29 @@ const createShootSchema = z.object({
   locationAddress: optionalText(300),
   locationPostcode: optionalText(12),
   locationWhat3Words: optionalText(100),
-  meetTime: optionalText(10),
+  meetTime: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Meet time must be like 08:30')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
   drivesPlanned: z.number().int().min(1).max(50).optional(),
   expectedBag: z.number().int().min(0).max(100_000).optional(),
   captainNotes: optionalText(5000),
 })
 
-const updateShootSchema = createShootSchema.omit({ syndicateId: true }).partial()
+// Editing: optional text can be cleared with null; the meet time must be a real time.
+const clearableText = (max: number) => z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v))
+
+const updateShootSchema = createShootSchema
+  .omit({ syndicateId: true, locationAddress: true, locationPostcode: true, locationWhat3Words: true, captainNotes: true, expectedBag: true })
+  .partial()
+  .extend({
+    locationAddress: clearableText(300),
+    locationPostcode: clearableText(12),
+    locationWhat3Words: clearableText(100),
+    captainNotes: clearableText(5000),
+    expectedBag: z.number().int().min(0).max(100_000).nullable().optional(),
+  })
 
 const checkInSchema = z.object({
   memberId: z.string().min(1),
@@ -160,14 +176,27 @@ export function shootRoutes({ prisma }: Deps): Router {
     res.status(201).json(shoot)
   }))
 
-  // PATCH /api/shoots/:id - captain only
+  // PATCH /api/shoots/:id - captain only.
+  // The date can only move while the day is still scheduled and nobody has been owed or paid
+  // for it: pay, the HMRC tax-year count and the peg history all hang off the date.
   router.patch('/:id', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
     const data = updateShootSchema.parse(req.body)
 
-    const shoot = await prisma.shootDay.update({ where: { id: req.params.id }, data })
+    const shoot = await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, req.params.id)
+      const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true, date: true } })
+      if (!current) throw notFound('Shoot not found')
+      if (data.date && data.date.getTime() !== current.date.getTime()) {
+        const payments = await tx.beaterPayment.count({ where: { shootId: req.params.id } })
+        if (current.status !== 'SCHEDULED' || payments > 0) {
+          throw new HttpError(409, 'This day has been completed or cancelled, so its date can no longer change')
+        }
+      }
+      return tx.shootDay.update({ where: { id: req.params.id }, data })
+    })
     res.json(shoot)
   }))
 
@@ -199,6 +228,9 @@ export function shootRoutes({ prisma }: Deps): Router {
 
     const shoot = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
+      const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
+      // A completed day happened: cancelling it would wipe what the beaters are owed.
+      if (current?.status === 'COMPLETED') throw new HttpError(409, 'This day has been completed, so it cannot be cancelled')
       const paid = await tx.beaterPayment.count({ where: { shootId: req.params.id, status: 'PAID' } })
       if (paid > 0) throw new HttpError(409, 'Beaters have already been paid for this day, so it cannot be cancelled')
       const updated = await tx.shootDay.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } })
@@ -459,6 +491,9 @@ export function shootRoutes({ prisma }: Deps): Router {
       if (shoot.status === 'COMPLETED') throw new HttpError(400, 'Cannot delete completed shoots')
       const paid = await tx.beaterPayment.count({ where: { shootId: req.params.id, status: 'PAID' } })
       if (paid > 0) throw new HttpError(409, 'Beaters have been paid for this day, so it cannot be deleted')
+      // Deleting the day would delete its guests too, and with them the record of who paid.
+      const paidGuests = await tx.guestGun.count({ where: { shootId: req.params.id, paymentStatus: 'PAID' } })
+      if (paidGuests > 0) throw new HttpError(409, 'Guests have paid a day fee for this day, so it cannot be deleted. Cancel it instead.')
       await tx.shootDay.delete({ where: { id: req.params.id } })
     })
     res.json({ success: true })

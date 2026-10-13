@@ -47,7 +47,38 @@ const createBeaterSchema = z.object({
   notes: optionalText(2000),
 })
 
-const updateBeaterSchema = createBeaterSchema.omit({ syndicateId: true }).partial()
+const bothOrNeither = {
+  message: 'Enter both the sort code and the account number',
+  path: ['bankAccountNumber'],
+}
+
+const createBeaterInput = createBeaterSchema.refine((d) => Boolean(d.bankSortCode) === Boolean(d.bankAccountNumber), bothOrNeither)
+
+// Editing: a blank or null text field clears it; bank numbers are replaced only when new
+// ones are sent (they are never sent to the browser to be edited), or removed with clearBankDetails.
+const clearable = (max: number) =>
+  z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v))
+
+const updateBeaterSchema = createBeaterSchema
+  .omit({ syndicateId: true, email: true, phone: true, bankName: true, notes: true })
+  .partial()
+  .extend({
+    email: z
+      .string()
+      .trim()
+      .max(254)
+      .nullable()
+      .optional()
+      .transform((v) => (v === '' ? null : v))
+      .refine((v) => v == null || z.string().email().safeParse(v).success, 'That email address doesn’t look right'),
+    phone: clearable(30),
+    bankName: clearable(100),
+    notes: clearable(2000),
+    status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+    clearBankDetails: z.literal(true).optional(),
+  })
+  // A new sort code with the old account number (or the reverse) would pay the wrong account.
+  .refine((d) => Boolean(d.bankSortCode) === Boolean(d.bankAccountNumber), bothOrNeither)
 
 const paySchema = z.object({
   payments: z
@@ -195,7 +226,7 @@ export function beaterRoutes({ prisma }: Deps): Router {
   // POST /api/beaters
   router.post('/', handle(async (req, res) => {
     const userId = userIdOf(req)
-    const data = createBeaterSchema.parse(req.body)
+    const data = createBeaterInput.parse(req.body)
     await requireSyndicateAccess(prisma, data.syndicateId, userId, 'captain')
 
     const beater = await prisma.beater.create({
@@ -219,9 +250,12 @@ export function beaterRoutes({ prisma }: Deps): Router {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
-    const data = updateBeaterSchema.parse(req.body)
+    const { clearBankDetails, ...data } = updateBeaterSchema.parse(req.body)
 
-    const beater = await prisma.beater.update({ where: { id: req.params.id }, data })
+    const beater = await prisma.beater.update({
+      where: { id: req.params.id },
+      data: { ...data, ...(clearBankDetails ? { bankSortCode: null, bankAccountNumber: null, bankName: null } : {}) },
+    })
     res.json(maskBankDetails(beater))
   }))
 

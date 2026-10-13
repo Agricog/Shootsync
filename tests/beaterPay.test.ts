@@ -245,13 +245,13 @@ describe('beater pay API', () => {
     assert.deepEqual([saved.bankSortCode, saved.bankAccountNumber], ['12-34-56', '01234567'])
   })
 
-  it('cancelling a completed day that nobody has been paid for clears what was owed', async () => {
+  it('a completed day cannot be cancelled, so nothing it owes is wiped', async () => {
     const dai = await addBeater('Dai', 45)
     await book([dai.id])
     await setStatus(dai.id, 'CONFIRMED')
     await complete()
-    assert.equal((await as('POST', `/api/shoots/${shootId}/cancel`)).status, 200)
-    assert.equal((await paymentsOn()).length, 0)
+    assert.equal((await as('POST', `/api/shoots/${shootId}/cancel`)).status, 409)
+    assert.deepEqual((await paymentsOn()).map((p) => [p.amount, p.status]), [[4500, 'PENDING']])
   })
 
   it('the pay summary shows what is owed in pence, by day, and counts days in the tax year', async () => {

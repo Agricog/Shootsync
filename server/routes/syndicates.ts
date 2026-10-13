@@ -95,6 +95,14 @@ export function syndicateRoutes({ prisma }: Deps): Router {
     await requireSyndicateAccess(prisma, req.params.id, userId, 'captain')
     const data = updateSyndicateSchema.parse(req.body)
 
+    // The season must still end after it starts once this change is applied, whichever end moves.
+    if (data.seasonStart || data.seasonEnd) {
+      const current = await prisma.syndicate.findUniqueOrThrow({ where: { id: req.params.id }, select: { seasonStart: true, seasonEnd: true } })
+      if ((data.seasonEnd ?? current.seasonEnd) < (data.seasonStart ?? current.seasonStart)) {
+        return res.status(400).json({ error: 'Season end must be after season start' })
+      }
+    }
+
     const syndicate = await prisma.syndicate.update({
       where: { id: req.params.id },
       data,

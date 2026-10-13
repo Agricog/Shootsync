@@ -83,7 +83,8 @@ export default function Terms() {
             heading: 'Cancelling',
             body: (
               <p>
-                There is no contract. Email <a href={`mailto:${email}`}>{email}</a> to cancel. Your subscription
+                There is no contract. Cancel in ShootSync under Settings, Manage billing, or email{' '}
+                <a href={`mailto:${email}`}>{email}</a>. Your subscription
                 stops at the end of the month you have already paid for, and you keep access until then. Outside
                 the money-back guarantee, part months are not refunded.
               </p>

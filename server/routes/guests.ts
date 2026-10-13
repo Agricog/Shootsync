@@ -217,7 +217,26 @@ export function guestRoutes({ prisma }: Deps): Router {
     const syndicateId = await syndicateOfGuest(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
 
-    await prisma.guestGun.delete({ where: { id: req.params.id } })
+    // Paid or refunded guests stay on record: removing them would delete the record of the money.
+    // A guest who has signed the waiver may be on the card page right now, so they are withdrawn
+    // (marked declined, which the checkout refuses) rather than deleted: if a payment still lands,
+    // the record is there to refund against. Only a guest who never reached payment is deleted.
+    // Each write carries its own condition, so a payment arriving at the same moment can't slip past.
+    const guest = await prisma.guestGun.findUnique({ where: { id: req.params.id }, select: { paymentStatus: true, waiverAccepted: true } })
+    if (!guest) throw notFound()
+    if (guest.paymentStatus !== 'PENDING') {
+      throw new HttpError(409, 'This guest has paid their day fee, so they stay on record. Refund them in Stripe if they are not coming.')
+    }
+    if (guest.waiverAccepted) {
+      const withdrawn = await prisma.guestGun.updateMany({
+        where: { id: req.params.id, paymentStatus: 'PENDING' },
+        data: { rsvpStatus: 'DECLINED' },
+      })
+      if (withdrawn.count === 0) throw new HttpError(409, 'This guest has just paid, so they stay on record.')
+      return res.json({ success: true, withdrawn: true })
+    }
+    const removed = await prisma.guestGun.deleteMany({ where: { id: req.params.id, paymentStatus: 'PENDING', waiverAccepted: false } })
+    if (removed.count === 0) throw new HttpError(409, 'This guest’s status has just changed. Reload the page and try again.')
     res.json({ success: true })
   }))
 

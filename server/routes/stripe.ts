@@ -64,6 +64,8 @@ export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
       cancel_url: `${config.frontendUrl}/guest/accept/${guest.inviteToken}`,
       customer_email: guest.email,
       metadata: { guestId: guest.id, type: 'guest_day_fee' },
+      // The card page closes after 30 minutes (Stripe's minimum), so a stale page can't be paid much later.
+      expires_at: Math.floor(Date.now() / 1000) + 30 * 60,
     })
 
     res.json({ url: session.url })
