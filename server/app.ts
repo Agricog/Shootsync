@@ -28,17 +28,48 @@ export interface AppOptions extends Deps {
   verifyToken: TokenVerifier
   /** Built frontend to serve (production). Omitted in tests. */
   staticDir?: string
+  /** Today's UK date, "YYYY-MM-DD". Picks which dated copy of a prerendered page to serve. Tests pass their own. */
+  today?: () => string
 }
 
 const WEBHOOK_PATHS = ['/api/stripe/webhook', '/api/subscriptions/webhook']
 
-/** Reads dist/prerendered/manifest.json. A build without it serves the app shell for every page. */
-function loadPrerenderManifest(staticDir: string): Record<string, string> {
+/** Today's date in the UK, "YYYY-MM-DD". Content dates change at UK midnight, not UTC. */
+export function londonToday(now: Date = new Date()): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now)
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? ''
+  return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+/** One prerendered copy of a page, served from `from` (inclusive) until the next copy's date. */
+export interface PrerenderedCopy {
+  from: string
+  file: string
+}
+
+const SAFE_FILE = /^[a-z0-9-]+\.html$/
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Reads dist/prerendered/manifest.json: path -> copies, oldest first (scripts/prerender.mjs).
+ * A copy with no date is the one built for the build day. Anything that is not a plain file name
+ * or a real date is ignored, so the manifest can never point outside the folder. The older shape
+ * (path -> file name) is still read. A build without a manifest serves the app shell for every page.
+ */
+export function loadPrerenderManifest(staticDir: string): Record<string, PrerenderedCopy[]> {
   try {
     const raw = JSON.parse(readFileSync(path.join(staticDir, 'prerendered', 'manifest.json'), 'utf8'))
-    const safe: Record<string, string> = {}
-    for (const [route, file] of Object.entries(raw)) {
-      if (typeof file === 'string' && /^[a-z0-9-]+\.html$/.test(file)) safe[route] = file
+    const safe: Record<string, PrerenderedCopy[]> = {}
+    for (const [route, value] of Object.entries(raw)) {
+      const entries = typeof value === 'string' ? [{ file: value }] : Array.isArray(value) ? value : []
+      const copies: PrerenderedCopy[] = []
+      for (const entry of entries as Array<{ file?: unknown; from?: unknown }>) {
+        if (typeof entry?.file !== 'string' || !SAFE_FILE.test(entry.file)) continue
+        if (entry.from === undefined) copies.push({ from: '', file: entry.file })
+        else if (typeof entry.from === 'string' && ISO_DATE.test(entry.from)) copies.push({ from: entry.from, file: entry.file })
+      }
+      copies.sort((a, b) => a.from.localeCompare(b.from))
+      if (copies.length > 0 && copies[0].from === '') safe[route] = copies
     }
     return safe
   } catch {
@@ -47,8 +78,13 @@ function loadPrerenderManifest(staticDir: string): Record<string, string> {
   }
 }
 
+/** The copy current on `today`: the latest whose date has come. */
+export function currentCopy(copies: PrerenderedCopy[], today: string): PrerenderedCopy {
+  return copies.filter((copy) => copy.from <= today).pop() ?? copies[0]
+}
+
 export function createApp(options: AppOptions) {
-  const { verifyToken, staticDir, ...deps } = options
+  const { verifyToken, staticDir, today = londonToday, ...deps } = options
   const app = express()
 
   // Railway terminates TLS in front of the app; trust its one proxy hop so req.ip is the client.
@@ -134,8 +170,8 @@ export function createApp(options: AppOptions) {
     app.use(express.static(staticDir, { index: false, maxAge: 0 }))
     app.get('*', (req, res) => {
       res.set('Cache-Control', 'no-cache')
-      const page = prerendered[req.path]
-      res.sendFile(page ? path.join(staticDir, 'prerendered', page) : path.join(staticDir, 'index.html'))
+      const copies = prerendered[req.path]
+      res.sendFile(copies ? path.join(staticDir, 'prerendered', currentCopy(copies, today()).file) : path.join(staticDir, 'index.html'))
     })
   }
 

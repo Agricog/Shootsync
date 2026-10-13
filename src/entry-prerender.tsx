@@ -5,6 +5,11 @@
  * engines and link previews (WhatsApp, LinkedIn, iMessage, Slack) see the real
  * page without running JavaScript (Standard §05.5). The browser then loads the
  * normal app over the top. Public pages use no sign-in, so no Clerk here.
+ *
+ * Pages whose content changes on a date (the minimum wage rates lapse on MINIMUM_WAGE.reviewBy)
+ * read it through useToday. The prerender renders every page as of the build date and again as of
+ * each date in CONTENT_CHANGE_DATES still to come, keeping a dated copy only where the HTML differs.
+ * server/app.ts serves whichever copy is current in the UK (Standard §05.7).
  */
 
 import type { ComponentType } from 'react'
@@ -24,8 +29,14 @@ import GuestGuns from './pages/public/guides/GuestGuns'
 import SeasonDates from './pages/public/guides/SeasonDates'
 import TippingTheKeeper from './pages/public/guides/TippingTheKeeper'
 import { PUBLIC_ROUTES, SITE } from './config/site'
+import { CASUAL_BEATERS, MINIMUM_WAGE } from './data/payRules'
+import { TodayProvider } from './lib/today'
+import { londonDate } from './utils/beaterPayCalculator'
 
-export { PUBLIC_ROUTES, SITE }
+export { PUBLIC_ROUTES, SITE, londonDate }
+
+/** Every date on which a public page's content may change by itself. */
+export const CONTENT_CHANGE_DATES: string[] = [...new Set<string>([MINIMUM_WAGE.reviewBy, CASUAL_BEATERS.reviewBy])].sort()
 
 const PAGES: Record<(typeof PUBLIC_ROUTES)[number]['path'], ComponentType> = {
   '/': Landing,
@@ -42,16 +53,19 @@ const PAGES: Record<(typeof PUBLIC_ROUTES)[number]['path'], ComponentType> = {
   '/terms': Terms,
 }
 
-export function render(path: (typeof PUBLIC_ROUTES)[number]['path']) {
+/** Renders a public page as it reads on `today` ("YYYY-MM-DD", UK). */
+export function render(path: (typeof PUBLIC_ROUTES)[number]['path'], today: string) {
   const Page = PAGES[path]
   if (!Page) throw new Error(`No public page for ${path}`)
 
   const context: { helmet?: HelmetServerState } = {}
   const html = renderToString(
     <HelmetProvider context={context}>
-      <StaticRouter location={path}>
-        <Page />
-      </StaticRouter>
+      <TodayProvider today={today}>
+        <StaticRouter location={path}>
+          <Page />
+        </StaticRouter>
+      </TodayProvider>
     </HelmetProvider>
   )
 
