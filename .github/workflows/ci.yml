@@ -1,0 +1,80 @@
+# ShootSync gate (Autaimate Build Standard §19.3)
+# Runs on every push to main and every pull request. Railway's "Wait for CI"
+# setting holds each deploy until this passes.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: Gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:17.6
+        env:
+          POSTGRES_USER: shootsync
+          POSTGRES_PASSWORD: shootsync
+          POSTGRES_DB: shootsync_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shootsync -d shootsync_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+
+    env:
+      # Disposable database inside this job only. Never a real one.
+      DATABASE_URL: postgresql://shootsync:shootsync@localhost:5432/shootsync_test
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node (version from .node-version)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          package-manager-cache: false
+
+      - name: Install exactly what the lockfile says
+        run: npm ci
+
+      - name: Audit runtime dependencies
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Typecheck (client, server and tests)
+        run: npm run typecheck
+
+      - name: Create test database schema
+        run: npx prisma db push --skip-generate
+
+      - name: Run test suite
+        run: npm test
+
+      - name: Refuse a partial or skipped run
+        run: node scripts/check-test-report.mjs test-results.tap
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_CLERK_PUBLISHABLE_KEY: pk_test_build_only
