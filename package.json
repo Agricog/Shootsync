@@ -21,7 +21,7 @@
     "build:site": "node scripts/prerender.mjs && node scripts/check-built-site.mjs"
   },
   "dependencies": {
-    "@clerk/backend": "3.11.4",
+    "@clerk/backend": "3.23.2",
     "@clerk/clerk-react": "5.61.10",
     "@prisma/client": "5.22.0",
     "cors": "2.8.6",
