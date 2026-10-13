@@ -196,6 +196,17 @@ export function beaterRoutes({ prisma }: Deps): Router {
     res.json({ beaters: summary, totals, taxYear, casualDayLimit: HMRC_CASUAL_DAY_LIMIT })
   }))
 
+  // GET /api/beaters/payments/owed?syndicateId= - just the total owed, in pence, for the
+  // dashboard: no names or bank details travel for a single figure.
+  router.get('/payments/owed', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = queryString(req.query.syndicateId)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const owed = await prisma.beaterPayment.aggregate({ where: { syndicateId, status: 'PENDING' }, _sum: { amount: true } })
+    res.set('Cache-Control', 'no-store')
+    res.json({ totalOutstanding: owed._sum.amount ?? 0 })
+  }))
+
   // GET /api/beaters/:id - bank details masked
   router.get('/:id', handle(async (req, res) => {
     const userId = userIdOf(req)

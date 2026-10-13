@@ -53,6 +53,7 @@ const CASES: Case[] = [
   // Beaters
   { name: 'list beaters', method: 'GET', path: (x) => `/api/beaters?syndicateId=${x.syndicate.id}`, level: 'captain' },
   { name: 'beater payments summary', method: 'GET', path: (x) => `/api/beaters/payments/summary?syndicateId=${x.syndicate.id}`, level: 'captain' },
+  { name: 'beaters owed total', method: 'GET', path: (x) => `/api/beaters/payments/owed?syndicateId=${x.syndicate.id}`, level: 'captain' },
   { name: 'read beater', method: 'GET', path: (x) => `/api/beaters/${x.beater.id}`, level: 'captain' },
   { name: 'add beater', method: 'POST', path: () => '/api/beaters', body: (x) => ({ syndicateId: x.syndicate.id, name: 'New Beater' }), level: 'captain' },
   { name: 'update beater', method: 'PATCH', path: (x) => `/api/beaters/${x.beater.id}`, body: () => ({ bankSortCode: '99-99-99', bankAccountNumber: '99999999' }), level: 'captain' },

@@ -33,7 +33,7 @@ interface DashboardStats {
   activeMembers: number
   nextShoot: ShootDay | null
   seasonBag: number
-  outstandingPayments: number
+  outstandingPayments: number | null
 }
 
 export default function CaptainDashboard() {
@@ -104,8 +104,15 @@ export default function CaptainDashboard() {
         console.error('Failed to fetch bag totals:', err)
       }
 
-      // TODO: Fetch outstanding payments when payment system is implemented
-      const outstandingPayments = 0
+      // What the beaters are owed now, in pence (Beaters' pay page)
+      // null means "couldn't load", shown as a dash rather than a misleading £0.00.
+      let outstandingPayments: number | null = null
+      try {
+        const payResponse = await fetch(`/api/beaters/payments/owed?syndicateId=${encodeURIComponent(syndicateId)}`)
+        if (payResponse.ok) outstandingPayments = (await payResponse.json()).totalOutstanding ?? null
+      } catch (err) {
+        console.error('Failed to fetch beater pay:', err)
+      }
 
       setStats({
         activeMembers,
@@ -199,12 +206,12 @@ export default function CaptainDashboard() {
           <StatCard 
             title="Season Bag" 
             value={statsLoading ? '...' : stats.seasonBag.toString()} 
-            subtitle="birds recorded" 
+            subtitle="head this season" 
           />
           <StatCard 
-            title="Outstanding" 
-            value={statsLoading ? '...' : `£${stats.outstandingPayments}`} 
-            subtitle="payments pending" 
+            title="Beaters owed" 
+            value={statsLoading ? '...' : stats.outstandingPayments === null ? '–' : `£${(stats.outstandingPayments / 100).toFixed(2)}`} 
+            subtitle="owed to beaters" 
           />
         </div>
 
@@ -218,16 +225,9 @@ export default function CaptainDashboard() {
               <Button variant="secondary" className="w-full">Invite Members</Button>
             </Link>
             <Link to="/bags/record" className="block">
-              <Button variant="secondary" className="w-full">Record Bag</Button>
+              <Button variant="secondary" className="w-full">Game book</Button>
             </Link>
           </div>
-        </Card>
-
-        <Card>
-          <h2 className="text-lg font-semibold text-white mb-4">Recent Activity</h2>
-          <p className="text-slate-400">
-            No recent activity yet. Start by inviting members or scheduling a shoot day.
-          </p>
         </Card>
       </div>
     </DashboardLayout>

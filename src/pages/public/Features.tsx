@@ -72,7 +72,8 @@ const SECTIONS: Section[] = [
       'Pheasant, partridge, duck, woodcock and other quarry, with a note of what “other” was',
       'Say the numbers instead of typing them, on browsers that support speech recognition such as Chrome',
       'The day’s totals by species build as each drive is entered',
-      'The shoot day page shows the bag for that day, and your dashboard shows the season’s total bag',
+      'Correct or delete a drive, and each drive is only ever counted once',
+      'The season’s game book: totals for every species and each day’s bag, ready to export to a spreadsheet',
     ],
   },
   {

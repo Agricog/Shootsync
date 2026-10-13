@@ -1,7 +1,10 @@
 import { Router } from 'express'
+import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
+import { lockShoot } from '../beaterPay.js'
 import {
+  HttpError,
   handle,
   notFound,
   queryString,
@@ -12,6 +15,8 @@ import {
 } from '../access.js'
 
 const count = z.number().int().min(0).max(100_000).optional()
+// The note and the "other" description may be blank or null (cleared), on recording and editing.
+const clearable = (max: number) => z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v))
 
 const createBagSchema = z.object({
   shootId: z.string().min(1),
@@ -21,11 +26,30 @@ const createBagSchema = z.object({
   duck: count,
   woodcock: count,
   other: count,
-  otherDescription: z.string().trim().max(200).optional(),
-  notes: z.string().trim().max(2000).optional(),
+  otherDescription: clearable(200),
+  notes: clearable(2000),
 })
 
-const updateBagSchema = createBagSchema.omit({ shootId: true }).partial()
+const updateBagSchema = createBagSchema
+  .omit({ shootId: true, otherDescription: true, notes: true })
+  .partial()
+  .extend({ otherDescription: clearable(200), notes: clearable(2000) })
+
+const SPECIES = ['pheasant', 'partridge', 'duck', 'woodcock', 'other'] as const
+type Totals = Record<(typeof SPECIES)[number], number> & { total: number }
+const emptyTotals = (): Totals => ({ pheasant: 0, partridge: 0, duck: 0, woodcock: 0, other: 0, total: 0 })
+const addTo = (t: Totals, bag: Record<(typeof SPECIES)[number], number>) => {
+  for (const species of SPECIES) {
+    t[species] += bag[species]
+    t.total += bag[species]
+  }
+}
+
+/** One drive number per shoot day: two people recording "drive 2" would count the bag twice. */
+async function requireFreeDrive(tx: Prisma.TransactionClient, shootId: string, driveNumber: number, exceptId?: string) {
+  const taken = await tx.bagRecord.findFirst({ where: { shootId, driveNumber, ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { id: true } })
+  if (taken) throw new HttpError(409, `Drive ${driveNumber} is already recorded for this day. Edit it instead.`)
+}
 
 // Per the role matrix, captain and guns may record and view bags.
 export function bagRoutes({ prisma }: Deps): Router {
@@ -45,34 +69,46 @@ export function bagRoutes({ prisma }: Deps): Router {
     res.json(bags)
   }))
 
-  // GET /api/bags/season?syndicateId=
+  // GET /api/bags/season?syndicateId= - the season's game book: totals by species, and each
+  // shoot day's bag. "The season" is the syndicate's season dates; cancelled days are left out.
   router.get('/season', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
-    const [totals, shootsCompleted] = await Promise.all([
-      prisma.bagRecord.aggregate({
-        where: { shootDay: { syndicateId } },
-        _sum: { pheasant: true, partridge: true, duck: true, woodcock: true, other: true },
+    const syndicate = await prisma.syndicate.findUniqueOrThrow({ where: { id: syndicateId }, select: { seasonStart: true, seasonEnd: true } })
+    // The whole of the last day counts, whatever time of day the dates were stored with.
+    const seasonEndExclusive = new Date(syndicate.seasonEnd.getTime() + 24 * 60 * 60 * 1000)
+    const inSeason = { gte: syndicate.seasonStart, lt: seasonEndExclusive }
+    const [shoots, outsideSeason] = await Promise.all([prisma.shootDay.findMany({
+      where: { syndicateId, status: { not: 'CANCELLED' }, date: inSeason },
+      select: { id: true, date: true, locationName: true, status: true, bagRecords: { select: { pheasant: true, partridge: true, duck: true, woodcock: true, other: true } } },
+      orderBy: { date: 'asc' },
+    }),
+      // Days with a bag that fall outside the season dates: usually the dates in Settings
+      // haven't been moved on to the new season. The page says so rather than showing 0.
+      prisma.shootDay.count({
+        where: { syndicateId, status: { not: 'CANCELLED' }, bagRecords: { some: {} }, NOT: { date: inSeason } },
       }),
-      prisma.shootDay.count({ where: { syndicateId, status: 'COMPLETED' } }),
     ])
 
-    const pheasant = totals._sum.pheasant || 0
-    const partridge = totals._sum.partridge || 0
-    const duck = totals._sum.duck || 0
-    const woodcock = totals._sum.woodcock || 0
-    const other = totals._sum.other || 0
+    const season = emptyTotals()
+    const days = shoots.map((shoot) => {
+      const day = emptyTotals()
+      for (const bag of shoot.bagRecords) {
+        addTo(day, bag)
+        addTo(season, bag)
+      }
+      return { shootId: shoot.id, date: shoot.date, locationName: shoot.locationName, status: shoot.status, drives: shoot.bagRecords.length, ...day }
+    })
+    const shootsCompleted = shoots.filter((s) => s.status === 'COMPLETED').length
 
     res.json({
-      pheasant,
-      partridge,
-      duck,
-      woodcock,
-      other,
-      total: pheasant + partridge + duck + woodcock + other,
+      ...season,
       shootsCompleted,
+      outsideSeason,
+      season: { start: syndicate.seasonStart, end: syndicate.seasonEnd },
+      days: days.filter((d) => d.drives > 0 || d.status === 'COMPLETED'),
     })
   }))
 
@@ -97,7 +133,12 @@ export function bagRoutes({ prisma }: Deps): Router {
     const syndicateId = await syndicateOfShoot(prisma, data.shootId)
     const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
-    const bag = await prisma.bagRecord.create({
+    const bag = await prisma.$transaction(async (tx) => {
+      await lockShoot(tx, data.shootId)
+      const shoot = await tx.shootDay.findUnique({ where: { id: data.shootId }, select: { status: true } })
+      if (shoot?.status === 'CANCELLED') throw new HttpError(400, 'This shoot day was cancelled, so no bag can be recorded for it')
+      await requireFreeDrive(tx, data.shootId, data.driveNumber)
+      return tx.bagRecord.create({
       data: {
         shootId: data.shootId,
         driveNumber: data.driveNumber,
@@ -110,6 +151,7 @@ export function bagRoutes({ prisma }: Deps): Router {
         notes: data.notes,
         recordedByMemberId: access.memberId,
       },
+      })
     })
     res.status(201).json(bag)
   }))
@@ -127,7 +169,15 @@ export function bagRoutes({ prisma }: Deps): Router {
       if (!bag || bag.recordedByMemberId !== access.memberId) throw notFound()
     }
 
-    const bag = await prisma.bagRecord.update({ where: { id: req.params.id }, data })
+    const bag = await prisma.$transaction(async (tx) => {
+      const { shootId } = await tx.bagRecord.findUniqueOrThrow({ where: { id: req.params.id }, select: { shootId: true } })
+      await lockShoot(tx, shootId)
+      const current = await tx.bagRecord.findUniqueOrThrow({ where: { id: req.params.id }, select: { driveNumber: true, shootDay: { select: { status: true } } } })
+      if (current.shootDay.status === 'CANCELLED') throw new HttpError(400, 'This shoot day was cancelled, so its bag can no longer change')
+      // Only a change of drive number can clash (records made before this rule may share a number).
+      if (data.driveNumber !== undefined && data.driveNumber !== current.driveNumber) await requireFreeDrive(tx, shootId, data.driveNumber, req.params.id)
+      return tx.bagRecord.update({ where: { id: req.params.id }, data })
+    })
     res.json(bag)
   }))
 

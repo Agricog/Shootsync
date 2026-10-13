@@ -2,6 +2,7 @@
  * Navigation Component - ShootSync
  * Main header with auth-aware navigation
  */
+import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { UserButton, useUser } from '@clerk/clerk-react'
 import { useAuth } from '../../hooks/useAuth'
@@ -12,6 +13,16 @@ export default function Navigation() {
   const { isSignedIn, user } = useAuth()
   const { isLoaded } = useUser()
 
+  // Phones and tablets get a menu button: the full list doesn't fit across the header.
+  const [menuOpen, setMenuOpen] = useState(false)
+  useEffect(() => setMenuOpen(false), [location.pathname])
+  useEffect(() => {
+    if (!menuOpen) return
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setMenuOpen(false)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [menuOpen])
+
   const navItems = isSignedIn
     ? [
         { path: '/dashboard', label: 'Dashboard' },
@@ -19,7 +30,9 @@ export default function Navigation() {
         { path: '/members', label: 'Members' },
         { path: '/beaters', label: 'Beaters' },
         { path: '/pegs', label: 'Pegs' },
-        { path: '/finances', label: 'Finances' },
+        { path: '/bags/record', label: 'Game book' },
+        { path: '/finances', label: 'Beaters’ pay' },
+        { path: '/settings', label: 'Settings' },
       ]
     : []
 
@@ -36,11 +49,12 @@ export default function Navigation() {
             </Link>
 
             {isSignedIn && (
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden xl:flex items-center gap-1">
                 {navItems.map((item) => (
                   <Link
                     key={item.path}
                     to={item.path}
+                    aria-current={location.pathname === item.path ? 'page' : undefined}
                     className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                       location.pathname === item.path
                         ? 'bg-slate-800 text-white'
@@ -59,6 +73,15 @@ export default function Navigation() {
               <div className="w-8 h-8 bg-slate-700 rounded-full animate-pulse" />
             ) : isSignedIn ? (
               <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="xl:hidden px-3 py-2 rounded-lg text-sm font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                  aria-expanded={menuOpen}
+                  aria-controls={menuOpen ? 'app-menu' : undefined}
+                  onClick={() => setMenuOpen((open) => !open)}
+                >
+                  {menuOpen ? 'Close' : 'Menu'}
+                </button>
                 <span className="text-slate-400 text-sm hidden sm:block">
                   {user?.name}
                 </span>
@@ -83,6 +106,23 @@ export default function Navigation() {
             )}
           </div>
         </div>
+        {isSignedIn && menuOpen && (
+          <ul id="app-menu" className="xl:hidden grid grid-cols-2 sm:grid-cols-4 gap-2 pb-4">
+            {navItems.map((item) => (
+              <li key={item.path}>
+                <Link
+                  to={item.path}
+                  aria-current={location.pathname === item.path ? 'page' : undefined}
+                  className={`block px-3 py-3 rounded-lg text-sm font-medium ${
+                    location.pathname === item.path ? 'bg-slate-700 text-white' : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  {item.label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
       </nav>
     </header>
   )

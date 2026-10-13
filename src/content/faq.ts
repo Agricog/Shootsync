@@ -35,7 +35,7 @@ export const FAQS: Faq[] = [
   {
     question: 'Can I record the bag on the day?',
     answer:
-      'Yes. Record the bag drive by drive for pheasant, partridge, duck, woodcock and other quarry, and ShootSync keeps the running total for the day by species, with the season’s total bag on your dashboard. On a phone or computer whose browser supports speech recognition, such as Chrome, you can say the numbers instead of typing them.',
+      'Yes. Record the bag drive by drive for pheasant, partridge, duck, woodcock and other quarry, and ShootSync keeps the running total for the day and the season’s game book: totals for every species and each day’s bag, which you can export to a spreadsheet. On a phone or computer whose browser supports speech recognition, such as Chrome, you can say the numbers instead of typing them.',
   },
   {
     question: 'Do guest guns need an account?',

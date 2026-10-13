@@ -1,17 +1,24 @@
-import { useEffect, useState } from 'react'
+/**
+ * Record the bag - captain's game book.
+ *
+ * - Pick the day (today's shoot is chosen for you when there is one).
+ * - Record each drive by hand or by voice ("thirty four pheasants, five duck").
+ * - Correct or delete a drive. Each drive number is used once per day (the server refuses
+ *   a second "drive 2"), so the day's total can't be counted twice.
+ * - The season's game book: totals by species and each day's bag, with a spreadsheet export.
+ *   "The season" is the syndicate's season dates from Settings; cancelled days are left out.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
-
-interface Syndicate {
-  id: string
-  name: string
-}
+import { BAG_SPECIES, parseBagSpeech, type BagSpecies } from '../../utils/bagSpeech'
+import { toCsv } from '../../utils/csv'
 
 interface ShootDay {
   id: string
@@ -20,179 +27,321 @@ interface ShootDay {
   status: string
 }
 
-interface BagRecord {
+interface Bag extends Record<BagSpecies, number> {
   id: string
   driveNumber: number
-  pheasant: number
-  partridge: number
-  duck: number
-  woodcock: number
-  other: number
-  otherDescription?: string
-  notes?: string
+  otherDescription?: string | null
+  notes?: string | null
+}
+
+interface SeasonDay extends Record<BagSpecies | 'total', number> {
+  shootId: string
+  date: string
+  locationName: string
+  status: string
+  drives: number
+}
+
+interface Season extends Record<BagSpecies | 'total', number> {
+  shootsCompleted: number
+  outsideSeason: number
+  season: { start: string; end: string }
+  days: SeasonDay[]
+}
+
+interface Draft extends Record<BagSpecies, string> {
+  driveNumber: string
+  otherDescription: string
+  notes: string
+}
+
+const LABEL: Record<BagSpecies, string> = { pheasant: 'Pheasant', partridge: 'Partridge', duck: 'Duck', woodcock: 'Woodcock', other: 'Other' }
+
+const blankDraft = (drive: number): Draft => ({
+  driveNumber: String(drive), pheasant: '', partridge: '', duck: '', woodcock: '', other: '', otherDescription: '', notes: '',
+})
+const draftFrom = (b: Bag): Draft => ({
+  driveNumber: String(b.driveNumber),
+  pheasant: String(b.pheasant), partridge: String(b.partridge), duck: String(b.duck), woodcock: String(b.woodcock), other: String(b.other),
+  otherDescription: b.otherDescription ?? '', notes: b.notes ?? '',
+})
+
+/** Draft -> request body, or an error to show. Blank counts are 0. */
+function bodyFrom(d: Draft): { body: Record<string, unknown> } | { error: string } {
+  const drive = Number(d.driveNumber)
+  if (!/^\d+$/.test(d.driveNumber) || drive < 1 || drive > 50) return { error: 'Drive number must be between 1 and 50.' }
+  const counts: Partial<Record<BagSpecies, number>> = {}
+  for (const species of BAG_SPECIES) {
+    const raw = d[species].trim()
+    if (raw && !/^\d+$/.test(raw)) return { error: `${LABEL[species]} must be a whole number.` }
+    counts[species] = raw ? Number(raw) : 0
+  }
+  return { body: { driveNumber: drive, ...counts, otherDescription: d.otherDescription.trim() || null, notes: d.notes.trim() || null } }
+}
+
+async function send(path: string, method: string, body?: unknown): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
+  try {
+    const response = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    })
+    const data = await response.json().catch(() => null)
+    if (!response.ok) return { ok: false, error: data?.details?.[0]?.message || data?.error || `Something went wrong (${response.status})` }
+    return { ok: true, data }
+  } catch {
+    return { ok: false, error: 'Could not reach ShootSync. Check your connection and try again: nothing was saved.' }
+  }
+}
+
+/** Today's shoot if there is one, else the most recent one that has happened, else the next one. */
+function defaultShoot(shoots: ShootDay[]): string | null {
+  const today = new Date().toLocaleDateString('en-CA') // the date where the captain is, as YYYY-MM-DD
+  const day = (s: ShootDay) => s.date.slice(0, 10)
+  return (
+    shoots.find((s) => day(s) === today)?.id ??
+    [...shoots].reverse().find((s) => day(s) < today)?.id ??
+    shoots.find((s) => day(s) > today)?.id ??
+    null
+  )
+}
+
+const total = (b: Record<BagSpecies, number>) => BAG_SPECIES.reduce((sum, s) => sum + b[s], 0)
+const field = 'w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500'
+const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+const fullDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+
+function BagForm({ draft, onChange, onSubmit, saving, submitLabel, onCancel, voice }: {
+  draft: Draft
+  onChange: (d: Draft) => void
+  onSubmit: () => void
+  saving: boolean
+  submitLabel: string
+  onCancel?: () => void
+  voice?: React.ReactNode
+}) {
+  const others = Number(draft.other) > 0
+  return (
+    <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); onSubmit() }}>
+      <div className="flex flex-wrap items-end gap-4">
+        <label className="w-28">
+          <span className="block text-sm font-medium text-slate-300 mb-1">Drive</span>
+          <input className={field} inputMode="numeric" value={draft.driveNumber} onChange={(e) => onChange({ ...draft, driveNumber: e.target.value })} />
+        </label>
+        {voice}
+      </div>
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+        {BAG_SPECIES.map((species) => (
+          <label key={species}>
+            <span className="block text-sm font-medium text-slate-300 mb-1">{LABEL[species]}</span>
+            <input className={field} inputMode="numeric" placeholder="0" value={draft[species]}
+              onChange={(e) => onChange({ ...draft, [species]: e.target.value })} />
+          </label>
+        ))}
+      </div>
+      {others && (
+        <label className="block">
+          <span className="block text-sm font-medium text-slate-300 mb-1">What was “other”?</span>
+          <input className={field} maxLength={200} placeholder="e.g. pigeon, rabbit" value={draft.otherDescription}
+            onChange={(e) => onChange({ ...draft, otherDescription: e.target.value })} />
+        </label>
+      )}
+      <label className="block">
+        <span className="block text-sm font-medium text-slate-300 mb-1">Notes</span>
+        <textarea className={field} rows={2} maxLength={2000} value={draft.notes} onChange={(e) => onChange({ ...draft, notes: e.target.value })} />
+      </label>
+      <div className="flex gap-3">
+        <Button type="submit" size="lg" isLoading={saving} disabled={saving}>{submitLabel}</Button>
+        {onCancel && <Button type="button" variant="ghost" onClick={onCancel} disabled={saving}>Cancel</Button>}
+      </div>
+    </form>
+  )
 }
 
 export default function BagRecord() {
   const { user } = useAuth()
-  const syndicateApi = useApi<Syndicate>('syndicates')
-  const shootApi = useApi<ShootDay>('shoots')
-  const bagApi = useApi<BagRecord>('bags')
-
+  const [loading, setLoading] = useState(true)
   const [syndicateId, setSyndicateId] = useState<string | null>(null)
   const [shoots, setShoots] = useState<ShootDay[]>([])
-  const [selectedShoot, setSelectedShoot] = useState<string | null>(null)
-  const [bags, setBags] = useState<BagRecord[]>([])
-  const [loading, setLoading] = useState(true)
+  const [shootId, setShootId] = useState<string | null>(null)
+  const [bags, setBags] = useState<Bag[]>([])
+  const [season, setSeason] = useState<Season | null>(null)
+
+  const [draft, setDraft] = useState<Draft>(blankDraft(1))
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState<Draft>(blankDraft(1))
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [isListening, setIsListening] = useState(false)
-  const [transcript, setTranscript] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
 
-  const [formData, setFormData] = useState({
-    driveNumber: 1,
-    pheasant: 0,
-    partridge: 0,
-    duck: 0,
-    woodcock: 0,
-    other: 0,
-    otherDescription: '',
-    notes: '',
-  })
+  const [listening, setListening] = useState(false)
+  const [heard, setHeard] = useState<string | null>(null)
+  // The day on screen now. A response for a day the captain has moved away from is ignored,
+  // so one day's drives can never appear, or be edited, under another.
+  const currentShoot = useRef<string | null>(null)
+  currentShoot.current = shootId
+  const recognitionRef = useRef<{ abort: () => void } | null>(null)
+  const speechSupported = typeof window !== 'undefined' && ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)
 
-  useEffect(() => {
-    if (user?.id) {
-      loadData()
-    }
-  }, [user?.id])
+  const nextDrive = (list: Bag[]) => list.reduce((max, b) => Math.max(max, b.driveNumber), 0) + 1
 
-  useEffect(() => {
-    if (selectedShoot) {
-      loadBags()
-    }
-  }, [selectedShoot])
+  const loadSeason = useCallback(async (id: string) => {
+    const result = await send(`/api/bags/season?syndicateId=${encodeURIComponent(id)}`, 'GET')
+    if (result.ok) setSeason(result.data)
+  }, [])
 
-  const loadData = async () => {
-    setLoading(true)
-    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
-    if (syndicates.length > 0) {
-      setSyndicateId(syndicates[0].id)
-      const shootData = await shootApi.fetchAll({ syndicateId: syndicates[0].id })
-      setShoots(shootData)
-      // Auto-select most recent scheduled shoot
-      const scheduled = shootData.filter(s => s.status === 'SCHEDULED')
-      if (scheduled.length > 0) {
-        setSelectedShoot(scheduled[0].id)
-      }
-    }
-    setLoading(false)
-  }
-
-  const loadBags = async () => {
-    if (!selectedShoot) return
-    const bagData = await bagApi.fetchAll({ shootId: selectedShoot })
-    setBags(bagData)
-    // Set next drive number
-    const maxDrive = bagData.reduce((max, b) => Math.max(max, b.driveNumber), 0)
-    setFormData(prev => ({ ...prev, driveNumber: maxDrive + 1 }))
-  }
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!selectedShoot || !syndicateId) return
-
-    setSaving(true)
-    const result = await bagApi.create({
-  ...formData,
-  shootId: selectedShoot,
-} as any)
-
-    if (result) {
-      setBags([...bags, result])
-      setFormData({
-        driveNumber: formData.driveNumber + 1,
-        pheasant: 0,
-        partridge: 0,
-        duck: 0,
-        woodcock: 0,
-        other: 0,
-        otherDescription: '',
-        notes: '',
-      })
-    }
-    setSaving(false)
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'number' ? parseInt(value) || 0 : value,
-    }))
-  }
-
-  // Voice input for hands-free recording
-  const startVoiceInput = () => {
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-      alert('Voice input not supported in this browser. Try Chrome.')
+  /** resetForm: start a fresh new-drive form (on changing day, or after recording a drive). */
+  const loadBags = useCallback(async (id: string, resetForm: boolean) => {
+    const result = await send(`/api/bags?shootId=${encodeURIComponent(id)}`, 'GET')
+    if (currentShoot.current !== id) return
+    if (!result.ok) {
+      setError(result.error)
       return
     }
+    const list: Bag[] = [...result.data].sort((a, b) => a.driveNumber - b.driveNumber)
+    setBags(list)
+    if (resetForm) setDraft(blankDraft(nextDrive(list)))
+    else setDraft((d) => (list.some((b) => String(b.driveNumber) === d.driveNumber) ? { ...d, driveNumber: String(nextDrive(list)) } : d))
+  }, [])
 
-    const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition
-    const recognition = new SpeechRecognition()
+  useEffect(() => {
+    if (!user?.id) return
+    ;(async () => {
+      setLoading(true)
+      const syndicates = await send('/api/syndicates', 'GET')
+      if (syndicates.ok && syndicates.data.length > 0) {
+        const id = syndicates.data[0].id
+        setSyndicateId(id)
+        const list = await send(`/api/shoots?syndicateId=${encodeURIComponent(id)}`, 'GET')
+        if (list.ok) {
+          const usable: ShootDay[] = list.data.filter((s: ShootDay) => s.status !== 'CANCELLED')
+          setShoots(usable)
+          setShootId(defaultShoot(usable))
+        }
+        await loadSeason(id)
+      } else if (!syndicates.ok) {
+        setError(syndicates.error)
+      }
+      setLoading(false)
+    })()
+  }, [user?.id, loadSeason])
+
+  useEffect(() => {
+    setBags([])
+    setEditingId(null)
+    setConfirmDelete(null)
+    setHeard(null)
+    recognitionRef.current?.abort()
+    if (shootId) loadBags(shootId, true)
+  }, [shootId, loadBags])
+
+  useEffect(() => () => recognitionRef.current?.abort(), [])
+
+  const afterChange = async (forShoot: string, message: string, resetForm: boolean) => {
+    if (currentShoot.current !== forShoot) return
+    setNotice(message)
+    await loadBags(forShoot, resetForm)
+    if (syndicateId) await loadSeason(syndicateId)
+  }
+
+  const record = async () => {
+    if (!shootId) return
+    const built = bodyFrom(draft)
+    if ('error' in built) return setError(built.error)
+    setSaving(true)
+    setError(null)
+    setNotice(null)
+    const forShoot = shootId
+    const result = await send('/api/bags', 'POST', { shootId: forShoot, ...built.body })
+    setSaving(false)
+    if (!result.ok) return setError(`Not saved: ${result.error}`)
+    setHeard(null)
+    await afterChange(forShoot, `Drive ${built.body.driveNumber} saved: ${total(result.data)} head.`, true)
+  }
+
+  const saveEdit = async (bag: Bag) => {
+    const built = bodyFrom(editDraft)
+    if ('error' in built) return setError(built.error)
+    setSaving(true)
+    setError(null)
+    const result = await send(`/api/bags/${encodeURIComponent(bag.id)}`, 'PATCH', built.body)
+    setSaving(false)
+    if (!result.ok) return setError(`Not saved: ${result.error}`)
+    setEditingId(null)
+    if (shootId) await afterChange(shootId, `Drive ${built.body.driveNumber} corrected.`, false)
+  }
+
+  const remove = async (bag: Bag) => {
+    if (confirmDelete !== bag.id) return setConfirmDelete(bag.id)
+    setSaving(true)
+    setError(null)
+    const result = await send(`/api/bags/${encodeURIComponent(bag.id)}`, 'DELETE')
+    setSaving(false)
+    setConfirmDelete(null)
+    if (!result.ok) return setError(result.error)
+    if (shootId) await afterChange(shootId, `Drive ${bag.driveNumber} deleted.`, false)
+  }
+
+  const listen = () => {
+    const Recognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+    if (!Recognition) return
+    const forShoot = shootId
+    const recognition = new Recognition()
+    recognitionRef.current = recognition
+    recognition.lang = 'en-GB'
     recognition.continuous = false
     recognition.interimResults = false
-    recognition.lang = 'en-GB'
-
-    recognition.onstart = () => setIsListening(true)
-    recognition.onend = () => setIsListening(false)
-
-    recognition.onresult = (event: any) => {
-      const text = event.results[0][0].transcript.toLowerCase()
-      setTranscript(text)
-      parseVoiceInput(text)
+    recognition.onstart = () => setListening(true)
+    recognition.onend = () => setListening(false)
+    recognition.onerror = () => {
+      setListening(false)
+      setHeard('Didn’t catch that. Try again, or type the numbers.')
     }
-
-    recognition.onerror = () => setIsListening(false)
+    recognition.onresult = (event: any) => {
+      if (currentShoot.current !== forShoot) return
+      const text: string = event.results[0][0].transcript
+      const { counts, drive, unclear } = parseBagSpeech(text)
+      if (unclear) {
+        setHeard(`Heard “${text}” but couldn’t be sure of every number, so nothing was filled in. Say each number before the bird, like “thirty four pheasants, five duck”.`)
+        return
+      }
+      const parts = (Object.keys(counts) as BagSpecies[]).map((s) => `${counts[s]} ${LABEL[s].toLowerCase()}`)
+      if (drive) parts.unshift(`drive ${drive}`)
+      setHeard(parts.length > 0 ? `Heard “${text}”: filled in ${parts.join(', ')}. Check, then save.` : `Heard “${text}” but no numbers of birds. Try “thirty pheasants, five duck”.`)
+      setDraft((d) => {
+        const next = { ...d }
+        if (drive) next.driveNumber = String(drive)
+        for (const species of Object.keys(counts) as BagSpecies[]) next[species] = String(counts[species])
+        return next
+      })
+    }
     recognition.start()
   }
 
-  const parseVoiceInput = (text: string) => {
-    // Parse: "34 pheasant 12 partridge 5 duck"
-    const pheasantMatch = text.match(/(\d+)\s*pheasant/)
-    const partridgeMatch = text.match(/(\d+)\s*partridge/)
-    const duckMatch = text.match(/(\d+)\s*duck/)
-    const woodcockMatch = text.match(/(\d+)\s*woodcock/)
-    const otherMatch = text.match(/(\d+)\s*other/)
+  const dayTotals = useMemo(() => {
+    const t = { pheasant: 0, partridge: 0, duck: 0, woodcock: 0, other: 0 }
+    for (const b of bags) for (const s of BAG_SPECIES) t[s] += b[s]
+    return t
+  }, [bags])
 
-    setFormData(prev => ({
-      ...prev,
-      pheasant: pheasantMatch ? parseInt(pheasantMatch[1]) : prev.pheasant,
-      partridge: partridgeMatch ? parseInt(partridgeMatch[1]) : prev.partridge,
-      duck: duckMatch ? parseInt(duckMatch[1]) : prev.duck,
-      woodcock: woodcockMatch ? parseInt(woodcockMatch[1]) : prev.woodcock,
-      other: otherMatch ? parseInt(otherMatch[1]) : prev.other,
-    }))
+  const exportGameBook = () => {
+    if (!season) return
+    const header = ['Date', 'Place', 'Drives', 'Pheasant', 'Partridge', 'Duck', 'Woodcock', 'Other', 'Total']
+    const rows = season.days.map((d) => [d.date.slice(0, 10), d.locationName, String(d.drives), ...BAG_SPECIES.map((s) => String(d[s])), String(d.total)])
+    const totals = ['Season', '', String(season.days.reduce((n, d) => n + d.drives, 0)), ...BAG_SPECIES.map((s) => String(season[s])), String(season.total)]
+    const url = URL.createObjectURL(new Blob(['﻿' + toCsv([header, ...rows, totals])], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `game-book-${season.season.start.slice(0, 4)}-${season.season.end.slice(2, 4)}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
   }
-
-  // Calculate totals
-  const totals = bags.reduce(
-    (acc, bag) => ({
-      pheasant: acc.pheasant + bag.pheasant,
-      partridge: acc.partridge + bag.partridge,
-      duck: acc.duck + bag.duck,
-      woodcock: acc.woodcock + bag.woodcock,
-      other: acc.other + bag.other,
-    }),
-    { pheasant: 0, partridge: 0, duck: 0, woodcock: 0, other: 0 }
-  )
-
-  const totalBirds = totals.pheasant + totals.partridge + totals.duck + totals.woodcock + totals.other
 
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex justify-center items-center h-64">
-          <LoadingSpinner size="lg" />
-        </div>
+        <div className="flex justify-center items-center h-64"><LoadingSpinner size="lg" /></div>
       </DashboardLayout>
     )
   }
@@ -200,167 +349,158 @@ export default function BagRecord() {
   return (
     <DashboardLayout>
       <Helmet>
-        <title>Record Bag | ShootSync</title>
+        <title>Game Book | ShootSync</title>
       </Helmet>
 
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">Record Bag</h1>
+      <div className="space-y-6 max-w-4xl">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Game book</h1>
+          <p className="text-slate-400">Record the bag drive by drive, and see the season so far.</p>
+        </div>
 
-        {/* Shoot Selector */}
+        <div aria-live="polite" className="space-y-2">
+          {error && <p className="rounded-lg px-4 py-3 bg-red-900/40 text-red-200 border border-red-800">{error}</p>}
+          {notice && <p className="rounded-lg px-4 py-3 bg-green-900/40 text-green-200 border border-green-800">{notice}</p>}
+        </div>
+
         <Card>
-          <label className="block text-sm font-medium text-white mb-2">Select Shoot Day</label>
-          <select
-            value={selectedShoot || ''}
-            onChange={(e) => setSelectedShoot(e.target.value)}
-            className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white"
-          >
-            <option value="">-- Select a shoot --</option>
-            {shoots.map((shoot) => (
-              <option key={shoot.id} value={shoot.id}>
-                {shoot.locationName} - {new Date(shoot.date).toLocaleDateString('en-GB')} ({shoot.status})
-              </option>
-            ))}
-          </select>
+          <label htmlFor="shoot" className="block text-sm font-medium text-slate-300 mb-2">Shoot day</label>
+          {shoots.length === 0 ? (
+            <p className="text-slate-300">No shoot days yet. Add one under Shoots first.</p>
+          ) : (
+            <select id="shoot" value={shootId ?? ''} onChange={(e) => setShootId(e.target.value || null)} className={field}>
+              <option value="">Choose a shoot day</option>
+              {shoots.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {new Date(s.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · {s.locationName}
+                </option>
+              ))}
+            </select>
+          )}
         </Card>
 
-        {selectedShoot && (
+        {shootId && (
           <>
-            {/* Running Totals */}
             <Card>
-              <h2 className="text-lg font-semibold text-green-600 mb-4">Running Total: {totalBirds} birds</h2>
-              <div className="grid grid-cols-5 gap-4 text-center">
-                <div>
-                  <p className="text-2xl font-bold text-white">{totals.pheasant}</p>
-                  <p className="text-amber-600 text-sm">Pheasant</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-white">{totals.partridge}</p>
-                  <p className="text-amber-600 text-sm">Partridge</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-white">{totals.duck}</p>
-                  <p className="text-amber-600 text-sm">Duck</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-white">{totals.woodcock}</p>
-                  <p className="text-amber-600 text-sm">Woodcock</p>
-                </div>
-                <div>
-                  <p className="text-2xl font-bold text-white">{totals.other}</p>
-                  <p className="text-amber-600 text-sm">Other</p>
-                </div>
+              <h2 className="text-lg font-semibold text-white mb-4">This day: {total(dayTotals)} head</h2>
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 text-center">
+                {BAG_SPECIES.map((s) => (
+                  <div key={s} className="p-2 bg-slate-900 rounded-lg">
+                    <p className="text-2xl font-bold text-white">{dayTotals[s]}</p>
+                    <p className="text-amber-500 text-sm">{LABEL[s]}</p>
+                  </div>
+                ))}
               </div>
             </Card>
 
-            {/* Record Form */}
             <Card>
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="text-lg font-semibold text-green-600">Drive {formData.driveNumber}</h2>
-                <Button
-                  type="button"
-                  variant={isListening ? 'primary' : 'secondary'}
-                  onClick={startVoiceInput}
-                >
-                  {isListening ? '🎤 Listening...' : '🎤 Voice Input'}
-                </Button>
-              </div>
-
-              {transcript && (
-                <p className="text-sm text-slate-400 mb-4 italic">Heard: "{transcript}"</p>
-              )}
-
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                  <Input
-                    label="Pheasant"
-                    name="pheasant"
-                    type="number"
-                    value={formData.pheasant}
-                    onChange={handleChange}
-                    min={0}
-                  />
-                  <Input
-                    label="Partridge"
-                    name="partridge"
-                    type="number"
-                    value={formData.partridge}
-                    onChange={handleChange}
-                    min={0}
-                  />
-                  <Input
-                    label="Duck"
-                    name="duck"
-                    type="number"
-                    value={formData.duck}
-                    onChange={handleChange}
-                    min={0}
-                  />
-                  <Input
-                    label="Woodcock"
-                    name="woodcock"
-                    type="number"
-                    value={formData.woodcock}
-                    onChange={handleChange}
-                    min={0}
-                  />
-                  <Input
-                    label="Other"
-                    name="other"
-                    type="number"
-                    value={formData.other}
-                    onChange={handleChange}
-                    min={0}
-                  />
-                </div>
-
-                {formData.other > 0 && (
-                  <Input
-                    label="Other Description"
-                    name="otherDescription"
-                    value={formData.otherDescription}
-                    onChange={handleChange}
-                    placeholder="e.g. Pigeon, Rabbit"
-                  />
-                )}
-
-                <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">Notes</label>
-                  <textarea
-                    name="notes"
-                    value={formData.notes}
-                    onChange={handleChange}
-                    rows={2}
-                    className="w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white"
-                    placeholder="Optional notes for this drive..."
-                  />
-                </div>
-
-                <Button type="submit" disabled={saving} size="lg" className="w-full">
-                  {saving ? 'Saving...' : `Save Drive ${formData.driveNumber}`}
-                </Button>
-              </form>
+              <h2 className="text-lg font-semibold text-white mb-4">Record a drive</h2>
+              <BagForm
+                draft={draft}
+                onChange={setDraft}
+                onSubmit={record}
+                saving={saving && !editingId}
+                submitLabel={`Save drive ${draft.driveNumber || ''}`}
+                voice={
+                  speechSupported ? (
+                    <Button type="button" variant={listening ? 'primary' : 'secondary'} onClick={listen} disabled={listening}>
+                      {listening ? 'Listening…' : 'Say the bag'}
+                    </Button>
+                  ) : (
+                    <p className="text-sm text-slate-500">Saying the numbers works in Chrome and Edge.</p>
+                  )
+                }
+              />
+              {heard && <p className="mt-3 text-sm text-slate-300" aria-live="polite">{heard}</p>}
             </Card>
 
-            {/* Previous Drives */}
             {bags.length > 0 && (
               <Card>
-                <h2 className="text-lg font-semibold text-green-600 mb-4">Recorded Drives</h2>
-                <div className="space-y-2">
-                  {bags.sort((a, b) => a.driveNumber - b.driveNumber).map((bag) => (
-                    <div key={bag.id} className="flex justify-between items-center p-3 bg-slate-900 rounded-lg">
-                      <span className="font-medium text-white">Drive {bag.driveNumber}</span>
-                      <span className="text-slate-300">
-                        {bag.pheasant}P {bag.partridge}Pa {bag.duck}D {bag.woodcock}W {bag.other}O
-                      </span>
-                      <span className="font-semibold text-green-600">
-                        {bag.pheasant + bag.partridge + bag.duck + bag.woodcock + bag.other} total
-                      </span>
-                    </div>
+                <h2 className="text-lg font-semibold text-white mb-4">Drives recorded</h2>
+                <ul className="space-y-2">
+                  {bags.map((bag) => (
+                    <li key={bag.id} className="p-3 bg-slate-900 rounded-lg">
+                      {editingId === bag.id ? (
+                        <BagForm draft={editDraft} onChange={setEditDraft} onSubmit={() => saveEdit(bag)} saving={saving}
+                          submitLabel="Save correction" onCancel={() => { setEditingId(null); setError(null) }} />
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-3">
+                          <span className="font-medium text-white w-20">Drive {bag.driveNumber}</span>
+                          <span className="text-slate-300 text-sm flex-1 min-w-[12rem]">
+                            {BAG_SPECIES.filter((s) => bag[s] > 0).map((s) => `${bag[s]} ${LABEL[s].toLowerCase()}`).join(', ') || 'Blank drive'}
+                            {bag.otherDescription ? ` (${bag.otherDescription})` : ''}
+                          </span>
+                          <span className="font-semibold text-green-400">{total(bag)}</span>
+                          <Button size="sm" variant="secondary" disabled={saving || editingId !== null}
+                            onClick={() => { setEditingId(bag.id); setEditDraft(draftFrom(bag)); setConfirmDelete(null); setNotice(null) }}>
+                            Edit
+                          </Button>
+                          <Button size="sm" variant={confirmDelete === bag.id ? 'danger' : 'ghost'} disabled={saving || editingId !== null} onClick={() => remove(bag)}>
+                            {confirmDelete === bag.id ? `Delete drive ${bag.driveNumber}?` : 'Delete'}
+                          </Button>
+                        </div>
+                      )}
+                    </li>
                   ))}
-                </div>
+                </ul>
               </Card>
             )}
           </>
+        )}
+
+        {season && (
+          <Card>
+            <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
+              <div>
+                <h2 className="text-lg font-semibold text-white">Season so far: {season.total} head</h2>
+                <p className="text-sm text-slate-400">
+                  {fullDate(season.season.start)} to {fullDate(season.season.end)} · {season.days.length} {season.days.length === 1 ? 'day' : 'days'} in the book ·{' '}
+                  {season.shootsCompleted} completed
+                </p>
+              </div>
+              <Button size="sm" variant="secondary" onClick={exportGameBook} disabled={season.days.length === 0}>
+                Export game book
+              </Button>
+            </div>
+            {season.outsideSeason > 0 && (
+              <p className="mb-4 text-sm text-amber-300 border-l-2 border-amber-500 pl-3">
+                {season.outsideSeason} {season.outsideSeason === 1 ? 'day with a bag falls' : 'days with a bag fall'} outside your season dates, so{' '}
+                {season.outsideSeason === 1 ? 'it isn’t' : 'they aren’t'} counted here. If a new season has started, update the dates in{' '}
+                <Link to="/settings" className="underline">Settings</Link>.
+              </p>
+            )}
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-3 text-center mb-4">
+              {BAG_SPECIES.map((s) => (
+                <div key={s} className="p-2 bg-slate-900 rounded-lg">
+                  <p className="text-xl font-bold text-white">{season[s]}</p>
+                  <p className="text-amber-500 text-sm">{LABEL[s]}</p>
+                </div>
+              ))}
+            </div>
+            {season.days.length > 0 && (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <caption className="sr-only">Bag by shoot day this season</caption>
+                  <thead className="text-slate-400">
+                    <tr>
+                      <th scope="col" className="py-2 pr-3">Day</th>
+                      {BAG_SPECIES.map((s) => <th key={s} scope="col" className="py-2 px-2 text-right">{LABEL[s]}</th>)}
+                      <th scope="col" className="py-2 pl-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody className="text-slate-200">
+                    {season.days.map((d) => (
+                      <tr key={d.shootId} className="border-t border-slate-700">
+                        <th scope="row" className="py-2 pr-3 font-normal whitespace-nowrap">{shortDate(d.date)} · {d.locationName}</th>
+                        {BAG_SPECIES.map((s) => <td key={s} className="py-2 px-2 text-right">{d[s]}</td>)}
+                        <td className="py-2 pl-2 text-right font-semibold">{d.total}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
         )}
       </div>
     </DashboardLayout>

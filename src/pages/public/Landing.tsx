@@ -42,7 +42,7 @@ const FEATURES = [
     anchor: 'bag-records',
     linkLabel: 'Recording the bag',
     title: 'The bag book, by drive',
-    text: 'Record pheasant, partridge, duck, woodcock and other quarry drive by drive, by voice or by hand, with the day’s totals by species and the season’s bag on your dashboard.',
+    text: 'Record pheasant, partridge, duck, woodcock and other quarry drive by drive, by voice or by hand, with the season’s game book kept for you.',
   },
   {
     icon: PoundSterling,
