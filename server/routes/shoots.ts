@@ -13,6 +13,7 @@ import {
   userIdOf,
   withoutCaptainOnlyFields,
 } from '../access.js'
+import { fairDraw, randomDraw } from '../pegDraw.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
@@ -32,18 +33,32 @@ const createShootSchema = z.object({
 
 const updateShootSchema = createShootSchema.omit({ syndicateId: true }).partial()
 
-const attendanceSchema = z.object({
-  memberId: z.string().min(1),
-  roleOnDay: z.enum(['CAPTAIN', 'GUN', 'BEATER', 'HYBRID']).optional(),
-  pegNumber: z.number().int().min(1).max(100).nullable().optional(),
-  confirmed: z.boolean().optional(),
-})
-
 const checkInSchema = z.object({
   memberId: z.string().min(1),
 })
 
 const statusFilter = z.enum(['SCHEDULED', 'COMPLETED', 'CANCELLED']).optional()
+
+const MAX_PEGS = 40
+const GUN_ROLES = ['CAPTAIN', 'GUN', 'HYBRID'] as const
+
+const drawSchema = z.object({
+  method: z.enum(['fair', 'random']),
+  numberOfPegs: z.number().int().min(1).max(MAX_PEGS),
+  memberIds: z
+    .array(z.string().min(1).max(64))
+    .min(1, 'Choose at least one gun')
+    .max(MAX_PEGS)
+    .refine((ids) => new Set(ids).size === ids.length, 'A gun is listed twice'),
+})
+
+const savePegsSchema = z.object({
+  allocations: z
+    .array(z.object({ memberId: z.string().min(1).max(64), pegNumber: z.number().int().min(1).max(MAX_PEGS) }))
+    .max(MAX_PEGS)
+    .refine((a) => new Set(a.map((x) => x.memberId)).size === a.length, 'A gun is listed twice')
+    .refine((a) => new Set(a.map((x) => x.pegNumber)).size === a.length, 'Two guns are on the same peg'),
+})
 
 export function shootRoutes({ prisma }: Deps): Router {
   const router = Router()
@@ -157,29 +172,138 @@ export function shootRoutes({ prisma }: Deps): Router {
     res.json(shoot)
   }))
 
-  // POST /api/shoots/:id/attendance - set peg / attendance, captain only
-  router.post('/:id/attendance', handle(async (req, res) => {
+  // ---- Peg draw ----------------------------------------------------------------
+  // The season's record is every peg saved on this syndicate's other shoot days from the
+  // start of the season up to this one, ignoring cancelled days. Two days on the same date
+  // (a morning and an afternoon) are ordered by when they were added.
+  // Pegs are written only by PUT /:id/pegs, which refuses two guns on one peg.
+
+  /** The shoot, with its syndicate's season start, refusing a cancelled day for changes. */
+  const pegShoot = async (shootId: string) => {
+    const shoot = await prisma.shootDay.findUnique({
+      where: { id: shootId },
+      select: { id: true, date: true, createdAt: true, locationName: true, status: true, syndicateId: true, syndicate: { select: { seasonStart: true } } },
+    })
+    if (!shoot) throw notFound('Shoot not found')
+    return shoot
+  }
+
+  const seasonHistory = (shoot: Awaited<ReturnType<typeof pegShoot>>) =>
+    prisma.shootAttendance.findMany({
+      where: {
+        pegNumber: { not: null },
+        shootId: { not: shoot.id },
+        shootDay: {
+          syndicateId: shoot.syndicateId,
+          status: { not: 'CANCELLED' },
+          date: { gte: shoot.syndicate.seasonStart },
+          OR: [{ date: { lt: shoot.date } }, { date: shoot.date, createdAt: { lt: shoot.createdAt } }],
+        },
+      },
+      select: { memberId: true, pegNumber: true, shootDay: { select: { date: true } } },
+      orderBy: { shootDay: { date: 'asc' } },
+    })
+
+  const activeGuns = (syndicateId: string) =>
+    prisma.member.findMany({
+      where: { syndicateId, status: 'ACTIVE', role: { in: [...GUN_ROLES] } },
+      select: { id: true, name: true, role: true },
+      orderBy: { name: 'asc' },
+    })
+
+  /** Every id must be an active gun of this syndicate; anything else is refused, not skipped. */
+  const requireActiveGuns = async (syndicateId: string, memberIds: string[], db: Pick<typeof prisma, 'member'> = prisma) => {
+    const guns = await db.member.count({
+      where: { id: { in: memberIds }, syndicateId, status: 'ACTIVE', role: { in: [...GUN_ROLES] } },
+    })
+    if (guns !== memberIds.length) throw new HttpError(400, 'Every gun must be an active member of this syndicate')
+  }
+
+  // GET /api/shoots/:id/pegs - the day's saved pegs and each gun's record this season, captain only
+  router.get('/:id/pegs', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
-    const { memberId, roleOnDay, pegNumber, confirmed } = attendanceSchema.parse(req.body)
+    const shoot = await pegShoot(req.params.id)
 
-    if ((await syndicateOfMember(prisma, memberId)) !== syndicateId) {
-      throw new HttpError(400, 'Member is not in this syndicate')
-    }
+    const [guns, history, saved] = await Promise.all([
+      activeGuns(shoot.syndicateId),
+      seasonHistory(shoot),
+      prisma.shootAttendance.findMany({
+        where: { shootId: shoot.id, pegNumber: { not: null } },
+        select: { memberId: true, pegNumber: true },
+        orderBy: { pegNumber: 'asc' },
+      }),
+    ])
 
-    const attendance = await prisma.shootAttendance.upsert({
-      where: { shootId_memberId: { shootId: req.params.id, memberId } },
-      update: { roleOnDay, pegNumber, confirmed },
-      create: {
-        shootId: req.params.id,
-        memberId,
-        roleOnDay: roleOnDay ?? 'GUN',
-        pegNumber,
-        confirmed: confirmed ?? false,
-      },
+    res.json({
+      shoot: { id: shoot.id, date: shoot.date, locationName: shoot.locationName, status: shoot.status },
+      guns: guns.map((gun) => ({
+        ...gun,
+        history: history
+          .filter((h) => h.memberId === gun.id)
+          .map((h) => ({ pegNumber: h.pegNumber, shootDate: h.shootDay.date })),
+      })),
+      saved,
     })
-    res.json(attendance)
+  }))
+
+  // POST /api/shoots/:id/pegs/draw - propose a draw; saves nothing, captain only
+  router.post('/:id/pegs/draw', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfShoot(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const { method, numberOfPegs, memberIds } = drawSchema.parse(req.body)
+    if (memberIds.length > numberOfPegs) throw new HttpError(400, `There are ${memberIds.length} guns but only ${numberOfPegs} pegs`)
+
+    const shoot = await pegShoot(req.params.id)
+    if (shoot.status === 'CANCELLED') throw new HttpError(400, 'This shoot day is cancelled')
+    await requireActiveGuns(shoot.syndicateId, memberIds)
+
+    const history = method === 'fair' ? await seasonHistory(shoot) : []
+    const allocations =
+      method === 'fair'
+        ? fairDraw(memberIds, numberOfPegs, history.map((h) => ({ memberId: h.memberId, pegNumber: h.pegNumber as number })))
+        : randomDraw(memberIds, numberOfPegs)
+    res.json({ method, numberOfPegs, allocations })
+  }))
+
+  // PUT /api/shoots/:id/pegs - save the whole peg list at once, captain only.
+  // Guns left off the list lose their peg for this day; nothing else about them changes.
+  router.put('/:id/pegs', handle(async (req, res) => {
+    const userId = userIdOf(req)
+    const syndicateId = await syndicateOfShoot(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    const { allocations } = savePegsSchema.parse(req.body)
+
+    const shoot = await pegShoot(req.params.id)
+    if (shoot.status === 'CANCELLED') throw new HttpError(400, 'This shoot day is cancelled')
+    const memberIds = allocations.map((a) => a.memberId)
+
+    // One save per shoot day at a time: the row lock makes a second save (another tab or
+    // device) wait, then replace the list whole, so two guns can never end up on one peg.
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM shoot_days WHERE id = ${shoot.id} FOR UPDATE`
+      await requireActiveGuns(shoot.syndicateId, memberIds, tx)
+      await tx.shootAttendance.updateMany({
+        where: { shootId: shoot.id, memberId: { notIn: memberIds } },
+        data: { pegNumber: null },
+      })
+      for (const { memberId, pegNumber } of allocations) {
+        await tx.shootAttendance.upsert({
+          where: { shootId_memberId: { shootId: shoot.id, memberId } },
+          update: { pegNumber, confirmed: true, roleOnDay: 'GUN' },
+          create: { shootId: shoot.id, memberId, pegNumber, confirmed: true, roleOnDay: 'GUN' },
+        })
+      }
+    })
+
+    const saved = await prisma.shootAttendance.findMany({
+      where: { shootId: shoot.id, pegNumber: { not: null } },
+      select: { memberId: true, pegNumber: true },
+      orderBy: { pegNumber: 'asc' },
+    })
+    res.json({ saved })
   }))
 
   // POST /api/shoots/:id/checkin - captain checks anyone in; a member checks themselves in

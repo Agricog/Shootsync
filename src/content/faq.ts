@@ -30,7 +30,7 @@ export const FAQS: Faq[] = [
   {
     question: 'How does the peg draw work?',
     answer:
-      "Choose a shoot day and the number of pegs, then draw them. You see the whole list before you save it, can move any gun up or down by hand, and can draw again. Once saved, the pegs show on the shoot day and go straight onto the PDF briefing sheet.",
+      "Tick who is shooting and run a fair draw. ShootSync looks at the pegs each gun has already stood on this season and keeps everyone off their repeats as far as the whole line allows, drawing at random between equally fair options. Each gun's pegs so far are shown beside their name. You can swap any two guns by hand before you save, and the pegs go straight onto the PDF briefing sheet. A straight random draw is there too.",
   },
   {
     question: 'Can I record the bag on the day?',

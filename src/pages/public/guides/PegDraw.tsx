@@ -177,9 +177,9 @@ export default function PegDraw() {
       ]}
       feature={{
         to: '/features#peg-draw',
-        heading: 'Draw the pegs before the meet',
+        heading: 'A peg draw that remembers the season',
         text:
-          'ShootSync draws the pegs for a shoot day from your member list. You check the list, move any gun up or down by hand, and save it to the day, and the pegs go straight onto the briefing sheet.',
+          'ShootSync does the record-based rotation for you. Tick who is out, and the fair draw keeps each gun off the starting pegs they have already had this season, with each gun’s pegs so far shown beside their name. Swap anyone by hand, save, and the pegs go onto the briefing sheet.',
       }}
     />
   )

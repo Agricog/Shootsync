@@ -18,17 +18,17 @@ import { SITE } from '../../config/site'
 import { FAQS } from '../../content/faq'
 
 const TITLE = 'Shooting Syndicate Management Software for UK | ShootSync'
-const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, the peg draw, bag records by drive, the beating team and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
+const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, a fair peg draw, bag records by drive, the beating team and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
 const QUICK_ANSWER =
-  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, the peg draw, bag records, the beating team and guest guns in one place.'
+  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, a fair peg draw, bag records, the beating team and guest guns in one place.'
 
 const FEATURES = [
   {
     icon: Target,
     anchor: 'peg-draw',
     linkLabel: 'How the peg draw works',
-    title: 'The peg draw, done before the meet',
-    text: 'Draw the pegs for each shoot day, adjust them by hand, and save them to the day. They go straight onto the briefing sheet.',
+    title: 'A fair peg draw, every shoot',
+    text: 'Starting pegs rotate on each gun’s pegs so far this season, so everyone gets their turn and nobody has to keep score.',
   },
   {
     icon: Calendar,
@@ -82,7 +82,7 @@ const SEASON_STEPS = [
   },
   {
     title: 'Run the peg draw',
-    text: 'Draw the pegs, adjust them, save them to the day, and print the briefing sheet.',
+    text: 'Run a fair draw for the guns who are out, check it, save it to the day, and print the briefing sheet.',
   },
   {
     title: 'Record the bag',
@@ -177,7 +177,7 @@ export default function Landing() {
             Shooting syndicate management software
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto">
-            Run your syndicate’s season from one place: members, shoot days, the peg draw, the bag
+            Run your syndicate’s season from one place: members, shoot days, a fair peg draw, the bag
             book, the beating team and guest guns, instead of WhatsApp threads and a spreadsheet.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">

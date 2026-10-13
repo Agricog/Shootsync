@@ -67,7 +67,9 @@ const CASES: Case[] = [
   { name: 'update shoot', method: 'PATCH', path: (x) => `/api/shoots/${x.shoot.id}`, body: () => ({ locationName: 'Moved' }), level: 'captain' },
   { name: 'complete shoot', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/complete`, level: 'captain' },
   { name: 'cancel shoot', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/cancel`, level: 'captain' },
-  { name: 'set peg', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/attendance`, body: (x) => ({ memberId: x.gun.id, pegNumber: 5 }), level: 'captain' },
+  { name: 'read peg sheet', method: 'GET', path: (x) => `/api/shoots/${x.shoot.id}/pegs`, level: 'captain' },
+  { name: 'draw pegs', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/pegs/draw`, body: (x) => ({ method: 'fair', numberOfPegs: 4, memberIds: [x.gun.id, x.captainMember.id] }), level: 'captain' },
+  { name: 'save pegs', method: 'PUT', path: (x) => `/api/shoots/${x.shoot.id}/pegs`, body: (x) => ({ allocations: [{ memberId: x.gun.id, pegNumber: 2 }] }), level: 'captain' },
   { name: 'check in', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/checkin`, body: (x) => ({ memberId: x.gun.id }), level: 'member' },
   { name: 'delete shoot', method: 'DELETE', path: (x) => `/api/shoots/${x.shoot.id}`, level: 'captain' },
   // Bags
@@ -182,11 +184,13 @@ describe('cross-account isolation', () => {
       assert.equal(await prisma.beaterBooking.count(), 0)
     })
 
-    it("captain A cannot put B's member on their peg sheet", async () => {
-      const res = await call(server, `/api/shoots/${data.a.shoot.id}/attendance`, {
-        method: 'POST', as: CAPTAIN_A, body: { memberId: data.b.gun.id, pegNumber: 1 },
+    it("captain A cannot save B's member onto their peg list", async () => {
+      const before = await prisma.shootAttendance.count()
+      const res = await call(server, `/api/shoots/${data.a.shoot.id}/pegs`, {
+        method: 'PUT', as: CAPTAIN_A, body: { allocations: [{ memberId: data.b.gun.id, pegNumber: 1 }] },
       })
       assert.equal(res.status, 400)
+      assert.equal(await prisma.shootAttendance.count(), before)
     })
 
     it("captain A cannot invite a guest in the name of B's member", async () => {

@@ -19,7 +19,7 @@ import type { GuidePath } from '../../content/guides'
 
 const TITLE = 'Features: Peg Draw, Bag Records, Beaters and Guests | ShootSync'
 const DESCRIPTION =
-  'How ShootSync runs a shooting syndicate: the peg draw, shoot day briefing sheets, bag records by drive, your beating team, and guest guns who pay online.'
+  'How ShootSync runs a shooting syndicate: a fair peg draw, shoot day briefing sheets, bag records by drive, your beating team, and guest guns who pay online.'
 
 interface Section {
   id: string
@@ -36,15 +36,16 @@ const SECTIONS: Section[] = [
   {
     id: 'peg-draw',
     icon: Target,
-    heading: 'The peg draw, done before the meet',
+    heading: 'A fair peg draw that remembers the season',
     intro:
-      'Draw the pegs for a shoot day from your member list, check them, and save them to the day, so the draw isn’t done on the back of a cartridge box in the car park.',
+      'A random draw is fair on the day and unfair over a season: the same gun can draw the end peg three shoots running. ShootSync keeps every saved draw and uses it to rotate the starting pegs.',
     points: [
-      'Choose the shoot day and the number of pegs',
-      'Draw the pegs at random, or set them in order',
-      'See the whole list before you save it, move any gun up or down, or draw again',
-      'The saved pegs show on the shoot day and go straight onto the briefing sheet',
+      'Tick who is shooting and set the number of pegs',
+      'The fair draw keeps each gun off the pegs they have already stood on this season, as far as the whole line allows',
+      'Each gun’s pegs so far are shown beside their name, so you can show the guns why',
+      'Swap any two guns by hand, save, and the pegs go straight onto the briefing sheet',
     ],
+    note: 'Prefer a straight draw? A random draw is one click too.',
     guide: { to: '/guides/peg-draw-explained', label: 'Guide: the peg draw explained' },
   },
   {

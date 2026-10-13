@@ -30,7 +30,7 @@ export const PLANS: readonly Plan[] = [
       'Up to 10 guns',
       'Up to 15 beaters',
       'Shoot day scheduling and PDF briefing sheets',
-      'Peg draw for every shoot day',
+      'Fair peg rotation across the season',
       'Bag recording by drive, with voice input',
       'Guest gun invites, waivers and online day fees',
       'Beater list with day rates and bank details',

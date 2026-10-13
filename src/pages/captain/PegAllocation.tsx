@@ -1,231 +1,241 @@
-import { useEffect, useState } from 'react'
+/**
+ * Peg draw - captain only.
+ *
+ * 1. Pick a shoot day. Its saved pegs and each gun's pegs so far this season load
+ *    from the server (GET /api/shoots/:id/pegs).
+ * 2. Tick who is shooting and set the number of pegs.
+ * 3. Draw (POST /api/shoots/:id/pegs/draw). The fair draw runs on the server against
+ *    the season's saved pegs, so it can't be fed a wrong or missing history.
+ * 4. Adjust any gun's peg by hand: choosing a peg someone else holds swaps the two.
+ * 5. Save the whole list at once (PUT /api/shoots/:id/pegs). It all saves or none of it does.
+ */
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 
-interface Syndicate {
-  id: string
-  name: string
-  pegRotationRule: string
-}
-
-interface ShootDay {
+interface ShootOption {
   id: string
   date: string
   locationName: string
   status: string
-  drivesPlanned: number
 }
 
-interface Member {
+interface Gun {
   id: string
   name: string
   role: string
-  status: string
+  history: { pegNumber: number; shootDate: string }[]
 }
 
-interface PegHistory {
+interface Allocation {
   memberId: string
   pegNumber: number
-  shootDate: string
 }
+
+interface PegSheet {
+  shoot: ShootOption
+  guns: Gun[]
+  saved: Allocation[]
+}
+
+type Result<T> = { ok: true; data: T } | { ok: false; error: string }
+
+/** Same-origin API call; the session wrapper adds the sign-in token. Never throws. */
+async function api<T>(path: string, init?: RequestInit): Promise<Result<T>> {
+  try {
+    const response = await fetch(path, {
+      ...init,
+      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
+    })
+    const body = await response.json().catch(() => null)
+    if (!response.ok) {
+      const detail = body?.details?.[0]?.message
+      return { ok: false, error: detail || body?.error || `Something went wrong (${response.status})` }
+    }
+    return { ok: true, data: body as T }
+  } catch {
+    return { ok: false, error: 'Could not reach ShootSync. Check your connection and try again.' }
+  }
+}
+
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
+
+const text = 'text-gray-900 dark:text-gray-100'
+const muted = 'text-gray-600 dark:text-gray-400'
+const field =
+  'px-3 py-2 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-green-500'
 
 export default function PegAllocation() {
   const { user } = useAuth()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const shootIdParam = searchParams.get('shootId')
 
-  const syndicateApi = useApi<Syndicate>('syndicates')
-  const shootApi = useApi<ShootDay>('shoots')
-  const memberApi = useApi<Member>('members')
-
-  const [, setSyndicateId] = useState<string | null>(null)
-  const [shoots, setShoots] = useState<ShootDay[]>([])
-  const [selectedShoot, setSelectedShoot] = useState<string | null>(shootIdParam)
-  const [members, setMembers] = useState<Member[]>([])
-  const [allocations, setAllocations] = useState<{ memberId: string; memberName: string; pegNumber: number }[]>([])
-  const [pegHistory] = useState<PegHistory[]>([])
   const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [numberOfPegs, setNumberOfPegs] = useState(10)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [shoots, setShoots] = useState<ShootOption[]>([])
+  const [shootId, setShootId] = useState<string | null>(shootIdParam)
 
+  const [sheet, setSheet] = useState<PegSheet | null>(null)
+  const [sheetLoading, setSheetLoading] = useState(false)
+  const [shooting, setShooting] = useState<Set<string>>(new Set())
+  const [numberOfPegs, setNumberOfPegs] = useState(1)
+  const [allocations, setAllocations] = useState<Allocation[]>([])
+  const [dirty, setDirty] = useState(false)
+
+  const [busy, setBusy] = useState<'fair' | 'random' | 'save' | null>(null)
+  // The shoot on screen now: a draw or save that finishes after the captain has moved
+  // to another shoot day is ignored, so it can never land on the wrong day.
+  const currentShoot = useRef<string | null>(shootId)
+  currentShoot.current = shootId
+  const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
+
+  // The captain's syndicate and its shoot days.
   useEffect(() => {
-    if (user?.id) {
-      loadData()
+    if (!user?.id) return
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      const syndicates = await api<{ id: string }[]>('/api/syndicates')
+      if (cancelled) return
+      if (!syndicates.ok) {
+        setLoadError(syndicates.error)
+      } else if (syndicates.data.length > 0) {
+        const list = await api<ShootOption[]>(`/api/shoots?syndicateId=${encodeURIComponent(syndicates.data[0].id)}`)
+        if (cancelled) return
+        if (list.ok) setShoots(list.data.filter((s) => s.status !== 'CANCELLED'))
+        else setLoadError(list.error)
+      }
+      setLoading(false)
+    })()
+    return () => {
+      cancelled = true
     }
   }, [user?.id])
 
-  const loadData = async () => {
-    setLoading(true)
-    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
-    if (syndicates.length > 0) {
-      setSyndicateId(syndicates[0].id)
-      const [shootData, memberData] = await Promise.all([
-        shootApi.fetchAll({ syndicateId: syndicates[0].id }),
-        memberApi.fetchAll({ syndicateId: syndicates[0].id, status: 'ACTIVE' }),
-      ])
-      setShoots(shootData.filter(s => s.status === 'SCHEDULED'))
-      setMembers(memberData.filter(m => m.role === 'GUN' || m.role === 'CAPTAIN' || m.role === 'HYBRID'))
-      
-      if (shootIdParam) {
-        setSelectedShoot(shootIdParam)
+  // The chosen day's pegs and every gun's record this season.
+  useEffect(() => {
+    setSheet(null)
+    setAllocations([])
+    setDirty(false)
+    setMessage(null)
+    setSheetLoading(false)
+    if (!shootId) return
+    let cancelled = false
+    ;(async () => {
+      setSheetLoading(true)
+      const result = await api<PegSheet>(`/api/shoots/${encodeURIComponent(shootId)}/pegs`)
+      if (cancelled) return
+      setSheetLoading(false)
+      if (!result.ok) {
+        setMessage({ kind: 'error', text: result.error })
+        return
       }
+      const data = result.data
+      // Only active guns can hold a peg. Anyone saved here who has since left the
+      // syndicate drops off the list and loses the peg when the captain next saves.
+      const gunIds = new Set(data.guns.map((g) => g.id))
+      const current = data.saved.filter((a) => gunIds.has(a.memberId))
+      setSheet(data)
+      setAllocations(current)
+      if (current.length < data.saved.length) {
+        setDirty(true)
+        setMessage({ kind: 'error', text: 'Someone with a saved peg here is no longer an active gun. Check the list and save again.' })
+      }
+      const chosen = new Set(current.length > 0 ? current.map((a) => a.memberId) : data.guns.map((g) => g.id))
+      setShooting(chosen)
+      const highestSaved = Math.max(0, ...current.map((a) => a.pegNumber))
+      setNumberOfPegs(Math.max(1, chosen.size, highestSaved))
+    })()
+    return () => {
+      cancelled = true
     }
-    setLoading(false)
+  }, [shootId])
+
+  const gunsById = useMemo(() => new Map((sheet?.guns ?? []).map((g) => [g.id, g])), [sheet])
+
+  const chooseShoot = (id: string) => {
+    setShootId(id || null)
+    setSearchParams(id ? { shootId: id } : {}, { replace: true })
   }
 
-  const generateFairAllocation = () => {
-    setGenerating(true)
-    
-    const gunsToAllocate = members.filter(m => m.status === 'ACTIVE')
-    
-    if (gunsToAllocate.length === 0) {
-      alert('No active members to allocate pegs to')
-      setGenerating(false)
+  const toggleGun = (id: string) => {
+    const next = new Set(shooting)
+    if (next.has(id)) next.delete(id)
+    else next.add(id)
+    setShooting(next)
+    setNumberOfPegs((pegs) => Math.max(pegs, next.size, 1))
+  }
+
+  const draw = async (method: 'fair' | 'random') => {
+    if (!shootId) return
+    setMessage(null)
+    if (shooting.size === 0) {
+      setMessage({ kind: 'error', text: 'Tick at least one gun who is shooting.' })
       return
     }
-
-    // Count how many times each member has had each peg
-    const pegCounts: Record<string, Record<number, number>> = {}
-    
-    gunsToAllocate.forEach(m => {
-      pegCounts[m.id] = {}
-      for (let p = 1; p <= numberOfPegs; p++) {
-        pegCounts[m.id][p] = 0
-      }
-    })
-
-    // Add history counts
-    pegHistory.forEach(h => {
-      if (pegCounts[h.memberId] && pegCounts[h.memberId][h.pegNumber] !== undefined) {
-        pegCounts[h.memberId][h.pegNumber]++
-      }
-    })
-
-    // Assign pegs to minimize repetition
-    const newAllocations: { memberId: string; memberName: string; pegNumber: number }[] = []
-    const assignedPegs = new Set<number>()
-
-    // Sort members by total shoots attended (ascending) for fairness
-    const sortedMembers = [...gunsToAllocate].sort((a, b) => {
-      const aTotal = Object.values(pegCounts[a.id] || {}).reduce((sum, c) => sum + c, 0)
-      const bTotal = Object.values(pegCounts[b.id] || {}).reduce((sum, c) => sum + c, 0)
-      return aTotal - bTotal
-    })
-
-    sortedMembers.forEach(member => {
-      let bestPeg = 1
-      let lowestCount = Infinity
-
-      for (let p = 1; p <= numberOfPegs; p++) {
-        if (!assignedPegs.has(p) && pegCounts[member.id]) {
-          const count = pegCounts[member.id][p] || 0
-          if (count < lowestCount) {
-            lowestCount = count
-            bestPeg = p
-          }
-        }
-      }
-
-      // If all pegs taken, find first available
-      if (assignedPegs.has(bestPeg)) {
-        for (let p = 1; p <= numberOfPegs; p++) {
-          if (!assignedPegs.has(p)) {
-            bestPeg = p
-            break
-          }
-        }
-      }
-
-      newAllocations.push({
-        memberId: member.id,
-        memberName: member.name,
-        pegNumber: bestPeg,
-      })
-
-      assignedPegs.add(bestPeg)
-    })
-
-    // Sort by peg number for display
-    newAllocations.sort((a, b) => a.pegNumber - b.pegNumber)
-    setAllocations(newAllocations)
-    setGenerating(false)
-  }
-
-  const generateRandomAllocation = () => {
-    setGenerating(true)
-    
-    const gunsToAllocate = members.filter(m => m.status === 'ACTIVE')
-    
-    if (gunsToAllocate.length === 0) {
-      alert('No active members to allocate pegs to')
-      setGenerating(false)
+    if (shooting.size > numberOfPegs) {
+      setMessage({ kind: 'error', text: `There are ${shooting.size} guns shooting but only ${numberOfPegs} pegs.` })
       return
     }
-
-    // Shuffle members randomly
-    const shuffled = [...gunsToAllocate].sort(() => Math.random() - 0.5)
-    
-    const newAllocations = shuffled.map((member, index) => ({
-      memberId: member.id,
-      memberName: member.name,
-      pegNumber: index + 1,
-    }))
-
-    newAllocations.sort((a, b) => a.pegNumber - b.pegNumber)
-    setAllocations(newAllocations)
-    setGenerating(false)
-  }
-
-  const saveAllocations = async () => {
-    if (!selectedShoot || allocations.length === 0) return
-
-    setSaving(true)
-    
-    // Save each allocation to shoot attendance
-    for (const alloc of allocations) {
-      await fetch(`/api/shoots/${selectedShoot}/attendance`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          memberId: alloc.memberId,
-          pegNumber: alloc.pegNumber,
-          confirmed: true,
-        }),
-      })
+    setBusy(method)
+    const result = await api<{ allocations: Allocation[] }>(`/api/shoots/${encodeURIComponent(shootId)}/pegs/draw`, {
+      method: 'POST',
+      body: JSON.stringify({ method, numberOfPegs, memberIds: [...shooting] }),
+    })
+    setBusy(null)
+    if (currentShoot.current !== shootId) return
+    if (!result.ok) {
+      setMessage({ kind: 'error', text: result.error })
+      return
     }
-
-    setSaving(false)
-    alert('Peg allocations saved!')
+    setAllocations(result.data.allocations)
+    setDirty(true)
   }
 
-  const movePegUp = (index: number) => {
-    if (index === 0) return
-    const newAllocations = [...allocations]
-    const currentPeg = newAllocations[index].pegNumber
-    const prevPeg = newAllocations[index - 1].pegNumber
-    newAllocations[index].pegNumber = prevPeg
-    newAllocations[index - 1].pegNumber = currentPeg
-    newAllocations.sort((a, b) => a.pegNumber - b.pegNumber)
-    setAllocations(newAllocations)
+  /** Move a gun to a peg. If someone else holds it, the two swap. */
+  const setPeg = (memberId: string, pegNumber: number) => {
+    setAllocations((current) => {
+      const mine = current.find((a) => a.memberId === memberId)
+      if (!mine || mine.pegNumber === pegNumber) return current
+      return current
+        .map((a) => {
+          if (a.memberId === memberId) return { ...a, pegNumber }
+          if (a.pegNumber === pegNumber) return { ...a, pegNumber: mine.pegNumber }
+          return a
+        })
+        .sort((a, b) => a.pegNumber - b.pegNumber)
+    })
+    setDirty(true)
   }
 
-  const movePegDown = (index: number) => {
-    if (index === allocations.length - 1) return
-    const newAllocations = [...allocations]
-    const currentPeg = newAllocations[index].pegNumber
-    const nextPeg = newAllocations[index + 1].pegNumber
-    newAllocations[index].pegNumber = nextPeg
-    newAllocations[index + 1].pegNumber = currentPeg
-    newAllocations.sort((a, b) => a.pegNumber - b.pegNumber)
-    setAllocations(newAllocations)
+  const save = async () => {
+    if (!shootId) return
+    setBusy('save')
+    setMessage(null)
+    const result = await api<{ saved: Allocation[] }>(`/api/shoots/${encodeURIComponent(shootId)}/pegs`, {
+      method: 'PUT',
+      body: JSON.stringify({ allocations }),
+    })
+    setBusy(null)
+    if (currentShoot.current !== shootId) return
+    if (!result.ok) {
+      setMessage({ kind: 'error', text: `Not saved: ${result.error}` })
+      return
+    }
+    setAllocations(result.data.saved)
+    setSheet((s) => (s ? { ...s, saved: result.data.saved } : s))
+    setDirty(false)
+    setMessage({ kind: 'success', text: 'Pegs saved. They show on the shoot day and on the briefing sheet.' })
   }
+
+  const pegChoices = Array.from({ length: Math.max(numberOfPegs, ...allocations.map((a) => a.pegNumber)) }, (_, i) => i + 1)
 
   if (loading) {
     return (
@@ -240,123 +250,186 @@ export default function PegAllocation() {
   return (
     <DashboardLayout>
       <Helmet>
-        <title>Peg Allocation | ShootSync</title>
+        <title>Peg Draw | ShootSync</title>
       </Helmet>
 
-      <div className="space-y-6">
-        <h1 className="text-2xl font-bold text-white">Peg Allocation</h1>
+      <div className="space-y-6 max-w-3xl">
+        <div>
+          <h1 className="text-2xl font-bold text-white">Peg draw</h1>
+          <p className="mt-1 text-slate-400">
+            Draw each gun’s starting peg for a shoot day. The fair draw gives each gun the pegs they have had least
+            this season.
+          </p>
+        </div>
 
-        {/* Shoot Selector */}
+        {loadError && (
+          <p role="alert" className="text-red-400">
+            {loadError}
+          </p>
+        )}
+
         <Card>
-          <label className="block text-sm font-medium text-gray-900 mb-2">Select Shoot Day</label>
-          <select
-            value={selectedShoot || ''}
-            onChange={(e) => setSelectedShoot(e.target.value)}
-            className="w-full px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-900"
-          >
-            <option value="">-- Select a shoot --</option>
-            {shoots.map((shoot) => (
-              <option key={shoot.id} value={shoot.id}>
-                {shoot.locationName} - {new Date(shoot.date).toLocaleDateString('en-GB')}
-              </option>
-            ))}
-          </select>
+          <label htmlFor="shoot" className={`block text-sm font-medium mb-2 ${text}`}>
+            Shoot day
+          </label>
+          {shoots.length === 0 ? (
+            <p className={muted}>No shoot days yet. Add one under Shoots first.</p>
+          ) : (
+            <select id="shoot" value={shootId ?? ''} onChange={(e) => chooseShoot(e.target.value)} className={`w-full ${field}`}>
+              <option value="">Choose a shoot day</option>
+              {shoots.map((shoot) => (
+                <option key={shoot.id} value={shoot.id}>
+                  {shortDate(shoot.date)} · {shoot.locationName}
+                  {shoot.status === 'COMPLETED' ? ' (completed)' : ''}
+                </option>
+              ))}
+            </select>
+          )}
         </Card>
 
-        {selectedShoot && (
-          <>
-            {/* Settings */}
-            <Card>
-              <h2 className="text-lg font-semibold text-green-600 mb-4">Settings</h2>
-              <div className="flex items-center gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Number of Pegs</label>
-                  <input
-                    type="number"
-                    value={numberOfPegs}
-                    onChange={(e) => setNumberOfPegs(parseInt(e.target.value) || 10)}
-                    min={1}
-                    max={20}
-                    className="w-24 px-3 py-2 bg-gray-100 border border-gray-300 rounded-lg text-gray-900"
-                  />
-                </div>
-                <div className="flex gap-2 mt-6">
-                  <Button onClick={generateFairAllocation} disabled={generating}>
-                    {generating ? 'Generating...' : 'Fair Rotation'}
-                  </Button>
-                  <Button variant="secondary" onClick={generateRandomAllocation} disabled={generating}>
-                    Random Draw
-                  </Button>
-                </div>
-              </div>
-              <p className="text-sm text-gray-600 mt-2">
-                <strong>Fair Rotation:</strong> Assigns pegs based on history - members get pegs they've had least often.
-                <br />
-                <strong>Random Draw:</strong> Completely random peg assignment.
-              </p>
-            </Card>
+        {message && !sheet && (
+          <p
+            role={message.kind === 'error' ? 'alert' : 'status'}
+            className={`rounded-lg px-4 py-3 ${message.kind === 'error' ? 'bg-red-900/40 text-red-200 border border-red-800' : 'bg-green-900/40 text-green-200 border border-green-800'}`}
+          >
+            {message.text}
+          </p>
+        )}
 
-            {/* Members */}
+        {sheetLoading && (
+          <div className="flex justify-center py-8">
+            <LoadingSpinner />
+          </div>
+        )}
+
+        {sheet && (
+          <>
             <Card>
-              <h2 className="text-lg font-semibold text-green-600 mb-4">
-                Guns to Allocate ({members.length})
-              </h2>
-              {members.length === 0 ? (
-                <p className="text-gray-700">No active gun members. Add members first.</p>
+              <h2 className={`text-lg font-semibold mb-1 ${text}`}>Who is shooting?</h2>
+              {sheet.guns.length === 0 ? (
+                <p className={muted}>No active guns yet. Add your guns under Members, and mark them active.</p>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {members.map((member) => (
-                    <span
-                      key={member.id}
-                      className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
-                    >
-                      {member.name}
-                    </span>
-                  ))}
-                </div>
+                <>
+                  <p className={`text-sm mb-4 ${muted}`}>
+                    Untick anyone not out on this day. Pegs so far are from saved draws this season, before this day.
+                  </p>
+                  <ul className="divide-y divide-gray-200 dark:divide-gray-700">
+                    {sheet.guns.map((gun) => (
+                      <li key={gun.id} className="py-2">
+                        <label className="flex items-start gap-3 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={shooting.has(gun.id)}
+                            onChange={() => toggleGun(gun.id)}
+                            className="mt-1 h-5 w-5 accent-green-600"
+                          />
+                          <span>
+                            <span className={`font-medium ${text}`}>{gun.name}</span>
+                            <span className={`block text-sm ${muted}`}>
+                              {gun.history.length === 0
+                                ? 'No pegs yet this season'
+                                : `Pegs so far: ${gun.history.map((h) => h.pegNumber).join(', ')} (${gun.history.length} ${gun.history.length === 1 ? 'day' : 'days'})`}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div className="mt-6 flex flex-wrap items-end gap-4">
+                    <div>
+                      <label htmlFor="pegs" className={`block text-sm font-medium mb-1 ${text}`}>
+                        Number of pegs
+                      </label>
+                      <input
+                        id="pegs"
+                        type="number"
+                        inputMode="numeric"
+                        min={Math.max(1, shooting.size)}
+                        max={40}
+                        value={numberOfPegs}
+                        onChange={(e) => {
+                          const n = Number.parseInt(e.target.value, 10)
+                          if (Number.isFinite(n)) setNumberOfPegs(Math.min(40, Math.max(1, n)))
+                        }}
+                        className={`w-24 ${field}`}
+                      />
+                    </div>
+                    <Button onClick={() => draw('fair')} isLoading={busy === 'fair'} disabled={busy !== null}>
+                      Fair draw
+                    </Button>
+                    <Button variant="secondary" onClick={() => draw('random')} isLoading={busy === 'random'} disabled={busy !== null}>
+                      Random draw
+                    </Button>
+                  </div>
+                  <p className={`mt-3 text-sm ${muted}`}>
+                    <strong>Fair draw:</strong> across the whole line, guns are kept off pegs they have already stood on
+                    this season as far as possible; ties are drawn at random. <strong>Random draw:</strong> a straight
+                    draw, ignoring the season so far.
+                  </p>
+                </>
               )}
             </Card>
 
-            {/* Allocations */}
+
+            {message && (
+              <p
+                role={message.kind === 'error' ? 'alert' : 'status'}
+                className={`rounded-lg px-4 py-3 ${message.kind === 'error' ? 'bg-red-900/40 text-red-200 border border-red-800' : 'bg-green-900/40 text-green-200 border border-green-800'}`}
+              >
+                {message.text}
+              </p>
+            )}
+
             {allocations.length > 0 && (
               <Card>
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-lg font-semibold text-green-600">Peg Allocations</h2>
-                  <Button onClick={saveAllocations} disabled={saving}>
-                    {saving ? 'Saving...' : 'Save Allocations'}
+                <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+                  <div>
+                    <h2 className={`text-lg font-semibold ${text}`}>Pegs for this day</h2>
+                    <p className={`text-sm ${muted}`}>
+                      {dirty ? 'Not saved yet.' : 'Saved.'} Change a peg to swap two guns.
+                    </p>
+                  </div>
+                  <Button onClick={save} isLoading={busy === 'save'} disabled={busy !== null || !dirty}>
+                    Save pegs
                   </Button>
                 </div>
-                <div className="space-y-2">
-                  {allocations.map((alloc, index) => (
-                    <div
-                      key={alloc.memberId}
-                      className="flex justify-between items-center p-3 bg-gray-100 rounded-lg"
-                    >
-                      <div className="flex items-center gap-4">
-                        <span className="w-12 h-12 flex items-center justify-center bg-green-600 text-white rounded-full font-bold text-lg">
-                          {alloc.pegNumber}
-                        </span>
-                        <span className="font-medium text-gray-900">{alloc.memberName}</span>
-                      </div>
-                      <div className="flex gap-1">
-                        <button
-                          onClick={() => movePegUp(index)}
-                          className="px-2 py-1 text-gray-600 hover:bg-gray-200 rounded"
-                          disabled={index === 0}
-                        >
-                          ↑
-                        </button>
-                        <button
-                          onClick={() => movePegDown(index)}
-                          className="px-2 py-1 text-gray-600 hover:bg-gray-200 rounded"
-                          disabled={index === allocations.length - 1}
-                        >
-                          ↓
-                        </button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ol className="space-y-2">
+                  {allocations.map((allocation) => {
+                    const gun = gunsById.get(allocation.memberId)
+                    const had = gun?.history.filter((h) => h.pegNumber === allocation.pegNumber).length ?? 0
+                    return (
+                      <li key={allocation.memberId} className="flex items-center justify-between gap-3 p-3 bg-gray-100 dark:bg-gray-900 rounded-lg">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <span className="w-11 h-11 shrink-0 flex items-center justify-center bg-green-600 text-white rounded-full font-bold text-lg" aria-hidden="true">
+                            {allocation.pegNumber}
+                          </span>
+                          <div className="min-w-0">
+                            <p className={`font-medium truncate ${text}`}>{gun?.name ?? 'Former member'}</p>
+                            <p className={`text-xs ${muted}`}>
+                              {had === 0 ? 'First time on this peg this season' : had === 1 ? 'Had this peg once before this season' : `Had this peg ${had} times before this season`}
+                            </p>
+                          </div>
+                        </div>
+                        <label className="flex items-center gap-2 shrink-0">
+                          <span className={`text-sm ${muted}`}>Peg</span>
+                          <select
+                            value={allocation.pegNumber}
+                            onChange={(e) => setPeg(allocation.memberId, Number(e.target.value))}
+                            className={field}
+                            aria-label={`Peg for ${gun?.name ?? 'this gun'}`}
+                          >
+                            {pegChoices.map((peg) => (
+                              <option key={peg} value={peg}>
+                                {peg}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      </li>
+                    )
+                  })}
+                </ol>
               </Card>
             )}
           </>
