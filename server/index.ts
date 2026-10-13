@@ -7,11 +7,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PrismaClient } from '@prisma/client'
 import Stripe from 'stripe'
-import { ConfigError, loadConfig } from './config.js'
+import { ConfigError, loadConfig, type AppConfig } from './config.js'
 import { createClerkVerifier } from './auth.js'
 import { createApp } from './app.js'
+import { PLAN_PRICES_PENCE, type PlanTierKey } from './plans.js'
 
-let config
+let config: AppConfig
 try {
   config = loadConfig()
 } catch (err) {
@@ -42,7 +43,29 @@ const server = app.listen(PORT, () => {
   console.log(`[boot] ShootSync API listening on ${PORT}`)
   console.log(`[boot] Sessions accepted from: ${config.allowedOrigins.join(', ')}`)
   console.log(`[boot] Stripe mode: ${config.stripeSecretKey.startsWith('sk_live_') ? 'LIVE' : 'TEST'}`)
+  void checkStripePrices()
 })
+
+/** The website's prices must be what Stripe charges. Logged at every boot; never stops the server. */
+async function checkStripePrices() {
+  for (const tier of Object.keys(PLAN_PRICES_PENCE) as PlanTierKey[]) {
+    try {
+      const price = await stripe.prices.retrieve(config.stripePriceIds[tier])
+      const expected = PLAN_PRICES_PENCE[tier]
+      const ok =
+        price.unit_amount === expected &&
+        price.currency === 'gbp' &&
+        price.recurring?.interval === 'month' &&
+        price.active
+      const charged = `£${((price.unit_amount ?? 0) / 100).toFixed(2)}/${price.recurring?.interval ?? 'one-off'}${price.active ? '' : ' (archived)'}`
+      console[ok ? 'log' : 'error'](
+        `[boot] Stripe price ${tier}: ${charged} ${ok ? 'matches the website' : `DOES NOT MATCH the website's £${(expected / 100).toFixed(2)}/month`}`
+      )
+    } catch (err) {
+      console.error(`[boot] Stripe price ${tier}: could not be read (${err instanceof Error ? err.message : 'unknown error'})`)
+    }
+  }
+}
 
 async function shutdown(signal: string) {
   console.log(`[shutdown] ${signal} received`)

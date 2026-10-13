@@ -9,6 +9,7 @@ import express, { type Request } from 'express'
 import cors from 'cors'
 import helmet from 'helmet'
 import path from 'node:path'
+import { readFileSync } from 'node:fs'
 import type { Deps } from './deps.js'
 import { authGate, isPublicRoute, type TokenVerifier } from './auth.js'
 import { errorHandler } from './access.js'
@@ -30,6 +31,21 @@ export interface AppOptions extends Deps {
 }
 
 const WEBHOOK_PATHS = ['/api/stripe/webhook', '/api/subscriptions/webhook']
+
+/** Reads dist/prerendered/manifest.json. A build without it serves the app shell for every page. */
+function loadPrerenderManifest(staticDir: string): Record<string, string> {
+  try {
+    const raw = JSON.parse(readFileSync(path.join(staticDir, 'prerendered', 'manifest.json'), 'utf8'))
+    const safe: Record<string, string> = {}
+    for (const [route, file] of Object.entries(raw)) {
+      if (typeof file === 'string' && /^[a-z0-9-]+\.html$/.test(file)) safe[route] = file
+    }
+    return safe
+  } catch {
+    console.warn('[boot] No prerendered pages found; public pages will be served as the app shell')
+    return {}
+  }
+}
 
 export function createApp(options: AppOptions) {
   const { verifyToken, staticDir, ...deps } = options
@@ -91,16 +107,35 @@ export function createApp(options: AppOptions) {
   })
 
   if (staticDir) {
-    // The compiled server lives in dist/server, inside the static folder. Never serve it.
-    app.use('/server', (_req, res) => {
-      res.status(404).end()
+    // Public pages prerendered at build time (scripts/prerender.mjs): path -> file.
+    const prerendered = loadPrerenderManifest(staticDir)
+
+    // The compiled server lives in dist/server, inside the static folder. Never serve it,
+    // and don't expose the prerendered files under a second address.
+    for (const hidden of ['/server', '/prerendered']) {
+      app.use(hidden, (_req, res) => {
+        res.status(404).end()
+      })
+    }
+
+    // One address per page: /features/ -> /features (keeps the query string).
+    app.use((req, res, next) => {
+      if (req.method === 'GET' && req.path.length > 1 && req.path.endsWith('/')) {
+        const query = req.originalUrl.slice(req.path.length)
+        // Strip leading slashes too, so '//evil.example/' can never become an off-site redirect.
+        const target = '/' + req.path.replace(/^\/+|\/+$/g, '')
+        return res.redirect(301, target + query)
+      }
+      next()
     })
+
     // Hashed build assets can be cached for a year; everything else revalidates.
     app.use('/assets', express.static(path.join(staticDir, 'assets'), { immutable: true, maxAge: '1y', index: false }))
     app.use(express.static(staticDir, { index: false, maxAge: 0 }))
-    app.get('*', (_req, res) => {
+    app.get('*', (req, res) => {
       res.set('Cache-Control', 'no-cache')
-      res.sendFile(path.join(staticDir, 'index.html'))
+      const page = prerendered[req.path]
+      res.sendFile(page ? path.join(staticDir, 'prerendered', page) : path.join(staticDir, 'index.html'))
     })
   }
 
