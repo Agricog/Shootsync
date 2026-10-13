@@ -11,6 +11,8 @@
  *   - every internal link goes to a real page, and every #anchor exists on its page
  *   - every asset referenced (scripts, styles, images, og:image, JSON-LD urls) exists in dist
  *   - no script, style, font or image is loaded from another site (§05.3)
+ * For every guide (/guides/*): a "Last reviewed" date, at least two cited sources,
+ *   Article structured data with the same date, og:type article, and a link from /guides.
  * Plus: sitemap lists exactly the public pages, robots.txt points at it,
  * og-image.png is a real 1200x630 PNG, and the app shell is noindex.
  */
@@ -104,6 +106,32 @@ for (const [route, html] of Object.entries(pages)) {
     else if (anchor && !ids(pages[target]).has(anchor)) fail(route, `link to ${href}, but ${target} has no #${anchor}`)
   }
 }
+
+// Guides (§05 trust signals): every guide carries its review date, cites sources,
+// is marked up as an Article with the same date, and is listed on the /guides hub.
+const guideRoutes = Object.keys(pages).filter((route) => route.startsWith('/guides/'))
+for (const route of guideRoutes) {
+  const html = pages[route]
+  const reviewed = attr(html, /Last reviewed <time datetime="(\d{4}-\d{2}-\d{2})"/i)
+  if (!reviewed) fail(route, 'guide has no "Last reviewed" date')
+  const sources = html.split('id="sources"')[1]
+  const cited = sources ? [...sources.split('</section>')[0].matchAll(/<a[^>]+href="(https:\/\/[^"]+)"/g)].length : 0
+  if (cited < 2) fail(route, `guide cites ${cited} sources, expected at least 2`)
+  let article
+  for (const m of html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
+    try {
+      const data = JSON.parse(m[1])
+      if (data['@type'] === 'Article') article = data
+    } catch {
+      // reported above
+    }
+  }
+  if (!article) fail(route, 'guide has no Article structured data')
+  else if (article.dateModified !== reviewed) fail(route, `Article dateModified ${article.dateModified} differs from the page's reviewed date ${reviewed}`)
+  if (metaContent(html, 'og:type') !== 'article') fail(route, 'og:type is not article')
+  if (pages['/guides'] && !pages['/guides'].includes(`href="${route}"`)) fail('/guides', `does not link to ${route}`)
+}
+if (pages['/guides'] && guideRoutes.length === 0) fail('/guides', 'hub has no guides')
 
 const sitemap = read('sitemap.xml')
 const sitemapUrls = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]).sort()

@@ -11,6 +11,8 @@ import type { Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import type { PrismaClient } from '@prisma/client'
 import { PLANS, BILLING_TERMS } from '../src/config/plans.js'
+import { PUBLIC_ROUTES } from '../src/config/site.js'
+import { GUIDES, formatReviewed } from '../src/content/guides.js'
 import { PLAN_PRICES_PENCE } from '../server/plans.js'
 import { createApp } from '../server/app.js'
 import { createTestStripe, testConfig, testVerifier } from './helpers.js'
@@ -32,6 +34,43 @@ describe('plans', () => {
   })
 })
 
+describe('public routes and guides', () => {
+  it('every public route has a unique path and a safe, unique file name', () => {
+    const paths = PUBLIC_ROUTES.map((route) => route.path)
+    const files = PUBLIC_ROUTES.map((route) => route.file)
+    assert.equal(new Set(paths).size, paths.length)
+    assert.equal(new Set(files).size, files.length)
+    for (const file of files) assert.match(file, /^[a-z0-9-]+$/, `unsafe file name ${file}`)
+  })
+
+  it('every guide is a public page, and every public page under /guides is a guide', () => {
+    const routes = new Set<string>(PUBLIC_ROUTES.map((route) => route.path))
+    for (const guide of GUIDES) assert.ok(routes.has(guide.path), `${guide.path} is not in PUBLIC_ROUTES`)
+    const guidePaths = new Set<string>(GUIDES.map((guide) => guide.path))
+    for (const route of routes) {
+      if (route.startsWith('/guides/')) assert.ok(guidePaths.has(route), `${route} is not in GUIDES`)
+    }
+    assert.ok(routes.has('/guides'), 'the /guides hub is not a public page')
+  })
+
+  it('no guide has gone more than a year without its facts being checked', () => {
+    // Minimum wage rates change every April and season dates are reviewed each summer.
+    // When this fails: re-check the guide against its sources, then update `reviewed`.
+    const now = Date.now()
+    for (const guide of GUIDES) {
+      const reviewed = Date.parse(`${guide.reviewed}T00:00:00Z`)
+      assert.ok(Number.isFinite(reviewed), `${guide.path} has an invalid reviewed date`)
+      assert.ok(reviewed <= now, `${guide.path} is reviewed in the future`)
+      assert.ok(now - reviewed < 366 * 24 * 60 * 60 * 1000, `${guide.path} was last reviewed ${guide.reviewed}: re-check it`)
+    }
+  })
+
+  it('review dates read the same on the server and in the browser', () => {
+    assert.equal(formatReviewed('2026-10-13'), '13 October 2026')
+    assert.equal(formatReviewed('2027-01-01'), '1 January 2027')
+  })
+})
+
 describe('serving the built site', () => {
   let dir: string
   let server: Server
@@ -43,7 +82,11 @@ describe('serving the built site', () => {
     mkdirSync(path.join(dir, 'prerendered'))
     writeFileSync(path.join(dir, 'prerendered', 'home.html'), 'HOME PAGE')
     writeFileSync(path.join(dir, 'prerendered', 'features.html'), 'FEATURES PAGE')
-    writeFileSync(path.join(dir, 'prerendered', 'manifest.json'), JSON.stringify({ '/': 'home.html', '/features': 'features.html', '/evil': '../../etc/passwd' }))
+    writeFileSync(path.join(dir, 'prerendered', 'guide-peg-draw-explained.html'), 'GUIDE PAGE')
+    writeFileSync(
+      path.join(dir, 'prerendered', 'manifest.json'),
+      JSON.stringify({ '/': 'home.html', '/features': 'features.html', '/guides/peg-draw-explained': 'guide-peg-draw-explained.html', '/evil': '../../etc/passwd' })
+    )
     mkdirSync(path.join(dir, 'server'))
     writeFileSync(path.join(dir, 'server', 'index.js'), 'SERVER SOURCE')
     writeFileSync(path.join(dir, 'robots.txt'), 'User-agent: *')
@@ -66,6 +109,13 @@ describe('serving the built site', () => {
   it('serves each public page as its prerendered HTML', async () => {
     assert.equal(await (await get('/')).text(), 'HOME PAGE')
     assert.equal(await (await get('/features')).text(), 'FEATURES PAGE')
+  })
+
+  it('serves a guide at its nested address', async () => {
+    assert.equal(await (await get('/guides/peg-draw-explained')).text(), 'GUIDE PAGE')
+    const res = await get('/guides/peg-draw-explained/')
+    assert.equal(res.status, 301)
+    assert.equal(res.headers.get('location'), '/guides/peg-draw-explained')
   })
 
   it('serves the app shell for app pages', async () => {

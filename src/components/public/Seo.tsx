@@ -16,9 +16,11 @@ interface SeoProps {
   path: string
   jsonLd?: object[]
   noindex?: boolean
+  /** 'article' for guides, so link previews and crawlers know it is an article. */
+  type?: 'website' | 'article'
 }
 
-export default function Seo({ title, description, path, jsonLd = [], noindex = false }: SeoProps) {
+export default function Seo({ title, description, path, jsonLd = [], noindex = false, type = 'website' }: SeoProps) {
   const url = absoluteUrl(path)
   const image = `${SITE.url}${SITE.ogImage}`
 
@@ -33,7 +35,7 @@ export default function Seo({ title, description, path, jsonLd = [], noindex = f
         content={noindex ? 'noindex, follow' : 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'}
       />
 
-      <meta property="og:type" content="website" />
+      <meta property="og:type" content={type} />
       <meta property="og:site_name" content={SITE.name} />
       <meta property="og:locale" content={SITE.locale} />
       <meta property="og:title" content={title} />

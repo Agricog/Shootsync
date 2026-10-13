@@ -11,6 +11,7 @@ import { SITE } from '../../config/site'
 const NAV = [
   { to: '/features', label: 'Features' },
   { to: '/pricing', label: 'Pricing' },
+  { to: '/guides', label: 'Guides' },
   { to: '/contact', label: 'Contact' },
 ] as const
 

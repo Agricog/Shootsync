@@ -17,6 +17,12 @@ import Pricing from './pages/public/Pricing'
 import Contact from './pages/public/Contact'
 import Privacy from './pages/public/Privacy'
 import Terms from './pages/public/Terms'
+import GuidesHub from './pages/public/guides/GuidesHub'
+import PayingBeaters from './pages/public/guides/PayingBeaters'
+import PegDraw from './pages/public/guides/PegDraw'
+import GuestGuns from './pages/public/guides/GuestGuns'
+import SeasonDates from './pages/public/guides/SeasonDates'
+import TippingTheKeeper from './pages/public/guides/TippingTheKeeper'
 import { PUBLIC_ROUTES, SITE } from './config/site'
 
 export { PUBLIC_ROUTES, SITE }
@@ -25,6 +31,12 @@ const PAGES: Record<(typeof PUBLIC_ROUTES)[number]['path'], ComponentType> = {
   '/': Landing,
   '/features': Features,
   '/pricing': Pricing,
+  '/guides': GuidesHub,
+  '/guides/paying-beaters-and-pickers-up': PayingBeaters,
+  '/guides/peg-draw-explained': PegDraw,
+  '/guides/guest-guns': GuestGuns,
+  '/guides/shooting-season-dates': SeasonDates,
+  '/guides/tipping-the-keeper': TippingTheKeeper,
   '/contact': Contact,
   '/privacy': Privacy,
   '/terms': Terms,

@@ -13,6 +13,7 @@ import Seo from '../../components/public/Seo'
 import PublicLayout from '../../components/public/PublicLayout'
 import { LOWEST_MONTHLY_PRICE } from '../../config/plans'
 import { SITE } from '../../config/site'
+import type { GuidePath } from '../../content/guides'
 
 const TITLE = 'Features: Peg Draw, Bag Records, Beaters and Guests | ShootSync'
 const DESCRIPTION =
@@ -25,6 +26,8 @@ interface Section {
   intro: string
   points: string[]
   note?: string
+  /** The guide that covers the same job, linked under the section. */
+  guide?: { to: GuidePath; label: string }
 }
 
 const SECTIONS: Section[] = [
@@ -41,6 +44,7 @@ const SECTIONS: Section[] = [
       'The peg list goes straight onto the briefing sheet',
     ],
     note: 'It answers the car-park question of whose turn it is with a record everyone can see, not with the captain’s memory.',
+    guide: { to: '/guides/peg-draw-explained', label: 'Guide: the peg draw explained' },
   },
   {
     id: 'shoot-days',
@@ -54,6 +58,7 @@ const SECTIONS: Section[] = [
       'Guns, guests and beaters for the day in one view',
       'A PDF briefing sheet with the date, meeting details, drives, the peg list, the beaters and your notes, ready to print or send',
     ],
+    guide: { to: '/guides/shooting-season-dates', label: 'Guide: UK shooting season dates' },
   },
   {
     id: 'bag-records',
@@ -81,6 +86,7 @@ const SECTIONS: Section[] = [
       'Export a spreadsheet of names, bank details and amounts, ready for your bank',
     ],
     note: 'ShootSync keeps the record of what’s owed and paid; the money itself moves through your own bank, as it does now.',
+    guide: { to: '/guides/paying-beaters-and-pickers-up', label: 'Guide: paying beaters and pickers-up' },
   },
   {
     id: 'guest-guns',
@@ -94,6 +100,7 @@ const SECTIONS: Section[] = [
       'They pay the day fee by card through Stripe; card details never reach ShootSync',
       'You see who has accepted, declined and paid, and can copy the link again for anyone who hasn’t replied',
     ],
+    guide: { to: '/guides/guest-guns', label: 'Guide: guest guns, the law and the etiquette' },
   },
   {
     id: 'members',
@@ -159,7 +166,7 @@ export default function Features() {
         </div>
       </section>
 
-      {SECTIONS.map(({ id, icon: Icon, heading, intro, points, note }, index) => (
+      {SECTIONS.map(({ id, icon: Icon, heading, intro, points, note, guide }, index) => (
         <section
           key={id}
           id={id}
@@ -181,6 +188,13 @@ export default function Features() {
               ))}
             </ul>
             {note && <p className="mt-6 text-sm text-slate-400 border-l-2 border-green-600 pl-4">{note}</p>}
+            {guide && (
+              <p className="mt-6 text-sm">
+                <Link to={guide.to} className="inline-flex items-center gap-1 text-green-500 hover:text-green-400">
+                  {guide.label} <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                </Link>
+              </p>
+            )}
           </div>
         </section>
       ))}

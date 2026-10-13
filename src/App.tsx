@@ -16,6 +16,12 @@ import Features from './pages/public/Features'
 import Privacy from './pages/public/Privacy'
 import Terms from './pages/public/Terms'
 import Contact from './pages/public/Contact'
+import GuidesHub from './pages/public/guides/GuidesHub'
+import PayingBeaters from './pages/public/guides/PayingBeaters'
+import PegDraw from './pages/public/guides/PegDraw'
+import GuestGuns from './pages/public/guides/GuestGuns'
+import SeasonDates from './pages/public/guides/SeasonDates'
+import TippingTheKeeper from './pages/public/guides/TippingTheKeeper'
 
 // Captain pages
 import CaptainDashboard from './pages/captain/Dashboard'
@@ -63,6 +69,12 @@ export default function App() {
             <Route path="/privacy" element={<Privacy />} />
             <Route path="/terms" element={<Terms />} />
             <Route path="/contact" element={<Contact />} />
+            <Route path="/guides" element={<GuidesHub />} />
+            <Route path="/guides/paying-beaters-and-pickers-up" element={<PayingBeaters />} />
+            <Route path="/guides/peg-draw-explained" element={<PegDraw />} />
+            <Route path="/guides/guest-guns" element={<GuestGuns />} />
+            <Route path="/guides/shooting-season-dates" element={<SeasonDates />} />
+            <Route path="/guides/tipping-the-keeper" element={<TippingTheKeeper />} />
             <Route
               path="/login/*"
               element={
