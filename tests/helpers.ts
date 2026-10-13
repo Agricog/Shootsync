@@ -46,19 +46,33 @@ export interface StripeCalls {
   checkoutCreates: Stripe.Checkout.SessionCreateParams[]
   checkoutIdempotencyKeys: Array<string | undefined>
   customersCreated: Stripe.CustomerCreateParams[]
+  /** Checkout sessions the test says are open in Stripe; `expire` removes them (or fails if `expireFails`). */
+  openSessions: Array<{ id: string; mode: string; customer: string }>
+  expired: string[]
+  expireFails: boolean
 }
+
+/** What the Stripe SDK throws for an object that doesn't exist. */
+export const stripeMissing = (what: string) => Object.assign(new Error(`No such ${what}`), { type: 'StripeInvalidRequestError', code: 'resource_missing' })
 
 /** A real Stripe SDK instance (so webhook signatures are verified for real) with its network calls stubbed. */
 export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscriptions: Map<string, Stripe.Subscription> } {
   const stripe = new Stripe('sk_test_unused', { apiVersion: '2023-10-16' })
-  const calls: StripeCalls = { checkoutCreates: [], checkoutIdempotencyKeys: [], customersCreated: [] }
+  const calls: StripeCalls = { checkoutCreates: [], checkoutIdempotencyKeys: [], customersCreated: [], openSessions: [], expired: [], expireFails: false }
   const subscriptions = new Map<string, Stripe.Subscription>()
 
   const sessions = stripe.checkout.sessions as unknown as Record<string, unknown>
+  // Like Stripe, a repeated idempotency key returns the session made the first time, as it is now.
+  const byKey = new Map<string, string>()
   sessions.create = async (params: Stripe.Checkout.SessionCreateParams, options?: Stripe.RequestOptions) => {
-    calls.checkoutCreates.push(params)
     calls.checkoutIdempotencyKeys.push(options?.idempotencyKey)
-    return { id: `cs_test_${calls.checkoutCreates.length}abcdefghij`, url: 'https://checkout.stripe.test/session' }
+    const replayed = options?.idempotencyKey ? byKey.get(options.idempotencyKey) : undefined
+    const id = replayed ?? `cs_test_${calls.checkoutCreates.length + 1}abcdefghij`
+    if (!replayed) {
+      calls.checkoutCreates.push(params)
+      if (options?.idempotencyKey) byKey.set(options.idempotencyKey, id)
+    }
+    return { id, url: `https://checkout.stripe.test/${id}`, status: calls.expired.includes(id) ? 'expired' : 'open' }
   }
   sessions.retrieve = async (id: string) => {
     if (id === 'cs_test_guestpaymentabcdef') {
@@ -68,6 +82,15 @@ export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscr
       return { id, payment_status: 'paid', customer_email: 'someone@example.com', amount_total: 99900, metadata: {} }
     }
     throw new Error('No such checkout session')
+  }
+  sessions.list = async (params: { customer?: string; status?: string }) => ({
+    data: calls.openSessions.filter((x) => x.customer === params.customer && params.status === 'open'),
+  })
+  sessions.expire = async (id: string) => {
+    if (calls.expireFails && calls.openSessions.some((x) => x.id === id)) throw new Error('This Checkout Session is not open')
+    calls.expired.push(id)
+    calls.openSessions = calls.openSessions.filter((x) => x.id !== id)
+    return { id, status: 'expired' }
   }
 
   const customers = stripe.customers as unknown as Record<string, unknown>
@@ -81,10 +104,14 @@ export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscr
 
   const subs = stripe.subscriptions as unknown as Record<string, unknown>
   subs.retrieve = async (id: string) => {
+    if (id === 'sub_network_down') throw Object.assign(new Error('An error occurred with our connection to Stripe'), { type: 'StripeConnectionError' })
     const sub = subscriptions.get(id)
-    if (!sub) throw new Error('No such subscription')
+    if (!sub) throw stripeMissing('subscription')
     return sub
   }
+  subs.list = async (params: { customer?: string }) => ({
+    data: [...subscriptions.values()].filter((x) => (x as unknown as { customer?: string }).customer === params.customer),
+  })
 
   return { stripe, calls, subscriptions }
 }

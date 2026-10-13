@@ -84,6 +84,10 @@ describe('API', () => {
     stripeCalls.checkoutCreates.length = 0
     stripeCalls.checkoutIdempotencyKeys.length = 0
     stripeCalls.customersCreated.length = 0
+    stripeCalls.openSessions = []
+    stripeCalls.expired.length = 0
+    stripeCalls.expireFails = false
+    subscriptions.clear()
   })
 
   describe('authentication gate', () => {
@@ -366,6 +370,58 @@ describe('API', () => {
       assert.equal(stripeCalls.checkoutCreates[0].line_items?.[0].price, 'price_starter_test')
     })
 
+    const startCheckout = (planTier = 'STANDARD') => call(server, '/api/subscriptions/create-checkout', {
+      method: 'POST', as: CAPTAIN_A, body: { syndicateId: data.a.syndicate.id, planTier, email: 'a@example.com' },
+    })
+
+    it('refuses a second plan when Stripe has one our record has not caught up with yet', async () => {
+      subscriptions.set('sub_live', { id: 'sub_live', status: 'incomplete', customer: 'cus_secret_A', items: { data: [] }, metadata: {} } as unknown as Stripe.Subscription)
+      assert.equal((await startCheckout()).status, 409)
+      assert.equal(stripeCalls.checkoutCreates.length, 0)
+      // An ended subscription doesn't count.
+      subscriptions.set('sub_live', { id: 'sub_live', status: 'canceled', customer: 'cus_secret_A', items: { data: [] }, metadata: {} } as unknown as Stripe.Subscription)
+      assert.equal((await startCheckout()).status, 200)
+    })
+
+    it('sends a captain whose payment failed to update their card, not to buy a second plan', async () => {
+      await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionStatus: 'PAST_DUE' } })
+      assert.equal((await startCheckout()).status, 409)
+      assert.equal(stripeCalls.checkoutCreates.length, 0)
+    })
+
+    it('closes any other plan checkout page, so two plans can never both be paid for', async () => {
+      stripeCalls.openSessions = [
+        { id: 'cs_other_tab', mode: 'subscription', customer: 'cus_secret_A' },
+        { id: 'cs_guest_fee', mode: 'payment', customer: 'cus_secret_A' },
+      ]
+      const res = await startCheckout('STARTER')
+      assert.equal(res.status, 200)
+      assert.deepEqual(stripeCalls.expired, ['cs_other_tab'])
+    })
+
+    it('changing plan and back again never hands the captain a closed page', async () => {
+      const urls: string[] = []
+      for (const tier of ['STANDARD', 'STARTER', 'STANDARD']) {
+        // Each new page closes the others, as Stripe would see them.
+        stripeCalls.openSessions = stripeCalls.checkoutCreates.map((_, i) => ({ id: `cs_test_${i + 1}abcdefghij`, mode: 'subscription', customer: 'cus_secret_A' }))
+          .filter((x) => !stripeCalls.expired.includes(x.id))
+        const res = await startCheckout(tier)
+        assert.equal(res.status, 200)
+        urls.push(res.json.url)
+      }
+      const last = urls[2].split('/').pop() ?? ''
+      assert.ok(!stripeCalls.expired.includes(last), 'the page given out has been closed')
+      assert.equal(stripeCalls.checkoutCreates.length, 3)
+    })
+
+    it("if another page can't be closed (it is being paid for), no second page is offered", async () => {
+      stripeCalls.openSessions = [{ id: 'cs_being_paid', mode: 'subscription', customer: 'cus_secret_A' }]
+      stripeCalls.expireFails = true
+      const res = await startCheckout()
+      assert.equal(res.status, 409)
+      assert.deepEqual(stripeCalls.expired, ['cs_test_1abcdefghij'])
+    })
+
     it('refuses an unknown plan', async () => {
       const res = await call(server, '/api/subscriptions/create-checkout', {
         method: 'POST', as: CAPTAIN_A, body: { syndicateId: data.a.syndicate.id, planTier: 'FREE', email: 'a@example.com' },
@@ -434,16 +490,137 @@ describe('API', () => {
       })
     }
 
-    it('records a cancellation', async () => {
+    // Shaped like the live endpoint's events (API 2025-12-15.clover): the renewal date is on the
+    // items, not the subscription. The app must fetch the subscription rather than read this.
+    const cloverEvent = (type: string, subscriptionId: string, status: string) => ({
+      id: `evt_test_${type}_${subscriptionId}`,
+      object: 'event',
+      api_version: '2025-12-15.clover',
+      type,
+      data: { object: { id: subscriptionId, object: 'subscription', status, items: { data: [{ current_period_end: 1_700_000_000, price: { id: 'price_starter_test' } }] }, metadata: { syndicateId: data.a.syndicate.id } } },
+    })
+    const stripeSub = (id: string, status: string, extra: Record<string, unknown> = {}) =>
+      subscriptions.set(id, {
+        id, status, current_period_end: 1_800_000_000,
+        items: { data: [{ price: { id: 'price_standard_test' } }] },
+        metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' },
+        ...extra,
+      } as unknown as Stripe.Subscription)
+    const syndicateA = () => prisma.syndicate.findUnique({ where: { id: data.a.syndicate.id } })
+
+    it('records a cancellation of the plan the syndicate is on', async () => {
+      await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionId: 'sub_test_2', stripeSubscriptionStatus: 'ACTIVE' } })
+      stripeSub('sub_test_2', 'canceled')
+      const { body, signature } = signed(cloverEvent('customer.subscription.deleted', 'sub_test_2', 'canceled'))
+      assert.equal(await post('/api/stripe/webhook', body, signature), 200)
+      const row = await syndicateA()
+      assert.equal(row?.stripeSubscriptionStatus, 'CANCELLED')
+      const status = await call(server, `/api/subscriptions/status/${data.a.syndicate.id}`, { as: CAPTAIN_A })
+      assert.equal(status.json.isActive, false)
+    })
+
+    it('a captain who cancelled can subscribe again', async () => {
+      await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionId: 'sub_old', stripeSubscriptionStatus: 'CANCELLED' } })
+      stripeSub('sub_again', 'active')
+      // The new subscription's own event can arrive before the checkout: it's held back...
+      const early = signed(cloverEvent('customer.subscription.updated', 'sub_again', 'active'))
+      assert.equal(await post('/api/stripe/webhook', early.body, early.signature), 200)
+      assert.equal((await syndicateA())?.stripeSubscriptionId, 'sub_old')
+      // ...and the checkout then moves the syndicate on to it.
+      const checkout = signed({
+        id: 'evt_test_again', object: 'event', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_again', object: 'checkout.session', mode: 'subscription', subscription: 'sub_again', metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' } } },
+      })
+      assert.equal(await post('/api/stripe/webhook', checkout.body, checkout.signature), 200)
+      const row = await syndicateA()
+      assert.deepEqual([row?.stripeSubscriptionId, row?.stripeSubscriptionStatus], ['sub_again', 'ACTIVE'])
+    })
+
+    it('the plan follows the price the subscription is on, so a change made in Stripe is seen', async () => {
+      stripeSub('sub_changed', 'active', { items: { data: [{ price: { id: 'price_starter_test' } }] } }) // metadata still says STANDARD
+      const { body, signature } = signed(cloverEvent('customer.subscription.updated', 'sub_changed', 'active'))
+      assert.equal(await post('/api/stripe/webhook', body, signature), 200)
+      assert.equal((await syndicateA())?.planTier, 'STARTER')
+    })
+
+    it("records Stripe's current state, not the event's: renewal date and status from the fetched subscription", async () => {
+      // The event says active, but by the time it arrives Stripe says past due.
+      stripeSub('sub_test_3', 'past_due')
+      const { body, signature } = signed(cloverEvent('customer.subscription.updated', 'sub_test_3', 'active'))
+      assert.equal(await post('/api/subscriptions/webhook', body, signature), 200)
+      const row = await syndicateA()
+      assert.equal(row?.stripeSubscriptionStatus, 'PAST_DUE')
+      assert.equal(row?.subscriptionCurrentPeriodEnd?.getTime(), 1_800_000_000_000)
+      assert.equal(row?.stripePriceId, 'price_standard_test')
+    })
+
+    it('reads the renewal date from the items when the subscription has none, and never saves an invalid date', async () => {
+      stripeSub('sub_test_4', 'active', { current_period_end: undefined, items: { data: [{ current_period_end: 1_850_000_000, price: { id: 'price_standard_test' } }] } })
+      const first = signed(cloverEvent('customer.subscription.updated', 'sub_test_4', 'active'))
+      assert.equal(await post('/api/stripe/webhook', first.body, first.signature), 200)
+      assert.equal((await syndicateA())?.subscriptionCurrentPeriodEnd?.getTime(), 1_850_000_000_000)
+
+      // No date anywhere: the status is still recorded and the last known date is kept.
+      stripeSub('sub_test_4', 'past_due', { current_period_end: undefined, items: { data: [{ price: { id: 'price_standard_test' } }] } })
+      const second = signed({ ...cloverEvent('customer.subscription.updated', 'sub_test_4', 'past_due'), id: 'evt_test_nodate' })
+      assert.equal(await post('/api/stripe/webhook', second.body, second.signature), 200)
+      const row = await syndicateA()
+      assert.equal(row?.stripeSubscriptionStatus, 'PAST_DUE')
+      assert.equal(row?.subscriptionCurrentPeriodEnd?.getTime(), 1_850_000_000_000)
+    })
+
+    it('if a second plan is ever paid for, it says so loudly, naming the one to refund', async (t) => {
+      const errors = t.mock.method(console, 'error', () => undefined)
+      await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionId: 'sub_first', stripeSubscriptionStatus: 'ACTIVE' } })
+      // A redelivered checkout for the plan it's already on is not an alarm.
+      stripeSub('sub_first', 'active')
+      const again = signed({
+        id: 'evt_test_first_again', object: 'event', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_first', object: 'checkout.session', mode: 'subscription', subscription: 'sub_first', metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' } } },
+      })
+      assert.equal(await post('/api/stripe/webhook', again.body, again.signature), 200)
+      assert.equal(errors.mock.callCount(), 0)
+
+      stripeSub('sub_second', 'active')
       const { body, signature } = signed({
-        id: 'evt_test_cancel',
-        object: 'event',
-        type: 'customer.subscription.deleted',
-        data: { object: { id: 'sub_test_2', object: 'subscription', status: 'canceled', current_period_end: 1_800_000_000, items: { data: [] }, metadata: { syndicateId: data.a.syndicate.id } } },
+        id: 'evt_test_second', object: 'event', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_second', object: 'checkout.session', mode: 'subscription', subscription: 'sub_second', metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' } } },
       })
       assert.equal(await post('/api/stripe/webhook', body, signature), 200)
-      const row = await prisma.syndicate.findUnique({ where: { id: data.a.syndicate.id } })
-      assert.equal(row?.stripeSubscriptionStatus, 'CANCELLED')
+      assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).includes('Cancel and refund sub_first')))
+      assert.equal((await syndicateA())?.stripeSubscriptionId, 'sub_second')
+    })
+
+    it("a late event about an old subscription can't cancel the syndicate's new one", async () => {
+      await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionId: 'sub_new', stripeSubscriptionStatus: 'ACTIVE' } })
+      stripeSub('sub_old', 'canceled')
+      const late = signed(cloverEvent('customer.subscription.deleted', 'sub_old', 'canceled'))
+      assert.equal(await post('/api/stripe/webhook', late.body, late.signature), 200)
+      // Nor can a redelivered checkout for that old subscription.
+      const oldCheckout = signed({
+        id: 'evt_test_old_checkout', object: 'event', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_old', object: 'checkout.session', mode: 'subscription', subscription: 'sub_old', metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' } } },
+      })
+      assert.equal(await post('/api/stripe/webhook', oldCheckout.body, oldCheckout.signature), 200)
+      const row = await syndicateA()
+      assert.deepEqual([row?.stripeSubscriptionId, row?.stripeSubscriptionStatus], ['sub_new', 'ACTIVE'])
+    })
+
+    it("if Stripe can't be reached the delivery fails, so Stripe sends it again, and nothing is changed", async () => {
+      const { body, signature } = signed(cloverEvent('customer.subscription.deleted', 'sub_network_down', 'canceled'))
+      assert.equal(await post('/api/stripe/webhook', body, signature), 500)
+      assert.equal((await syndicateA())?.stripeSubscriptionStatus, null)
+    })
+
+    it("an event for a subscription Stripe doesn't have is acknowledged, not retried for days, and changes nothing", async () => {
+      const gone = signed(cloverEvent('customer.subscription.deleted', 'sub_deleted', 'canceled'))
+      assert.equal(await post('/api/stripe/webhook', gone.body, gone.signature), 200)
+      const goneCheckout = signed({
+        id: 'evt_test_gone_checkout', object: 'event', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_test_gone', object: 'checkout.session', mode: 'subscription', subscription: 'sub_deleted', metadata: { syndicateId: data.a.syndicate.id } } },
+      })
+      assert.equal(await post('/api/stripe/webhook', goneCheckout.body, goneCheckout.signature), 200)
+      assert.equal((await syndicateA())?.stripeSubscriptionStatus, null)
     })
   })
 })

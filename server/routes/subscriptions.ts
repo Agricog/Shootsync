@@ -5,6 +5,7 @@
 
 import { Router } from 'express'
 import { z } from 'zod'
+import type Stripe from 'stripe'
 import type { Deps } from '../deps.js'
 import { HttpError, handle, notFound, requireSyndicateAccess, userIdOf } from '../access.js'
 
@@ -17,6 +18,9 @@ const checkoutSchema = z.object({
 const portalSchema = z.object({
   syndicateId: z.string().min(1),
 })
+
+/** Subscriptions that are over: anything else (active, trialing, past due, unpaid, incomplete, paused) still counts. */
+const ENDED = new Set(['canceled', 'incomplete_expired'])
 
 export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
   const router = Router()
@@ -35,6 +39,16 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
     if (syndicate.stripeSubscriptionStatus === 'ACTIVE' || syndicate.stripeSubscriptionStatus === 'TRIALING') {
       throw new HttpError(409, 'This syndicate already has an active subscription')
     }
+    if (syndicate.stripeSubscriptionStatus === 'PAST_DUE') {
+      throw new HttpError(409, 'Your last payment did not go through. Update your card in Settings, Manage billing.')
+    }
+    // Our record can lag Stripe by a few seconds: ask Stripe too, so a plan is never bought twice.
+    if (syndicate.stripeCustomerId) {
+      const existing = await stripe.subscriptions.list({ customer: syndicate.stripeCustomerId, status: 'all', limit: 20 })
+      if (existing.data.some((s) => !ENDED.has(s.status))) {
+        throw new HttpError(409, 'This syndicate already has a subscription. Manage it in Settings, Manage billing.')
+      }
+    }
 
     let customerId = syndicate.stripeCustomerId
     if (!customerId) {
@@ -49,7 +63,7 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
 
     // A double-click or second tab within 10 minutes gets the same checkout, not a second subscription.
     const window10m = Math.floor(Date.now() / 600_000)
-    const session = await stripe.checkout.sessions.create({
+    const params: Stripe.Checkout.SessionCreateParams = {
       customer: customerId,
       payment_method_types: ['card'],
       line_items: [{ price: config.stripePriceIds[planTier], quantity: 1 }],
@@ -58,7 +72,26 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
       cancel_url: `${config.frontendUrl}/subscribe`,
       metadata: { syndicateId, planTier },
       subscription_data: { metadata: { syndicateId, planTier } },
-    }, { idempotencyKey: `shootsync-plan-checkout-${syndicateId}-${planTier}-${window10m}` })
+    }
+    let session = await stripe.checkout.sessions.create(params, { idempotencyKey: `shootsync-plan-checkout-${syndicateId}-${planTier}-${window10m}` })
+    // A repeat within the window gets the earlier page back. If that page has since been
+    // closed (the captain chose another plan in between), make a fresh one.
+    if (session.status !== 'open') session = await stripe.checkout.sessions.create(params)
+
+    // Only one plan checkout page open at a time: close any other (a second tab, another plan,
+    // an older visit), so two plans can't both be paid for.
+    const open = await stripe.checkout.sessions.list({ customer: customerId, status: 'open', limit: 20 })
+    for (const other of open.data) {
+      if (other.id === session.id || other.mode !== 'subscription') continue
+      try {
+        await stripe.checkout.sessions.expire(other.id)
+      } catch (err) {
+        // Most likely it was paid for this very moment. Don't offer a second page: close ours.
+        console.warn(`[stripe] could not close checkout ${other.id} for syndicate ${syndicateId}:`, err)
+        await stripe.checkout.sessions.expire(session.id).catch(() => undefined)
+        throw new HttpError(409, 'Another checkout for this syndicate is in progress. Try again in a minute.')
+      }
+    }
 
     res.json({ url: session.url })
   }))
