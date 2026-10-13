@@ -25,27 +25,27 @@ export const FAQS: Faq[] = [
   {
     question: 'Who is ShootSync for?',
     answer:
-      'Captains and organisers of UK driven shooting syndicates: pheasant, partridge and duck days run by a group of guns who share the costs and the work. It is built around how a syndicate season actually runs, from setting the subscription to paying the beaters after the last drive.',
+      'Captains and organisers of UK driven shooting syndicates: pheasant, partridge and duck days run by a group of guns who share the costs and the work. It is built around how a syndicate season actually runs, from setting up the season to recording the last drive.',
   },
   {
     question: 'How does the peg draw work?',
     answer:
-      "ShootSync runs a fair rotation rather than a random draw. It looks at which pegs each gun has already stood on this season and gives each one the peg they have had least, so over the season everyone gets their turn on the good pegs. You see the allocation before you save it to the shoot day.",
+      "Choose a shoot day and the number of pegs, then draw them. You see the whole list before you save it, can move any gun up or down by hand, and can draw again. Once saved, the pegs show on the shoot day and go straight onto the PDF briefing sheet.",
   },
   {
     question: 'Can I record the bag on the day?',
     answer:
-      'Yes. Record the bag drive by drive for pheasant, partridge, duck, woodcock and other quarry, and ShootSync keeps the running total for the day and for the season. On a phone or computer whose browser supports speech recognition, such as Chrome, you can say the numbers instead of typing them.',
+      'Yes. Record the bag drive by drive for pheasant, partridge, duck, woodcock and other quarry, and ShootSync keeps the running total for the day by species, with the season’s total bag on your dashboard. On a phone or computer whose browser supports speech recognition, such as Chrome, you can say the numbers instead of typing them.',
   },
   {
     question: 'Do guest guns need an account?',
     answer:
-      'No. You invite a guest from the shoot day and send them their own link. They read and accept the guest waiver, give an emergency contact, and pay the day fee by card. Card payments are handled by Stripe, so card details never reach ShootSync.',
+      'No. You invite a guest from the shoot day and copy them their own link to send by text or email. They read and accept the guest waiver, give an emergency contact, and pay the day fee by card. Card payments are handled by Stripe, so card details never reach ShootSync.',
   },
   {
-    question: 'How does ShootSync help with paying beaters?',
+    question: 'How does ShootSync help with beaters?',
     answer:
-      "Keep each beater's day rate and bank details in one list, see what each is owed, mark payments as paid with your bank reference, and export a spreadsheet ready for your bank transfers. ShootSync records the payments; the money still moves through your own bank.",
+      "Keep your beating team in one list, with each beater's day rate, phone, email and bank details, so the details you need on the day and for paying them are in one place, seen only by you. The money itself moves through your own bank, as it does now.",
   },
   {
     question: 'Do my guns need to sign up?',

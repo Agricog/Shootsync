@@ -18,17 +18,17 @@ import { SITE } from '../../config/site'
 import { FAQS } from '../../content/faq'
 
 const TITLE = 'Shooting Syndicate Management Software for UK | ShootSync'
-const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, a fair peg draw, bag records, beaters' pay and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
+const DESCRIPTION = `Shooting syndicate software for UK shoot captains: members, shoot days, the peg draw, bag records by drive, the beating team and guest guns. From £${LOWEST_MONTHLY_PRICE} a month.`
 const QUICK_ANSWER =
-  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, a fair peg draw, bag records, beaters’ pay and guest guns in one place.'
+  'ShootSync is web software for UK shooting syndicate captains to run members, shoot days, the peg draw, bag records, the beating team and guest guns in one place.'
 
 const FEATURES = [
   {
     icon: Target,
     anchor: 'peg-draw',
     linkLabel: 'How the peg draw works',
-    title: 'A fair peg draw, every shoot',
-    text: 'Pegs rotate on each gun’s history this season, so everyone gets their turn on the good ones and nobody has to keep score.',
+    title: 'The peg draw, done before the meet',
+    text: 'Draw the pegs for each shoot day, adjust them by hand, and save them to the day. They go straight onto the briefing sheet.',
   },
   {
     icon: Calendar,
@@ -42,21 +42,21 @@ const FEATURES = [
     anchor: 'bag-records',
     linkLabel: 'Recording the bag',
     title: 'The bag book, by drive',
-    text: 'Record pheasant, partridge, duck, woodcock and other quarry drive by drive, by voice or by hand, with season totals kept for you.',
+    text: 'Record pheasant, partridge, duck, woodcock and other quarry drive by drive, by voice or by hand, with the day’s totals by species and the season’s bag on your dashboard.',
   },
   {
     icon: PoundSterling,
     anchor: 'beaters',
-    linkLabel: 'Paying beaters',
-    title: 'Beaters’ day rates and pay',
-    text: 'One list of beaters with their day rates and bank details. See what’s owed, mark it paid, and export a sheet for your bank.',
+    linkLabel: 'The beating team',
+    title: 'Your beating team in one list',
+    text: 'Every beater with their day rate, phone, email and bank details, kept by the captain in one place.',
   },
   {
     icon: UserPlus,
     anchor: 'guest-guns',
     linkLabel: 'Guest guns and day fees',
     title: 'Guest guns who pay before the day',
-    text: 'Send a guest their own link. They accept the waiver, leave an emergency contact and pay the day fee by card.',
+    text: 'Copy a guest their own link to send by text or email. They accept the waiver, leave an emergency contact and pay the day fee by card.',
   },
   {
     icon: Users,
@@ -82,15 +82,15 @@ const SEASON_STEPS = [
   },
   {
     title: 'Run the peg draw',
-    text: 'Generate a fair rotation, check it, save it to the day, and print the briefing sheet.',
+    text: 'Draw the pegs, adjust them, save them to the day, and print the briefing sheet.',
   },
   {
     title: 'Record the bag',
-    text: 'Drive by drive on the day, so the season’s numbers are there when the game book needs filling in.',
+    text: 'Drive by drive on the day, so the numbers are there when the game book needs filling in.',
   },
   {
-    title: 'Settle up',
-    text: 'Guests have already paid by card. Mark the beaters paid and export the list for your bank.',
+    title: 'No fees to chase',
+    text: 'Guests have paid their day fee by card before they reach the meet, and you can see who has paid.',
   },
 ] as const
 
@@ -98,7 +98,7 @@ const PAINS = [
   'The peg draw argued over in the car park',
   'A spreadsheet only the captain can find',
   'Guest day fees chased by text for a fortnight',
-  'Beaters’ money worked out on the back of the game card',
+  'Beaters’ bank details scattered across old texts',
   'Bag numbers lost in a WhatsApp thread',
 ] as const
 
@@ -177,8 +177,8 @@ export default function Landing() {
             Shooting syndicate management software
           </h1>
           <p className="mt-6 text-lg sm:text-xl text-slate-400 max-w-2xl mx-auto">
-            Run your syndicate’s season from one place: members, shoot days, a fair peg draw, the bag
-            book, beaters’ pay and guest guns, instead of WhatsApp threads and a spreadsheet.
+            Run your syndicate’s season from one place: members, shoot days, the peg draw, the bag
+            book, the beating team and guest guns, instead of WhatsApp threads and a spreadsheet.
           </p>
           <div className="mt-10 flex flex-col sm:flex-row gap-4 justify-center">
             <Link to="/signup" className={`${button} bg-green-600 hover:bg-green-700 text-white`}>
@@ -237,7 +237,7 @@ export default function Landing() {
               Everything a shoot captain does, in one place
             </h2>
             <p className="mt-4 text-slate-400">
-              From setting the season’s subscription to paying the beaters after the last drive.
+              From setting up the season to recording the last drive.
             </p>
           </div>
           <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

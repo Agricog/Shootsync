@@ -57,12 +57,36 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
               ))}
             </ul>
             <div className="flex items-center gap-3">
-              <Link to="/login" className={`text-sm text-slate-300 hover:text-white px-2 py-1.5 ${focusRing}`}>
+              {/* Phones: a native disclosure, so the menu works in the prerendered page before any script loads. */}
+              <details className="sm:hidden relative group">
+                <summary
+                  className={`list-none [&::-webkit-details-marker]:hidden cursor-pointer text-sm text-slate-300 hover:text-white px-2 py-1.5 ${focusRing}`}
+                  aria-label="Menu"
+                >
+                  <span className="group-open:hidden">Menu</span>
+                  <span className="hidden group-open:inline">Close</span>
+                </summary>
+                <ul className="absolute right-0 top-full mt-2 w-48 bg-slate-800 border border-slate-700 rounded-lg py-2 shadow-xl z-50">
+                  {NAV.map((item) => (
+                    <li key={item.to}>
+                      <Link to={item.to} className={`block px-4 py-2.5 text-slate-200 hover:bg-slate-700 hover:text-white ${focusRing}`}>
+                        {item.label}
+                      </Link>
+                    </li>
+                  ))}
+                  <li className="border-t border-slate-700 mt-2 pt-2">
+                    <Link to="/login" className={`block px-4 py-2.5 text-slate-200 hover:bg-slate-700 hover:text-white ${focusRing}`}>
+                      Sign in
+                    </Link>
+                  </li>
+                </ul>
+              </details>
+              <Link to="/login" className={`hidden sm:inline-block text-sm text-slate-300 hover:text-white px-2 py-1.5 ${focusRing}`}>
                 Sign in
               </Link>
               <Link
                 to="/signup"
-                className={`text-sm font-medium bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg ${focusRing}`}
+                className={`whitespace-nowrap text-sm font-medium bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg ${focusRing}`}
               >
                 Get started
               </Link>

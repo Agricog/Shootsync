@@ -176,7 +176,7 @@ export default function GuestGuns() {
         to: '/features#guest-guns',
         heading: 'Guests sorted before the day',
         text:
-          'With ShootSync you invite a guest from the shoot day and send them their own link. They see the date, location and meet time, accept the guest waiver, leave an emergency contact and pay the day fee by card, without needing an account.',
+          'With ShootSync you invite a guest from the shoot day and copy them their own link to send by text or email. They see the date, location and meet time, accept the guest waiver, leave an emergency contact and pay the day fee by card, without needing an account.',
       }}
     />
   )

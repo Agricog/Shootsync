@@ -1,7 +1,8 @@
 /**
  * Guide: the peg draw explained.
- * Conventions, not law: sources are shooting press. The ShootSync section must
- * match what src/utils/pegAlgorithm.ts actually does.
+ * Conventions, not law: sources are shooting press. The ShootSync box must match
+ * what a captain can do on the Pegs page today (src/pages/captain/PegAllocation.tsx),
+ * not what a library file could do.
  */
 
 import GuidePage from '../../../components/public/GuidePage'
@@ -176,9 +177,9 @@ export default function PegDraw() {
       ]}
       feature={{
         to: '/features#peg-draw',
-        heading: 'A peg draw that remembers the season',
+        heading: 'Draw the pegs before the meet',
         text:
-          'ShootSync keeps a record of where every gun has stood and, for each shoot, gives every gun the starting peg they have had least this season, with the guns who have had fewest days placed first. You see the allocation before you save it, and the pegs go straight onto the briefing sheet.',
+          'ShootSync draws the pegs for a shoot day from your member list. You check the list, move any gun up or down by hand, and save it to the day, and the pegs go straight onto the briefing sheet.',
       }}
     />
   )

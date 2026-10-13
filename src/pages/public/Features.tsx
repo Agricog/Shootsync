@@ -3,7 +3,9 @@
  *
  * One section per job a shoot captain searches for help with: peg draw, shoot
  * day planning, bag records, beaters' pay, guest guns, members. Each section
- * describes only what is built today. Anchors are linked from the home page.
+ * describes only what a signed-in captain can reach and use in the app today:
+ * check the page the captain uses, not a component or library that isn't wired in.
+ * Anchors are linked from the home page and the guides.
  */
 
 import { Link } from 'react-router-dom'
@@ -17,7 +19,7 @@ import type { GuidePath } from '../../content/guides'
 
 const TITLE = 'Features: Peg Draw, Bag Records, Beaters and Guests | ShootSync'
 const DESCRIPTION =
-  'How ShootSync runs a shooting syndicate: a fair peg draw, shoot day briefing sheets, bag records by drive, beaters’ day rates and pay, and guest guns who pay online.'
+  'How ShootSync runs a shooting syndicate: the peg draw, shoot day briefing sheets, bag records by drive, your beating team, and guest guns who pay online.'
 
 interface Section {
   id: string
@@ -34,16 +36,15 @@ const SECTIONS: Section[] = [
   {
     id: 'peg-draw',
     icon: Target,
-    heading: 'A fair peg draw that remembers the season',
+    heading: 'The peg draw, done before the meet',
     intro:
-      'A random draw is fair on the day and unfair over a season: the same gun can draw the end peg three shoots running. ShootSync keeps a record of where every gun has stood and rotates the pegs on that history.',
+      'Draw the pegs for a shoot day from your member list, check them, and save them to the day, so the draw isn’t done on the back of a cartridge box in the car park.',
     points: [
-      'For each shoot, every gun is given the peg they have stood on least this season',
-      'Guns with the fewest days so far are placed first, so nobody is squeezed out',
-      'See the whole allocation before you save it to the shoot day',
-      'The peg list goes straight onto the briefing sheet',
+      'Choose the shoot day and the number of pegs',
+      'Draw the pegs at random, or set them in order',
+      'See the whole list before you save it, move any gun up or down, or draw again',
+      'The saved pegs show on the shoot day and go straight onto the briefing sheet',
     ],
-    note: 'It answers the car-park question of whose turn it is with a record everyone can see, not with the captain’s memory.',
     guide: { to: '/guides/peg-draw-explained', label: 'Guide: the peg draw explained' },
   },
   {
@@ -55,8 +56,8 @@ const SECTIONS: Section[] = [
     points: [
       'Date, location and postcode, meet time and the number of drives',
       'Expected bag and the captain’s notes for the day',
-      'Guns, guests and beaters for the day in one view',
-      'A PDF briefing sheet with the date, meeting details, drives, the peg list, the beaters and your notes, ready to print or send',
+      'Guns and their pegs, and guest guns, for the day in one view',
+      'A PDF briefing sheet with the date, meeting details, drives, expected bag, the guns and their pegs, and your notes, ready to print or send',
     ],
     guide: { to: '/guides/shooting-season-dates', label: 'Guide: UK shooting season dates' },
   },
@@ -69,23 +70,22 @@ const SECTIONS: Section[] = [
     points: [
       'Pheasant, partridge, duck, woodcock and other quarry, with a note of what “other” was',
       'Say the numbers instead of typing them, on browsers that support speech recognition such as Chrome',
-      'The day’s total builds as each drive is entered',
-      'Season totals for every species and the number of shoots completed',
+      'The day’s totals by species build as each drive is entered',
+      'The shoot day page shows the bag for that day, and your dashboard shows the season’s total bag',
     ],
   },
   {
     id: 'beaters',
     icon: PoundSterling,
-    heading: 'Beaters’ day rates and pay',
+    heading: 'Your beating team in one list',
     intro:
-      'Keep the beating team in one list and always know who is owed what.',
+      'Keep the beating team’s details in one place the captain controls, instead of scattered across old texts.',
     points: [
-      'Each beater’s phone, email, day rate and bank details, kept by the captain',
-      'See what is owed to each beater and the total outstanding',
-      'Mark a beater paid with your bank transfer reference',
-      'Export a spreadsheet of names, bank details and amounts, ready for your bank',
+      'Each beater’s name, phone, email and notes',
+      'Their day rate, starting from the syndicate’s usual rate',
+      'Bank details for paying them, shown in full only to the captain',
     ],
-    note: 'ShootSync keeps the record of what’s owed and paid; the money itself moves through your own bank, as it does now.',
+    note: 'The money itself moves through your own bank, as it does now.',
     guide: { to: '/guides/paying-beaters-and-pickers-up', label: 'Guide: paying beaters and pickers-up' },
   },
   {
@@ -93,7 +93,7 @@ const SECTIONS: Section[] = [
     icon: UserPlus,
     heading: 'Guest guns: waiver, emergency contact and day fee before the day',
     intro:
-      'Invite a guest from the shoot day and send them their own link. They don’t need an account.',
+      'Invite a guest from the shoot day and copy them their own link to send by text or email. They don’t need an account.',
     points: [
       'The guest sees the shoot details: date, location and meet time',
       'They read and accept the guest liability waiver and leave an emergency contact',

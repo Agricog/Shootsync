@@ -135,7 +135,7 @@ export default function TippingTheKeeper() {
         to: '/features#bag-records',
         heading: 'Know the bag before you reach for your wallet',
         text:
-          'ShootSync records the bag drive by drive as the day goes, so the day’s total is there at the end of the last drive, and builds the season’s totals for every species.',
+          'ShootSync records the bag drive by drive as the day goes, by voice or by hand, so the day’s totals by species are there at the end of the last drive.',
       }}
     />
   )
