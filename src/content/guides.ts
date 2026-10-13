@@ -48,9 +48,9 @@ export const GUIDES = [
   },
   {
     path: '/guides/shooting-season-dates',
-    shortTitle: 'UK shooting season dates',
+    shortTitle: 'Pheasant shooting season and UK game dates',
     summary:
-      'Open seasons for pheasant, partridge, grouse, woodcock, snipe and duck in England, Wales, Scotland and Northern Ireland.',
+      'When the pheasant season opens and closes in each part of the UK, this season’s last shooting day, and the dates for partridge, grouse, woodcock, snipe and duck.',
     reviewed: '2026-10-13',
   },
   {

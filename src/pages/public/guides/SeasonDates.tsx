@@ -1,52 +1,139 @@
 /**
- * Guide: UK shooting season dates.
- * Dates from GWCT's season table, Northern Ireland checked against the PSNI's
- * wildlife and game advice (February 2026). Re-check every summer, and update
- * the "this season" weekday notes for the new season.
+ * Guide: the pheasant shooting season, and every UK game season.
+ *
+ * Every date on this page comes from src/data/seasonDates.ts (Standard §05.7), and the weekday
+ * notes for the current season are worked out from it by src/utils/seasonDates.ts. No date is
+ * typed here: tests/seasonDates.test.ts fails if one is. The summer review moves
+ * SEASON_RULES.current on, and the page follows.
+ *
+ * Searchers ask first about pheasant (1,000-10,000 UK searches a month for "pheasant shooting
+ * season", Google Keyword Planner, Sep 2025 - Aug 2026), so pheasant is answered first and the
+ * full table follows.
  */
 
 import GuidePage from '../../../components/public/GuidePage'
+import { SEASON_RULES, type Region } from '../../../data/seasonDates'
+import {
+  christmasDay,
+  formatLongDate,
+  formatMonthDayLong,
+  formatSeason,
+  lastShootingDay,
+  seasonDates,
+  speciesById,
+  weekday,
+} from '../../../utils/seasonDates'
 
-interface Season {
-  species: string
-  englandWales: string
-  scotland: string
-  northernIreland: string
+const { current, regions } = SEASON_RULES
+const pheasant = speciesById('pheasant')
+const partridge = speciesById('partridge')
+
+/** "1 October to 1 February" for a region's pheasant season. */
+const pheasantRange = (region: Region) => {
+  const open = pheasant.seasons[region]!
+  return `${formatMonthDayLong(open.opens)} to ${formatMonthDayLong(open.closes)}`
 }
 
-const SEASONS: Season[] = [
-  { species: 'Pheasant', englandWales: '1 Oct – 1 Feb', scotland: '1 Oct – 1 Feb', northernIreland: '1 Oct – 31 Jan' },
-  { species: 'Grey and red-legged partridge', englandWales: '1 Sep – 1 Feb', scotland: '1 Sep – 1 Feb', northernIreland: '1 Sep – 31 Jan' },
-  { species: 'Red grouse', englandWales: '12 Aug – 10 Dec', scotland: '12 Aug – 10 Dec', northernIreland: '12 Aug – 30 Nov' },
-  { species: 'Black grouse', englandWales: '20 Aug – 10 Dec*', scotland: '20 Aug – 10 Dec', northernIreland: 'No open season' },
-  { species: 'Ptarmigan', englandWales: 'No open season', scotland: '12 Aug – 10 Dec', northernIreland: 'No open season' },
-  { species: 'Woodcock', englandWales: '1 Oct – 31 Jan', scotland: '1 Sep – 31 Jan', northernIreland: '1 Oct – 31 Jan' },
-  { species: 'Common snipe', englandWales: '12 Aug – 31 Jan', scotland: '12 Aug – 31 Jan', northernIreland: '1 Sep – 31 Jan' },
-  { species: 'Duck and geese, inland', englandWales: '1 Sep – 31 Jan', scotland: '1 Sep – 31 Jan', northernIreland: '1 Sep – 31 Jan' },
-  { species: 'Duck and geese, below high water mark', englandWales: '1 Sep – 20 Feb', scotland: '1 Sep – 20 Feb', northernIreland: '1 Sep – 31 Jan' },
-]
-
 export default function SeasonDates() {
+  const gbOpen = pheasant.seasons.englandWales!
+  const niOpen = pheasant.seasons.northernIreland!
+  const gb = seasonDates(gbOpen, current.startYear)
+  const ni = seasonDates(niOpen, current.startYear)
+  const niLast = lastShootingDay(niOpen, current.startYear, 'northernIreland')!
+  const ewLast = lastShootingDay(gbOpen, current.startYear, 'englandWales')!
+  const christmas = christmasDay(current.startYear)
+  const notes = SEASON_RULES.species.filter((s) => 'note' in s && s.note)
+  const sameLastDay = gb.closes.getTime() === ewLast.getTime()
+
   return (
     <GuidePage
       path="/guides/shooting-season-dates"
-      seoTitle="UK Shooting Season Dates 2026/27: Pheasant to Duck | ShootSync"
-      description="Shooting season dates for pheasant, partridge, grouse, woodcock, snipe and duck in England, Wales, Scotland and Northern Ireland, with the Sunday rules."
-      title="UK shooting season dates for 2026/27"
+      seoTitle={`Pheasant Shooting Season ${current.label}: All UK Dates | ShootSync`}
+      description="When the pheasant shooting season starts and ends in England, Wales, Scotland and Northern Ireland, with partridge, grouse, woodcock, snipe and duck dates."
+      title={`Pheasant shooting season ${current.label}, and every UK game season`}
       inShort={
         <>
           <p>
-            In England, Wales and Scotland the <strong>pheasant season runs from 1 October to 1 February</strong> and
-            partridge from 1 September to 1 February. In Northern Ireland both close a day earlier, on 31 January.
-            Dates are inclusive.
+            The <strong>pheasant shooting season runs from {pheasantRange('englandWales')}</strong> in England, Wales and
+            Scotland, and from <strong>{pheasantRange('northernIreland')}</strong> in Northern Ireland. Both dates are
+            included.
           </p>
           <p>
-            In England and Wales no game may be shot on a Sunday or on Christmas Day. In Northern Ireland no game or
-            wild bird may be shot on a Sunday.
+            In {current.label} it opens on <strong>{formatLongDate(gb.opens)}</strong>.{' '}
+            {sameLastDay ? (
+              <>
+                The last day is <strong>{formatLongDate(ewLast)}</strong> in England, Wales and Scotland,
+              </>
+            ) : (
+              <>
+                It closes on <strong>{formatLongDate(gb.closes)}</strong> in Scotland; in England and Wales, where no game
+                may be shot on a Sunday, the last day is <strong>{formatLongDate(ewLast)}</strong>,
+              </>
+            )}{' '}
+            and <strong>{formatLongDate(niLast)}</strong> in Northern Ireland, where no game may be shot on a Sunday.
+          </p>
+          <p>
+            Partridge opens earlier, on {formatMonthDayLong(partridge.seasons.englandWales!.opens)}, and closes with pheasant.
+            Every other game bird and wildfowl season is in the table below.
           </p>
         </>
       }
       sections={[
+        {
+          id: 'pheasant-season',
+          heading: 'When does the pheasant season start and end?',
+          body: (
+            <>
+              <ul>
+                <li>
+                  <strong>England and Wales: {pheasantRange('englandWales')}.</strong> The Game Act 1831 makes it an
+                  offence to kill a pheasant between those two dates, so both days themselves are in the season.
+                </li>
+                <li>
+                  <strong>Scotland: {pheasantRange('scotland')}</strong>, the same dates as England and Wales.
+                </li>
+                <li>
+                  <strong>Northern Ireland: {pheasantRange('northernIreland')}</strong>, closing a day earlier.
+                </li>
+              </ul>
+              <p>
+                The legal season is the outer limit. Many pheasant shoots start later than the opening day, when the birds
+                are fully grown and the leaves are off the trees. Your keeper will know when your birds are ready.
+              </p>
+            </>
+          ),
+        },
+        {
+          id: 'this-season',
+          heading: `The ${current.label} season, day by day`,
+          body: (
+            <ul>
+              <li>
+                Pheasant shooting opens on <strong>{formatLongDate(gb.opens)}</strong> everywhere in the UK.
+              </li>
+              <li>
+                <strong>Christmas Day {christmas.getUTCFullYear()}</strong> is a {weekday(christmas)}. In England and Wales,
+                no game may be shot that day.
+              </li>
+              <li>
+                In England, Wales and Scotland, the pheasant and partridge seasons end on{' '}
+                <strong>{formatLongDate(gb.closes)}</strong>.
+                {!sameLastDay && <> That is a Sunday, so the last day in England and Wales is {formatLongDate(ewLast)}.</>}
+              </li>
+              <li>
+                In Northern Ireland they close on <strong>{formatLongDate(ni.closes)}</strong>
+                {ni.closes.getTime() !== niLast.getTime() ? (
+                  <>
+                    . No game may be shot there on a Sunday, so the last shooting day is{' '}
+                    <strong>{formatLongDate(niLast)}</strong>.
+                  </>
+                ) : (
+                  <>, which is the last shooting day.</>
+                )}
+              </li>
+            </ul>
+          ),
+        },
         {
           id: 'season-dates',
           heading: 'Open seasons by species and country',
@@ -59,45 +146,30 @@ export default function SeasonDates() {
                   <thead className="bg-slate-800 text-white">
                     <tr>
                       <th scope="col" className="p-3">Species</th>
-                      <th scope="col" className="p-3">England and Wales</th>
-                      <th scope="col" className="p-3">Scotland</th>
-                      <th scope="col" className="p-3">Northern Ireland</th>
+                      {(Object.keys(regions) as Region[]).map((region) => (
+                        <th key={region} scope="col" className="p-3">{regions[region]}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {SEASONS.map((season) => (
-                      <tr key={season.species} className="border-t border-slate-700">
-                        <th scope="row" className="p-3 font-normal text-white">{season.species}</th>
-                        <td className="p-3 whitespace-nowrap">{season.englandWales}</td>
-                        <td className="p-3 whitespace-nowrap">{season.scotland}</td>
-                        <td className="p-3 whitespace-nowrap">{season.northernIreland}</td>
+                    {SEASON_RULES.species.map((s) => (
+                      <tr key={s.id} className="border-t border-slate-700">
+                        <th scope="row" className="p-3 font-normal text-white">
+                          {s.species}
+                          {'note' in s && s.note ? '*' : ''}
+                        </th>
+                        {(Object.keys(regions) as Region[]).map((region) => (
+                          <td key={region} className="p-3 whitespace-nowrap">{formatSeason(s.seasons[region])}</td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="text-sm text-slate-400">
-                * In Somerset, Devon and the New Forest, black grouse open on 1 September.
-              </p>
+              {notes.map((s) => (
+                <p key={s.id} className="text-sm text-slate-400">* {'note' in s ? s.note : ''}</p>
+              ))}
             </>
-          ),
-        },
-        {
-          id: 'this-season',
-          heading: 'The 2026/27 season',
-          body: (
-            <ul>
-              <li>Pheasant shooting opened on <strong>Thursday 1 October 2026</strong>.</li>
-              <li><strong>Christmas Day 2026</strong> is a Friday. In England and Wales, no game may be shot that day.</li>
-              <li>
-                <strong>31 January 2027 is a Sunday</strong>, and the pheasant and partridge seasons in England, Wales and
-                Scotland end on <strong>Monday 1 February 2027</strong>.
-              </li>
-              <li>
-                In Northern Ireland, where pheasant and partridge close on 31 January and no game may be shot on a
-                Sunday, the last shooting day is <strong>Saturday 30 January 2027</strong>.
-              </li>
-            </ul>
           ),
         },
         {
@@ -126,13 +198,10 @@ export default function SeasonDates() {
           heading: 'Planning a syndicate’s season around the dates',
           body: (
             <>
-              <p>The legal season is the outer limit. Most syndicates plan inside it:</p>
+              <p>Most syndicates plan their days well inside the legal season:</p>
               <ul>
                 <li>Partridge days often come first, in September and October.</li>
-                <li>
-                  Many pheasant shoots start later than 1 October, when the birds are fully grown and the leaves are
-                  off the trees. Your keeper will know when your birds are ready.
-                </li>
+                <li>Many pheasant shoots start later than the opening day, once the birds are ready.</li>
                 <li>
                   Keep the last weeks of January in mind for a cocks-only day or a beaters’ day, both long-standing
                   traditions on many shoots.
@@ -153,12 +222,7 @@ export default function SeasonDates() {
           before shooting.
         </p>
       }
-      sources={[
-        { label: 'GWCT: Shooting season dates for gamebirds and waterfowl', url: 'https://gwct.org.uk/game/advice/shooting-season-dates/' },
-        { label: 'PSNI: Advice on wildlife and game protection (February 2026)', url: 'https://www.psni.police.uk/sites/default/files/2026-02/Advice%20on%20Widlife%20and%20Game%20Protection.pdf' },
-        { label: 'legislation.gov.uk: Game Act 1831, section 3', url: 'https://www.legislation.gov.uk/ukpga/Will4/1-2/32/section/3' },
-        { label: 'legislation.gov.uk: Wildlife and Countryside Act 1981, section 2', url: 'https://www.legislation.gov.uk/ukpga/1981/69/section/2' },
-      ]}
+      sources={[...SEASON_RULES.sources]}
       feature={{
         to: '/features#shoot-days',
         heading: 'Your season’s shoot days in one list',
