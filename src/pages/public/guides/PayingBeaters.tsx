@@ -7,6 +7,7 @@
  * in src/content/guides.ts.
  */
 
+import { Link } from 'react-router-dom'
 import GuidePage from '../../../components/public/GuidePage'
 import RatesReviewNotice from '../../../components/public/RatesReviewNotice'
 import { useToday } from '../../../lib/today'
@@ -48,6 +49,9 @@ export default function PayingBeaters() {
             someone engaged for {CASUAL_BEATERS.shortEngagementWeeks} weeks or less, but must operate PAYE for a casual
             beater who works, or is expected to work, more than {limit} days in a tax year. Either way, keep a record of
             everyone you pay.
+          </p>
+          <p>
+            <Link to="/tools/beater-pay-calculator">Check your day rate with the free beater pay calculator</Link>.
           </p>
         </>
       }

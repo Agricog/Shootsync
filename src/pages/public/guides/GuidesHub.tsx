@@ -7,7 +7,7 @@ import { Link } from 'react-router-dom'
 import { ArrowRight } from 'lucide-react'
 import Seo from '../../../components/public/Seo'
 import PublicLayout from '../../../components/public/PublicLayout'
-import { SITE, absoluteUrl } from '../../../config/site'
+import { SITE, TOOLS, absoluteUrl } from '../../../config/site'
 import { GUIDES, formatReviewed } from '../../../content/guides'
 
 const TITLE = 'Guides for Shoot Captains and Syndicates | ShootSync'
@@ -84,6 +84,23 @@ export default function GuidesHub() {
               </li>
             ))}
           </ul>
+
+          <div className="mt-16 border-t border-slate-800 pt-10">
+            <h2 className="text-2xl font-semibold text-white">Free tools</h2>
+            <p className="mt-3 text-slate-400 max-w-2xl">Work it out for your own shoot, with the same sources as the guides.</p>
+            <ul className="mt-6 space-y-3">
+              {TOOLS.map((tool) => (
+                <li key={tool.path}>
+                  <Link
+                    to={tool.path}
+                    className="inline-flex items-center gap-2 text-green-400 hover:text-green-300 font-medium rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                  >
+                    {tool.label} <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
 
           <div className="mt-16 border-t border-slate-800 pt-10">
             <h2 className="text-2xl font-semibold text-white">Running a syndicate?</h2>
