@@ -113,6 +113,12 @@ for (const { route, label, html } of copies) {
   for (const m of html.matchAll(/<script[^>]+type="application\/ld\+json"[^>]*>([\s\S]*?)<\/script>/g)) {
     try {
       const data = JSON.parse(m[1])
+      // Honest structured data: ShootSync is software, not shop goods, and has no reviews or ratings
+      // to show. Google asks Product markup for shipping, returns, reviews and ratings (Search
+      // Console, 14 October 2026); none applies, and invented ones would be fake reviews.
+      const types = JSON.stringify(data).match(/"@type":"[A-Za-z]+"/g) ?? []
+      if (types.includes('"@type":"Product"')) fail(route, 'structured data calls the page a Product (shop goods); use SoftwareApplication offers')
+      if (/"(aggregateRating|review)"\s*:/.test(JSON.stringify(data))) fail(route, 'structured data carries reviews or ratings')
       for (const url of JSON.stringify(data).match(/https:\/\/shootsync\.co\.uk\/[^"#]+\.(png|jpg|svg|webp)/g) ?? []) {
         if (!assetExists(url.slice(SITE.length))) fail(route, `structured data points at missing ${url}`)
       }

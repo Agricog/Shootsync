@@ -13,6 +13,11 @@ import { SITE } from '../../config/site'
 const TITLE = `ShootSync Pricing: Syndicate Software from £${LOWEST_MONTHLY_PRICE} a Month`
 const DESCRIPTION = `ShootSync pricing for UK shooting syndicates: Starter £${PLANS[0].monthlyPrice} and Standard £${PLANS[1].monthlyPrice} a month. No contract, no set-up fee, ${BILLING_TERMS.moneyBackDays}-day money-back guarantee.`
 
+// Structured data: breadcrumbs only. The plans and prices are described once, as the
+// SoftwareApplication's offers on the home page (Landing.tsx). A Product block here made Google treat
+// ShootSync as shop goods and ask for shipping, returns, reviews and ratings (Search Console,
+// 14 October 2026); none applies to a subscription, and reviews or ratings ShootSync has not been
+// given must never be invented. scripts/check-built-site.mjs refuses both.
 const jsonLd = [
   {
     '@context': 'https://schema.org',
@@ -22,22 +27,7 @@ const jsonLd = [
       { '@type': 'ListItem', position: 2, name: 'Pricing', item: `${SITE.url}/pricing` },
     ],
   },
-  {
-    '@context': 'https://schema.org',
-    '@type': 'Product',
-    name: 'ShootSync',
-    description: 'Shooting syndicate management software for UK shoot captains.',
-    brand: { '@type': 'Brand', name: SITE.name },
-    image: `${SITE.url}${SITE.ogImage}`,
-    offers: PLANS.map((plan) => ({
-      '@type': 'Offer',
-      name: `ShootSync ${plan.name}`,
-      price: plan.monthlyPrice.toFixed(2),
-      priceCurrency: 'GBP',
-      availability: 'https://schema.org/InStock',
-      url: `${SITE.url}/pricing`,
-    })),
-  },
+
 ]
 
 const TERMS = [
