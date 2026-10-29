@@ -35,11 +35,19 @@ export const testVerifier: TokenVerifier = async (token) => {
 
 export const tokenFor = (userId: string) => `test-token.${userId}`
 
-export function createTestPrisma(): PrismaClient {
-  if (!process.env.DATABASE_URL) {
+/** A client for the disposable test database, or for another database on the same server. */
+export function createTestPrisma(databaseUrl = process.env.DATABASE_URL): PrismaClient {
+  if (!databaseUrl) {
     throw new Error('DATABASE_URL must point at a disposable test database')
   }
-  return new PrismaClient()
+  return new PrismaClient({ datasourceUrl: databaseUrl })
+}
+
+/** The test database's address with a different database name (same server, same user). */
+export function databaseUrlFor(name: string): string {
+  const url = new URL(process.env.DATABASE_URL!)
+  url.pathname = `/${name}`
+  return url.toString()
 }
 
 export interface StripeCalls {

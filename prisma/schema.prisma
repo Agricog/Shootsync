@@ -280,6 +280,19 @@ model ActivityLog {
 }
 
 // ============================================
+// SCHEMA VERSION
+// ============================================
+
+/// One row per migration applied to this database (prisma/migrations/<id>/migration.sql ends by
+/// inserting its own row). The server refuses to start without the migration its code needs.
+model SchemaMigration {
+  id        String   @id
+  appliedAt DateTime @default(now()) @map("applied_at")
+
+  @@map("schema_migrations")
+}
+
+// ============================================
 // ENUMS
 // ============================================
 

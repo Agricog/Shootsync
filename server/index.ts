@@ -11,6 +11,7 @@ import { ConfigError, loadConfig, type AppConfig } from './config.js'
 import { createClerkVerifier } from './auth.js'
 import { createApp } from './app.js'
 import { PLAN_PRICES_PENCE, type PlanTierKey } from './plans.js'
+import { REQUIRED_MIGRATION, requireSchema } from './schemaVersion.js'
 
 let config: AppConfig
 try {
@@ -38,9 +39,13 @@ const app = createApp({
 
 const PORT = Number(process.env.PORT) || 3001
 
+// Never run this code against a database that is behind it: exits if so (server/schemaVersion.ts).
+await requireSchema(prisma)
+
 const server = app.listen(PORT, () => {
   // Boot log is a verification point (Standard §19.10): it names what this process will accept.
   console.log(`[boot] ShootSync API listening on ${PORT}`)
+  console.log(`[boot] Database schema: ${REQUIRED_MIGRATION} applied`)
   console.log(`[boot] Sessions accepted from: ${config.allowedOrigins.join(', ')}`)
   console.log(`[boot] Stripe mode: ${config.stripeSecretKey.startsWith('sk_live_') ? 'LIVE' : 'TEST'}`)
   void checkStripePrices()

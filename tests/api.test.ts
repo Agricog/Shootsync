@@ -7,6 +7,7 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import type Stripe from 'stripe'
 import { PUBLIC_ROUTES } from '../server/auth.js'
+import { REQUIRED_MIGRATION } from '../server/schemaVersion.js'
 import {
   CAPTAIN_A,
   CAPTAIN_B,
@@ -117,8 +118,10 @@ describe('API', () => {
     })
 
     it('health is public', async () => {
+      await prisma.$executeRawUnsafe(`INSERT INTO schema_migrations (id) VALUES ('${REQUIRED_MIGRATION}') ON CONFLICT DO NOTHING`)
       const res = await call(server, '/api/health')
       assert.equal(res.status, 200)
+      await prisma.$executeRawUnsafe(`DELETE FROM schema_migrations WHERE id = '${REQUIRED_MIGRATION}'`)
     })
 
     it('unknown API paths return JSON 404, not the web page', async () => {

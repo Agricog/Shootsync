@@ -12,7 +12,8 @@ import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import type { Deps } from './deps.js'
 import { authGate, isPublicRoute, type TokenVerifier } from './auth.js'
-import { errorHandler } from './access.js'
+import { errorHandler, handle } from './access.js'
+import { checkSchema } from './schemaVersion.js'
 import { rateLimit } from './rateLimit.js'
 import { syndicateRoutes } from './routes/syndicates.js'
 import { memberRoutes } from './routes/members.js'
@@ -123,9 +124,17 @@ export function createApp(options: AppOptions) {
     next()
   })
 
-  app.get('/api/health', (_req, res) => {
+  // Railway's health check (Settings, Deploy, Healthcheck Path). A new deploy only takes over
+  // once this answers 200, so it asserts the database and its schema version, not just that the
+  // process is up (Standard 19.6). The reason stays in the server log, never in the response.
+  app.get('/api/health', handle(async (_req, res) => {
+    const schema = await checkSchema(deps.prisma)
+    if (!schema.ready) {
+      console.error(`[health] not ready: ${schema.reason}`)
+      return res.status(503).json({ status: 'unavailable' })
+    }
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
-  })
+  }))
 
   app.use('/api', authGate(verifyToken))
 
