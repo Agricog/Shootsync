@@ -9,7 +9,7 @@ import LegalPage from '../../components/public/LegalPage'
 import { BILLING_TERMS } from '../../config/plans'
 import { SITE } from '../../config/site'
 
-const UPDATED = '13 October 2026'
+const UPDATED = '29 October 2026'
 const { operator, email } = SITE
 
 export default function Terms() {
@@ -119,8 +119,8 @@ export default function Terms() {
                   your syndicate’s safety arrangements, insurance and conduct on the day.
                 </p>
                 <p>
-                  Guest day fees are paid by card through Stripe. How and when collected fees reach your
-                  syndicate is agreed with you before your first guest pays.
+                  ShootSync doesn’t take guest day fees. Guests pay your syndicate directly, as you arrange
+                  with them, and you record in ShootSync who has paid.
                 </p>
               </>
             ),

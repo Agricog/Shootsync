@@ -20,7 +20,7 @@ import type { GuidePath } from '../../content/guides'
 
 const TITLE = 'Features: Peg Draw, Bag Records, Beaters and Guests | ShootSync'
 const DESCRIPTION =
-  'How ShootSync runs a shooting syndicate: a fair peg draw, shoot day briefing sheets, bag records by drive, beaters’ pay, and guest guns who pay online.'
+  'How ShootSync runs a shooting syndicate: a fair peg draw, shoot day briefing sheets, bag records by drive, beaters’ pay, and guest guns with signed waivers.'
 
 interface Section {
   id: string
@@ -103,7 +103,7 @@ const SECTIONS: Section[] = [
     points: [
       'The guest sees the shoot details: date, location and meet time',
       'They read and accept the guest liability waiver and leave an emergency contact',
-      'They pay the day fee by card through Stripe; card details never reach ShootSync',
+      'They pay the day fee to the syndicate as you arrange, and you mark them paid',
       'You see who has accepted, declined and paid, and can copy the link again for anyone who hasn’t replied',
     ],
     guide: { to: '/guides/guest-guns', label: 'Guide: guest guns, the law and the etiquette' },

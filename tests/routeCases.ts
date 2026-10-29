@@ -81,6 +81,7 @@ export const CASES: Case[] = [
   { name: 'read guest', method: 'GET', path: (x) => `/api/guests/${x.guest.id}`, level: 'captain' },
   { name: 'invite guest', method: 'POST', path: () => '/api/guests', body: (x) => ({ shootId: x.shoot.id, invitedByMemberId: x.gun.id, name: 'Guest Two', email: 'g2@example.com' }), level: 'member' },
   { name: 'update guest', method: 'PATCH', path: (x) => `/api/guests/${x.guest.id}`, body: () => ({ pegNumber: 8 }), level: 'captain' },
+  { name: 'mark guest paid', method: 'PATCH', path: (x) => `/api/guests/${x.guest.id}/payment`, body: () => ({ paid: true }), level: 'captain' },
   { name: 'remove guest', method: 'DELETE', path: (x) => `/api/guests/${x.guest.id}`, level: 'captain' },
   // Subscriptions
   { name: 'start plan checkout', method: 'POST', path: () => '/api/subscriptions/create-checkout', body: (x) => ({ syndicateId: x.syndicate.id, planTier: 'STANDARD', email: 'a@example.com' }), level: 'captain', prepare: planEnded, allowLapsed: [null, 'CANCELLED'] },

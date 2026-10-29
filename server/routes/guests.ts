@@ -53,6 +53,21 @@ const acceptGuestSchema = z.object({
 
 export const INVITE_TOKEN_PATTERN = /^[a-f0-9]{64}$/
 
+const markPaidSchema = z.object({ paid: z.boolean() })
+
+type PaymentFacts = { paymentStatus: string; dayFee: number; rsvpStatus: string; stripePaymentId: string | null }
+
+function whyNotPaid(guest: PaymentFacts): string {
+  if (guest.paymentStatus !== 'PENDING') return 'This guest is already marked paid.'
+  if (guest.dayFee <= 0) return 'This guest has no day fee to pay.'
+  return 'This guest has declined or been withdrawn, so there is nothing to mark paid.'
+}
+
+function whyNotUnpaid(guest: PaymentFacts): string {
+  if (guest.paymentStatus !== 'PAID') return 'This guest isn’t marked paid.'
+  return 'This guest paid by card through Stripe, so it can’t be undone here. Refund them in Stripe if they aren’t coming.'
+}
+
 /** A shoot day's date as "YYYY-MM-DD". Shoot dates are stored as midnight UTC of the day chosen. */
 export const shootDateKey = (date: Date): string => date.toISOString().slice(0, 10)
 
@@ -258,7 +273,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
     const data = updateGuestSchema.parse(req.body)
 
     // The fee is fixed once the guest has accepted the invitation: that is the fee they agreed to
-    // and the one their card page charges. The condition is part of the write, so an acceptance
+    // and the one their page tells them to pay. The condition is part of the write, so an acceptance
     // arriving at the same moment can't slip between a check and the change.
     if (data.dayFee !== undefined) {
       const changed = await prisma.guestGun.updateMany({
@@ -274,15 +289,40 @@ export function guestRoutes({ prisma, today }: Deps): Router {
     res.json(guest)
   }))
 
+  // PATCH /api/guests/:id/payment { paid } - captain only. Guests pay the syndicate directly;
+  // the captain records it here. A payment taken by card through Stripe can't be undone here:
+  // that money has to be refunded in Stripe.
+  router.patch('/:id/payment', handle(async (req, res) => {
+    const syndicateId = await syndicateOfGuest(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
+    const { paid } = markPaidSchema.parse(req.body)
+
+    const changed = paid
+      ? await prisma.guestGun.updateMany({
+          where: { id: req.params.id, paymentStatus: 'PENDING', dayFee: { gt: 0 }, rsvpStatus: { not: 'DECLINED' } },
+          data: { paymentStatus: 'PAID' },
+        })
+      : await prisma.guestGun.updateMany({
+          where: { id: req.params.id, paymentStatus: 'PAID', stripePaymentId: null },
+          data: { paymentStatus: 'PENDING' },
+        })
+    if (changed.count === 0) {
+      const guest = await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id }, select: { paymentStatus: true, dayFee: true, rsvpStatus: true, stripePaymentId: true } })
+      throw new HttpError(409, paid ? whyNotPaid(guest) : whyNotUnpaid(guest))
+    }
+    res.json(await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id } }))
+  }))
+
   // DELETE /api/guests/:id - captain only
   router.delete('/:id', handle(async (req, res) => {
     const syndicateId = await syndicateOfGuest(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     // Paid or refunded guests stay on record: removing them would delete the record of the money.
-    // A guest who has signed the waiver may be on the card page right now, so they are withdrawn
-    // (marked declined, which the checkout refuses) rather than deleted: if a payment still lands,
-    // the record is there to refund against. Only a guest who never reached payment is deleted.
+    // A guest who has signed the waiver is withdrawn (marked declined) rather than deleted: their
+    // signed waiver stays on record, as does anything to refund against if a card payment from a
+    // page opened before online payment was switched off still lands. Only a guest who never
+    // accepted is deleted.
     // Each write carries its own condition, so a payment arriving at the same moment can't slip past.
     const guest = await prisma.guestGun.findUnique({ where: { id: req.params.id }, select: { paymentStatus: true, waiverAccepted: true } })
     if (!guest) throw notFound()

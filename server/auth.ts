@@ -46,7 +46,6 @@ export const PUBLIC_ROUTES: ReadonlyArray<{ method: string; path: RegExp; reason
   { method: 'POST', path: /^\/subscriptions\/webhook$/, reason: 'Stripe webhook, verified by signature' },
   { method: 'GET', path: new RegExp(`^/guests/token/${INVITE_TOKEN}$`), reason: 'Guest opens invite link' },
   { method: 'POST', path: new RegExp(`^/guests/token/${INVITE_TOKEN}/(accept|decline)$`), reason: 'Guest RSVP via invite link' },
-  { method: 'POST', path: /^\/stripe\/create-checkout-session$/, reason: 'Guest day-fee payment, authorised by invite token in body' },
   { method: 'GET', path: /^\/stripe\/session\/cs_[A-Za-z0-9_]{10,200}$/, reason: 'Guest payment confirmation page' },
 ]
 

@@ -141,7 +141,7 @@ describe('who am I, archiving and plain-English errors', () => {
       assert.equal(await prisma.shootDay.count({ where: { syndicateId: data.a.syndicate.id } }), 1)
     })
 
-    it("its guests' links stop working: no RSVP, no waiver, no payment", async () => {
+    it("its guests' links stop working: no RSVP, no waiver", async () => {
       await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { rsvpStatus: 'CONFIRMED', waiverAccepted: true } })
       await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { status: 'ARCHIVED' } })
       const base = `/api/guests/token/${INVITE_TOKEN_A}`
@@ -149,7 +149,6 @@ describe('who am I, archiving and plain-English errors', () => {
         ['GET', base, undefined],
         ['POST', `${base}/accept`, { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000', waiverAccepted: true }],
         ['POST', `${base}/decline`, {}],
-        ['POST', '/api/stripe/create-checkout-session', { token: INVITE_TOKEN_A }],
       ] as const) {
         const res = await call(server, path, { method, body })
         assert.equal(res.status, 404, `${method} ${path}`)

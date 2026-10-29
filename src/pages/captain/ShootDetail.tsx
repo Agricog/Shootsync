@@ -51,6 +51,8 @@ interface ShootDay {
     rsvpStatus: string
     paymentStatus: string
     waiverAccepted: boolean
+    /** Set when the fee was paid by card through Stripe; null when the captain marked it paid. */
+    stripePaymentId?: string | null
     inviteToken?: string
     pegNumber?: number | null
     invitedByMember?: { id: string; name: string } | null
@@ -200,6 +202,21 @@ export default function ShootDetail() {
     setGuestError(null)
     setGuestNotice(null)
     const result = await apiRequest<unknown>(`/api/guests/${encodeURIComponent(guestId)}`, { method: 'DELETE' })
+    if (!result.ok) {
+      setGuestError(result.error)
+      return
+    }
+    await refreshShoot()
+  }
+
+  // Guests pay the syndicate directly; the captain records it.
+  const [markingPayment, setMarkingPayment] = useState<string | null>(null)
+  const setGuestPaid = async (guestId: string, paid: boolean) => {
+    setGuestError(null)
+    setGuestNotice(null)
+    setMarkingPayment(guestId)
+    const result = await apiRequest<unknown>(`/api/guests/${encodeURIComponent(guestId)}/payment`, { method: 'PATCH', body: { paid } })
+    setMarkingPayment(null)
     if (!result.ok) {
       setGuestError(result.error)
       return
@@ -555,9 +572,9 @@ export default function ShootDetail() {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 mt-3">
-                    {/* The link is still needed after they've said yes, until any day fee is paid. */}
-                    {guest.inviteToken && guest.rsvpStatus !== 'DECLINED' && (guest.rsvpStatus === 'PENDING' || (guest.dayFee > 0 && guest.paymentStatus === 'PENDING')) && (
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
+                    {/* The guest's page shows the day's details, so the link stays useful after they say yes. */}
+                    {guest.inviteToken && guest.rsvpStatus !== 'DECLINED' && (
                       <button
                         type="button"
                         onClick={() => void copyInviteLink(guest.inviteToken!)}
@@ -569,10 +586,30 @@ export default function ShootDetail() {
                     {guest.waiverAccepted && (
                       <span className="text-sm text-slate-400">Waiver signed ✓</span>
                     )}
+                    {canWrite && guest.dayFee > 0 && guest.rsvpStatus !== 'DECLINED' && guest.paymentStatus === 'PENDING' && (
+                      <button
+                        type="button"
+                        onClick={() => void setGuestPaid(guest.id, true)}
+                        disabled={markingPayment === guest.id}
+                        className="text-sm text-green-400 hover:text-green-300 disabled:opacity-50"
+                      >
+                        Mark {formatCurrency(guest.dayFee)} paid
+                      </button>
+                    )}
+                    {canWrite && guest.paymentStatus === 'PAID' && !guest.stripePaymentId && (
+                      <button
+                        type="button"
+                        onClick={() => void setGuestPaid(guest.id, false)}
+                        disabled={markingPayment === guest.id}
+                        className="text-sm text-slate-300 hover:text-white disabled:opacity-50"
+                      >
+                        Mark unpaid
+                      </button>
+                    )}
                     {guest.paymentStatus === 'PAID' && guest.rsvpStatus === 'DECLINED' ? (
                       <span className="text-sm text-amber-300 ml-auto">Paid after being withdrawn: refund them in Stripe</span>
                     ) : guest.paymentStatus !== 'PENDING' ? (
-                      <span className="text-sm text-slate-400 ml-auto">Paid, so kept on record</span>
+                      <span className="text-sm text-slate-400 ml-auto">{guest.stripePaymentId ? 'Paid by card, so kept on record' : 'Paid: mark unpaid to remove'}</span>
                     ) : guest.rsvpStatus === 'DECLINED' && guest.waiverAccepted ? (
                       <span className="text-sm text-slate-400 ml-auto">Withdrawn</span>
                     ) : !canWrite ? null : (

@@ -111,7 +111,6 @@ describe('API', () => {
           'POST ^\\/subscriptions\\/webhook$',
           'GET ^\\/guests\\/token\\/[a-f0-9]{64}$',
           'POST ^\\/guests\\/token\\/[a-f0-9]{64}\\/(accept|decline)$',
-          'POST ^\\/stripe\\/create-checkout-session$',
           'GET ^\\/stripe\\/session\\/cs_[A-Za-z0-9_]{10,200}$',
         ]
       )
@@ -341,27 +340,17 @@ describe('API', () => {
       assert.equal(res.status, 400)
     })
 
-    it('payment needs the waiver signed first, then charges the day fee in pence', async () => {
-      const early = await call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { token: INVITE_TOKEN_A } })
-      assert.equal(early.status, 409)
-
+    it('accepting confirms the guest; ShootSync no longer starts a card payment for the day fee', async () => {
       const accepted = await call(server, `${base}/accept`, {
         method: 'POST', body: { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000', waiverAccepted: true },
       })
       assert.equal(accepted.status, 200)
       assert.equal(accepted.json.rsvpStatus, 'CONFIRMED')
+      assert.equal(accepted.json.paymentStatus, 'PENDING')
 
-      const checkout = await call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { token: INVITE_TOKEN_A } })
-      assert.equal(checkout.status, 200)
-      assert.equal(stripeCalls.checkoutCreates.length, 1)
-      const params = stripeCalls.checkoutCreates[0]
-      assert.equal(params.line_items?.[0].price_data?.unit_amount, 5000)
-      assert.equal(params.metadata?.guestId, data.a.guest.id)
-    })
-
-    it('a guest ID cannot be used to pay instead of the token', async () => {
-      const res = await call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { guestId: data.a.guest.id } })
-      assert.equal(res.status, 404)
+      // The old public card-payment route is gone: not public, and not there for a signed-in user either.
+      assert.equal((await call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { token: INVITE_TOKEN_A } })).status, 401)
+      assert.equal((await call(server, '/api/stripe/create-checkout-session', { method: 'POST', as: CAPTAIN_A, body: { token: INVITE_TOKEN_A } })).status, 404)
       assert.equal(stripeCalls.checkoutCreates.length, 0)
     })
 

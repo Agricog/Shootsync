@@ -55,8 +55,8 @@ const FEATURES = [
     icon: UserPlus,
     anchor: 'guest-guns',
     linkLabel: 'Guest guns and day fees',
-    title: 'Guest guns who pay before the day',
-    text: 'Copy a guest their own link to send by text or email. They accept the waiver, leave an emergency contact and pay the day fee by card.',
+    title: 'Guest guns sorted before the day',
+    text: 'Copy a guest their own link to send by text or email. They accept the waiver and leave an emergency contact, and you tick off who has paid their day fee.',
   },
   {
     icon: Users,
@@ -90,7 +90,7 @@ const SEASON_STEPS = [
   },
   {
     title: 'Settle up',
-    text: 'Guests have already paid by card. Mark the day complete, pay the beaters what they’re owed, and mark them paid.',
+    text: 'See which guests still owe their day fee. Mark the day complete, pay the beaters what they’re owed, and mark them paid.',
   },
 ] as const
 

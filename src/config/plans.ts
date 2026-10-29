@@ -32,7 +32,7 @@ export const PLANS: readonly Plan[] = [
       'Shoot day scheduling and PDF briefing sheets',
       'Fair peg rotation across the season',
       'Bag recording by drive, with voice input',
-      'Guest gun invites, waivers and online day fees',
+      'Guest gun invites and waivers, with day fees tracked',
       'Beater bookings, pay owed and bank export',
     ],
   },

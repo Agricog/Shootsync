@@ -10,7 +10,7 @@ import Seo from '../../components/public/Seo'
 import LegalPage from '../../components/public/LegalPage'
 import { SITE } from '../../config/site'
 
-const UPDATED = '13 October 2026'
+const UPDATED = '29 October 2026'
 const { operator, email } = SITE
 
 export default function Privacy() {
@@ -75,7 +75,7 @@ export default function Privacy() {
             body: (
               <ul>
                 <li><strong>To provide the service you signed up for</strong> (contract): your account, your syndicate’s records, billing.</li>
-                <li><strong>To take guest day fees and subscription payments</strong> (contract).</li>
+                <li><strong>To take subscription payments</strong>, and to record whether a guest has paid their day fee (contract).</li>
                 <li><strong>To keep ShootSync secure and working</strong> (legitimate interests): sign-in checks, logs, preventing misuse.</li>
                 <li><strong>To keep financial records</strong> (legal obligation): payment records required for tax.</li>
               </ul>
@@ -89,7 +89,7 @@ export default function Privacy() {
                 <p>We use these providers to run ShootSync. Each handles data only to provide its service to us:</p>
                 <ul>
                   <li><strong>Clerk</strong>: sign-in and account security.</li>
-                  <li><strong>Stripe</strong>: subscription and guest day-fee payments. Stripe is also responsible in its own right for the payment data it processes.</li>
+                  <li><strong>Stripe</strong>: subscription payments. Stripe is also responsible in its own right for the payment data it processes.</li>
                   <li><strong>Neon</strong>: the database where syndicate records are stored.</li>
                   <li><strong>Railway</strong>: hosting for the ShootSync application.</li>
                 </ul>

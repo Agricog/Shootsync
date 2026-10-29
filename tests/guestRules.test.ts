@@ -1,11 +1,14 @@
 /**
  * Guest guard rails.
  *
- * - A guest can accept, decline and pay only while the day is scheduled and hasn't passed
- *   (paying on the morning itself is fine), and can only be invited to such a day.
+ * - A guest can accept and decline only while the day is scheduled and hasn't passed (the
+ *   morning itself is fine), and can only be invited to such a day.
+ * - Guests pay the syndicate directly: the captain marks them paid, and can undo it, except
+ *   for a payment that was taken by card through Stripe.
  * - A guest's link shows the day as closed after it, and expires a while later.
  * - The day fee is fixed once the guest has accepted the invitation at it.
- * - A payment for a different amount than the fee is still recorded, and said loudly.
+ * - A card payment (from a page opened before online payment was switched off) for a different
+ *   amount than the fee is still recorded, and said loudly.
  */
 
 import { after, before, beforeEach, describe, it } from 'node:test'
@@ -44,7 +47,7 @@ describe('guest guard rails, on the server', () => {
   let data: Seeded
   let today = TEST_TODAY
   let server: TestServer
-  const { stripe, calls } = createTestStripe()
+  const { stripe } = createTestStripe()
 
   before(async () => {
     prisma = createTestPrisma()
@@ -58,7 +61,6 @@ describe('guest guard rails, on the server', () => {
 
   beforeEach(async () => {
     today = TEST_TODAY
-    calls.checkoutCreates.length = 0
     await resetDatabase(prisma)
     data = await seed(prisma)
   })
@@ -67,19 +69,17 @@ describe('guest guard rails, on the server', () => {
   const accept = () => call(server, `/api/guests/token/${INVITE_TOKEN_A}/accept`, {
     method: 'POST', body: { emergencyContactName: 'Pat', emergencyContactPhone: '07700 900000', waiverAccepted: true },
   })
-  const pay = () => call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { token: INVITE_TOKEN_A } })
   const guestRow = () => prisma.guestGun.findUniqueOrThrow({ where: { id: data.a.guest.id } })
 
-  it('before the day: open, and the whole journey works', async () => {
+  it('before the day: open, and the guest can accept', async () => {
     assert.equal((await invite()).json.closed, null)
     assert.equal((await accept()).status, 200)
-    assert.equal((await pay()).status, 200)
   })
 
-  it('on the morning of the day the guest can still pay', async () => {
-    await accept()
+  it('on the morning of the day the guest can still accept', async () => {
     today = '2026-11-14'
-    assert.equal((await pay()).status, 200)
+    assert.equal((await invite()).json.closed, null)
+    assert.equal((await accept()).status, 200)
   })
 
   for (const [label, prepare] of [
@@ -101,13 +101,12 @@ describe('guest guard rails, on the server', () => {
       assert.deepEqual(await guestRow(), before)
     })
 
-    it(`once ${label}: a guest who accepted earlier can't pay`, async () => {
+    it(`once ${label}: a guest who accepted earlier sees the day as closed, and stays confirmed`, async () => {
       await accept()
       await prepare()
-      const res = await pay()
-      assert.equal(res.status, 409)
-      assert.match(res.json.error, /closed/)
-      assert.equal(calls.checkoutCreates.length, 0)
+      const shown = await invite()
+      assert.match(shown.json.closed, /closed/)
+      assert.equal(shown.json.rsvpStatus, 'CONFIRMED')
     })
 
     it(`once ${label}: no new guests can be invited to it, by the captain or a gun`, async () => {
@@ -159,7 +158,58 @@ describe('guest guard rails, on the server', () => {
     })
   })
 
-  describe('a payment for a different amount than the fee', () => {
+  describe('the captain records a guest’s day fee as paid', () => {
+    const mark = (paid: boolean, as = CAPTAIN_A) => call(server, `/api/guests/${data.a.guest.id}/payment`, { method: 'PATCH', as, body: { paid } })
+
+    it('marks paid, and undoes it', async () => {
+      const paid = await mark(true)
+      assert.equal(paid.status, 200)
+      assert.equal(paid.json.paymentStatus, 'PAID')
+      assert.equal((await mark(true)).json.error, 'This guest is already marked paid.')
+      assert.equal((await mark(false)).status, 200)
+      assert.equal((await guestRow()).paymentStatus, 'PENDING')
+      assert.equal((await mark(false)).json.error, 'This guest isn’t marked paid.')
+    })
+
+    it('a guest who is marked paid stays on record until it is undone', async () => {
+      await mark(true)
+      assert.equal((await call(server, `/api/guests/${data.a.guest.id}`, { method: 'DELETE', as: CAPTAIN_A })).status, 409)
+      await mark(false)
+      assert.equal((await call(server, `/api/guests/${data.a.guest.id}`, { method: 'DELETE', as: CAPTAIN_A })).status, 200)
+    })
+
+    it('a card payment taken through Stripe can’t be undone here: it has to be refunded in Stripe', async () => {
+      await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { paymentStatus: 'PAID', stripePaymentId: 'pi_card' } })
+      const res = await mark(false)
+      assert.equal(res.status, 409)
+      assert.match(res.json.error, /Refund them in Stripe/)
+      assert.equal((await guestRow()).paymentStatus, 'PAID')
+    })
+
+    it('nothing to mark for a free guest or one who declined', async () => {
+      await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { dayFee: 0 } })
+      assert.equal((await mark(true)).json.error, 'This guest has no day fee to pay.')
+      await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { dayFee: 5000, rsvpStatus: 'DECLINED' } })
+      const declined = await mark(true)
+      assert.equal(declined.status, 409)
+      assert.match(declined.json.error, /declined/)
+      assert.equal((await guestRow()).paymentStatus, 'PENDING')
+    })
+
+    it('only the captain: a gun is told it doesn’t exist, and nothing changes', async () => {
+      assert.equal((await mark(true, GUN_A)).status, 404)
+      assert.equal((await guestRow()).paymentStatus, 'PENDING')
+    })
+
+    it('the guest’s page then shows it as paid, and never offers a card payment', async () => {
+      await accept()
+      await mark(true)
+      const shown = await invite()
+      assert.equal(shown.json.paymentStatus, 'PAID')
+    })
+  })
+
+  describe('a card payment for a different amount than the fee', () => {
     const paid = (amount_total: number, currency = 'gbp') => {
       const body = JSON.stringify({
         id: `evt_${amount_total}_${currency}`, object: 'event', type: 'checkout.session.completed',

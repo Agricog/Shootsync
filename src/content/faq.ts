@@ -41,7 +41,7 @@ export const FAQS: Faq[] = [
   {
     question: 'Do guest guns need an account?',
     answer:
-      'No. You invite a guest from the shoot day and copy them their own link to send by text or email. They read and accept the guest waiver, give an emergency contact, and pay the day fee by card. Card payments are handled by Stripe, so card details never reach ShootSync.',
+      'No. You invite a guest from the shoot day and copy them their own link to send by text or email. They read and accept the guest waiver and give an emergency contact. Guests pay their day fee to the syndicate as you arrange, and you mark in ShootSync who has paid.',
   },
   {
     question: 'How does ShootSync help with paying beaters?',

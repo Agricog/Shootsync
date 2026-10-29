@@ -187,8 +187,10 @@ describe('managing the syndicate (API)', () => {
     const withdrawn = await as('DELETE', `/api/guests/${guestId}`)
     assert.deepEqual([withdrawn.status, withdrawn.json.withdrawn], [200, true])
     assert.equal((await prisma.guestGun.findUniqueOrThrow({ where: { id: guestId } })).rsvpStatus, 'DECLINED')
-    const checkout = await call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { token: data.a.guest.inviteToken } })
-    assert.equal(checkout.status, 409, 'a withdrawn guest cannot start paying')
+    const accept = await call(server, `/api/guests/token/${data.a.guest.inviteToken}/accept`, {
+      method: 'POST', body: { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000', waiverAccepted: true },
+    })
+    assert.equal(accept.status, 409, 'a withdrawn guest cannot accept again')
     // Never reached payment: removed.
     await prisma.guestGun.update({ where: { id: guestId }, data: { waiverAccepted: false, rsvpStatus: 'PENDING' } })
     assert.equal((await as('DELETE', `/api/guests/${guestId}`)).status, 200)

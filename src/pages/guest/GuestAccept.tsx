@@ -1,41 +1,45 @@
 /**
- * Guest Accept Page - ShootSync
- * Handles guest invitation acceptance, waiver, and payment
+ * Guest invitation - ShootSync
+ *
+ * A guest opens the link a gun or captain sent them, sees the day, and either accepts (reading
+ * the waiver and leaving an emergency contact) or declines. The link is the guest's only key:
+ * they have no account. ShootSync doesn't take the day fee: the guest pays the syndicate as
+ * arranged, and the captain marks them paid.
+ *
+ * Every call goes through src/lib/api.ts, so every failure reads as a sentence, and the
+ * server's own words (a cancelled day, an expired link) are shown as they are.
  */
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
+import { apiRequest } from '../../lib/api'
 import { formatCurrency } from '../../config/stripe'
 import { formatLongDate, formatTime } from '../../utils/dateHelpers'
 
-type Step = 'loading' | 'details' | 'waiver' | 'payment' | 'confirmed' | 'declined' | 'closed' | 'error'
+type Step = 'loading' | 'details' | 'waiver' | 'confirmed' | 'declined' | 'closed' | 'error'
 
 interface GuestInvite {
   name: string
   email: string
   dayFee: number
-  rsvpStatus: string
-  paymentStatus: string
+  rsvpStatus: 'PENDING' | 'CONFIRMED' | 'DECLINED'
+  paymentStatus: 'PENDING' | 'PAID' | 'REFUNDED'
   waiverAccepted: boolean
   /** Why nothing more can be done with this invitation (the day was cancelled or has passed), or null. */
   closed: string | null
-  invitedByMember?: {
-    name: string
-  }
-  shootDay?: {
+  invitedByMember: { name: string } | null
+  shootDay: {
     date: string
     locationName: string
-    locationAddress?: string
-    locationPostcode?: string
-    meetTime: string
-    syndicate?: {
-      name: string
-    }
+    locationAddress: string | null
+    locationPostcode: string | null
+    meetTime: string | null
+    syndicate: { name: string }
   }
 }
 
@@ -59,182 +63,132 @@ By accepting this invitation, I acknowledge and agree to the following:
 
 This waiver is binding upon myself, my heirs, and legal representatives.`
 
+const PHONE_PATTERN = /^[\d\s+()-]{10,}$/
+
+/** Where the invitation should open, from what the server says about it. */
+function stepFor(invite: GuestInvite): Step {
+  if (invite.closed) return 'closed'
+  if (invite.rsvpStatus === 'CONFIRMED') return 'confirmed'
+  if (invite.rsvpStatus === 'DECLINED') return 'declined'
+  return 'details'
+}
+
+/** What the guest is told about the day fee once they've accepted. */
+function feeLine(invite: GuestInvite): string | null {
+  if (invite.dayFee <= 0) return null
+  const fee = formatCurrency(invite.dayFee)
+  if (invite.paymentStatus === 'PAID') return `Day fee: ${fee}, paid. Thank you.`
+  const host = invite.invitedByMember?.name
+  return `Day fee: ${fee}. Please pay ${invite.shootDay.syndicate.name} directly${host ? `, as arranged with ${host}` : ''}. ShootSync doesn’t take payments.`
+}
+
+function DayDetails({ invite }: { invite: GuestInvite }) {
+  const { shootDay } = invite
+  return (
+    <dl className="p-4 bg-slate-800 rounded-lg space-y-4 text-left">
+      <div>
+        <dt className="text-slate-400 text-sm">Syndicate</dt>
+        <dd className="text-white font-medium">{shootDay.syndicate.name}</dd>
+      </div>
+      <div>
+        <dt className="text-slate-400 text-sm">Date</dt>
+        <dd className="text-white font-medium">{formatLongDate(shootDay.date)}</dd>
+      </div>
+      <div>
+        <dt className="text-slate-400 text-sm">Meet time</dt>
+        <dd className="text-white font-medium">{shootDay.meetTime ? formatTime(shootDay.meetTime) : 'To be confirmed'}</dd>
+      </div>
+      <div>
+        <dt className="text-slate-400 text-sm">Location</dt>
+        <dd className="text-white font-medium">{shootDay.locationName}</dd>
+        {shootDay.locationAddress && <dd className="text-slate-300 text-sm">{shootDay.locationAddress}</dd>}
+        {shootDay.locationPostcode && <dd className="text-slate-300 text-sm">{shootDay.locationPostcode}</dd>}
+      </div>
+    </dl>
+  )
+}
+
+function Problem({ message }: { message: string }) {
+  return <p role="alert" className="rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{message}</p>
+}
+
 export default function GuestAccept() {
-  const { token } = useParams<{ token: string }>()
+  const { token: tokenFromPath } = useParams<{ token: string }>()
   const [searchParams] = useSearchParams()
-  const tokenFromQuery = searchParams.get('token')
-  const inviteToken = token || tokenFromQuery
+  const token = tokenFromPath || searchParams.get('token') || ''
+  const base = `/api/guests/token/${encodeURIComponent(token)}`
 
   const [step, setStep] = useState<Step>('loading')
   const [invite, setInvite] = useState<GuestInvite | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [isProcessing, setIsProcessing] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [working, setWorking] = useState(false)
 
-  const [waiverData, setWaiverData] = useState({
-    emergencyContactName: '',
-    emergencyContactPhone: '',
-  })
-  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
-  const [hasAcceptedWaiver, setHasAcceptedWaiver] = useState(false)
+  const [contact, setContact] = useState({ name: '', phone: '' })
+  const [waiverTicked, setWaiverTicked] = useState(false)
+  const [fieldErrors, setFieldErrors] = useState<{ name?: string; phone?: string; waiver?: string }>({})
 
-  useEffect(() => {
-    if (inviteToken) {
-      loadInvite()
-    } else {
-      setError('No invitation token provided')
+  const load = useCallback(async () => {
+    if (!token) {
+      setLoadError('This link is missing its invitation code. Ask the person who invited you to send it again.')
       setStep('error')
-    }
-  }, [inviteToken])
-
-  const loadInvite = async () => {
-    try {
-      const response = await fetch(`/api/guests/token/${encodeURIComponent(inviteToken ?? '')}`)
-      
-      if (!response.ok) {
-        if (response.status === 404) {
-          setError('This invitation is invalid or has expired.')
-        } else {
-          setError('Failed to load invitation. Please try again.')
-        }
-        setStep('error')
-        return
-      }
-
-      const data = await response.json()
-      setInvite(data)
-
-      // Determine initial step based on current status
-      if (data.paymentStatus === 'PAID') {
-        setStep('confirmed')
-      } else if (data.closed) {
-        setStep('closed')
-      } else if (data.rsvpStatus === 'CONFIRMED' && data.dayFee > 0) {
-        // Accepted earlier but did not finish paying: take them straight to payment.
-        setStep('payment')
-      } else if (data.rsvpStatus === 'CONFIRMED') {
-        setStep('confirmed')
-      } else if (data.rsvpStatus === 'DECLINED') {
-        setStep('declined')
-      } else {
-        setStep('details')
-      }
-    } catch (err) {
-      console.error('Error loading invite:', err)
-      setError('Failed to load invitation. Please check your connection.')
-      setStep('error')
-    }
-  }
-
-  const handleDecline = async () => {
-    if (!invite) return
-
-    setIsProcessing(true)
-    try {
-      const response = await fetch(`/api/guests/token/${encodeURIComponent(inviteToken ?? '')}/decline`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      })
-
-      if (response.ok) {
-        setStep('declined')
-      } else {
-        setError('Failed to decline invitation. Please try again.')
-      }
-    } catch (err) {
-      console.error('Error declining:', err)
-      setError('Failed to decline invitation. Please try again.')
-    }
-    setIsProcessing(false)
-  }
-
-  const validateWaiverForm = (): boolean => {
-    const errors: Record<string, string> = {}
-
-    if (!waiverData.emergencyContactName.trim()) {
-      errors.emergencyContactName = 'Emergency contact name is required'
-    }
-
-    if (!waiverData.emergencyContactPhone.trim()) {
-      errors.emergencyContactPhone = 'Emergency contact phone is required'
-    } else if (!/^[\d\s+()-]{10,}$/.test(waiverData.emergencyContactPhone.trim())) {
-      errors.emergencyContactPhone = 'Please enter a valid phone number'
-    }
-
-    if (!hasAcceptedWaiver) {
-      errors.waiver = 'You must accept the waiver to continue'
-    }
-
-    setFormErrors(errors)
-    return Object.keys(errors).length === 0
-  }
-
-  const handleWaiverSubmit = async () => {
-    if (!validateWaiverForm() || !invite) return
-
-    setIsProcessing(true)
-    try {
-      const response = await fetch(`/api/guests/token/${encodeURIComponent(inviteToken ?? '')}/accept`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          emergencyContactName: waiverData.emergencyContactName.trim(),
-          emergencyContactPhone: waiverData.emergencyContactPhone.trim(),
-          waiverAccepted: true,
-        }),
-      })
-
-      if (response.ok) {
-        // If day fee is 0, skip payment
-        if (invite.dayFee === 0) {
-          setStep('confirmed')
-        } else {
-          setStep('payment')
-        }
-      } else {
-        const errorData = await response.json()
-        setError(errorData.error || 'Failed to accept waiver. Please try again.')
-      }
-    } catch (err) {
-      console.error('Error accepting waiver:', err)
-      setError('Failed to accept waiver. Please try again.')
-    }
-    setIsProcessing(false)
-  }
-
-  const handlePayment = async () => {
-  if (!invite) return
-
-  setIsProcessing(true)
-  setError(null)
-
-  try {
-    const response = await fetch('/api/stripe/create-checkout-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: inviteToken }),
-    })
-
-    if (!response.ok) {
-      const errorData = await response.json()
-      setError(errorData.error || 'Failed to create payment session')
-      setIsProcessing(false)
       return
     }
-
-    const { url } = await response.json()
-    
-    if (url) {
-      window.location.href = url
-    } else {
-      setError('Failed to get payment URL')
-      setIsProcessing(false)
+    setStep('loading')
+    const result = await apiRequest<GuestInvite>(base)
+    if (!result.ok) {
+      setLoadError(result.status === 404 ? 'This invitation is invalid or has expired. Ask the person who invited you to send it again.' : result.error)
+      setStep('error')
+      return
     }
-  } catch (err) {
-    console.error('Payment error:', err)
-    setError('Failed to initiate payment. Please try again.')
-    setIsProcessing(false)
+    setInvite(result.data)
+    setStep(stepFor(result.data))
+  }, [base, token])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  /** The server refused because the day closed while the page was open: show the closed page. */
+  const afterRefusal = async (error: string, status: number) => {
+    if (status === 409 || status === 404) {
+      await load()
+      return
+    }
+    setActionError(error)
   }
-}
+
+  const decline = async () => {
+    setWorking(true)
+    setActionError(null)
+    const result = await apiRequest<GuestInvite>(`${base}/decline`, { method: 'POST' })
+    setWorking(false)
+    if (!result.ok) return afterRefusal(result.error, result.status)
+    setInvite({ ...result.data, closed: invite?.closed ?? null })
+    setStep('declined')
+  }
+
+  const accept = async (e: React.FormEvent) => {
+    e.preventDefault()
+    const errors: typeof fieldErrors = {}
+    if (!contact.name.trim()) errors.name = 'Enter your emergency contact’s name.'
+    if (!contact.phone.trim()) errors.phone = 'Enter your emergency contact’s phone number.'
+    else if (!PHONE_PATTERN.test(contact.phone.trim())) errors.phone = 'Enter a phone number of at least 10 digits.'
+    if (!waiverTicked) errors.waiver = 'Tick to accept the waiver.'
+    setFieldErrors(errors)
+    if (Object.keys(errors).length > 0) return
+
+    setWorking(true)
+    setActionError(null)
+    const result = await apiRequest<GuestInvite>(`${base}/accept`, {
+      method: 'POST',
+      body: { emergencyContactName: contact.name.trim(), emergencyContactPhone: contact.phone.trim(), waiverAccepted: true },
+    })
+    setWorking(false)
+    if (!result.ok) return afterRefusal(result.error, result.status)
+    setInvite({ ...result.data, closed: null })
+    setStep('confirmed')
+  }
 
   if (step === 'loading') {
     return (
@@ -244,16 +198,17 @@ export default function GuestAccept() {
     )
   }
 
+  const fee = invite ? feeLine(invite) : null
+
   return (
     <>
       <Helmet>
-        <title>Guest Invitation | ShootSync</title>
+        <title>Guest invitation | ShootSync</title>
         <meta name="robots" content="noindex, nofollow" />
       </Helmet>
 
       <div className="min-h-screen bg-slate-900 py-12 px-4">
         <div className="max-w-lg mx-auto">
-          {/* Logo */}
           <div className="flex items-center justify-center gap-2 mb-8">
             <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
               <span className="text-white font-bold">SS</span>
@@ -261,273 +216,131 @@ export default function GuestAccept() {
             <span className="text-white font-semibold text-xl">ShootSync</span>
           </div>
 
-          {/* Error State */}
           {step === 'error' && (
             <Card>
               <div className="text-center py-8">
-                <div className="w-16 h-16 mx-auto mb-4 bg-red-500/10 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </div>
-                <h2 className="text-xl font-bold text-white mb-2">Invitation Error</h2>
-                <p className="text-slate-400">{error}</p>
+                <h1 className="text-xl font-bold text-white mb-2">This invitation can’t be opened</h1>
+                <p className="text-slate-300">{loadError}</p>
               </div>
             </Card>
           )}
 
-          {/* The day was cancelled or has passed */}
           {step === 'closed' && invite && (
             <Card>
               <div className="text-center py-8">
-                <h2 className="text-xl font-bold text-white mb-2">Invitation closed</h2>
+                <h1 className="text-xl font-bold text-white mb-2">Invitation closed</h1>
                 <p className="text-slate-300">{invite.closed}</p>
-                {invite.shootDay && (
-                  <p className="text-slate-400 text-sm mt-3">
-                    {invite.shootDay.locationName}, {formatLongDate(invite.shootDay.date)}
-                  </p>
-                )}
+                <p className="text-slate-400 text-sm mt-3">
+                  {invite.shootDay.locationName}, {formatLongDate(invite.shootDay.date)}
+                </p>
               </div>
             </Card>
           )}
 
-          {/* Details Step */}
           {step === 'details' && invite && (
             <Card>
-              <div className="p-6">
-                <h1 className="text-2xl font-bold text-white mb-2">You're Invited!</h1>
-                <p className="text-slate-400 mb-6">
-                  {invite.invitedByMember?.name || 'A syndicate member'} has invited you to shoot
-                </p>
-
-                <div className="space-y-6">
-                  {/* Shoot Details */}
-                  <div className="p-4 bg-slate-800 rounded-lg space-y-4">
-                    <div>
-                      <p className="text-slate-500 text-sm">Syndicate</p>
-                      <p className="text-white font-medium">{invite.shootDay?.syndicate?.name || 'Shooting Syndicate'}</p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500 text-sm">Location</p>
-                      <p className="text-white font-medium">{invite.shootDay?.locationName}</p>
-                      {invite.shootDay?.locationPostcode && (
-                        <p className="text-slate-400 text-sm">{invite.shootDay.locationPostcode}</p>
-                      )}
-                    </div>
-                    <div>
-                      <p className="text-slate-500 text-sm">Date</p>
-                      <p className="text-white font-medium">
-                        {invite.shootDay?.date ? formatLongDate(invite.shootDay.date) : 'TBC'}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-slate-500 text-sm">Meet Time</p>
-                      <p className="text-white font-medium">
-                        {invite.shootDay?.meetTime ? formatTime(invite.shootDay.meetTime) : 'TBC'}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Day Fee */}
-                  {invite.dayFee > 0 && (
-                    <div className="p-4 bg-green-500/10 border border-green-500/20 rounded-lg flex justify-between items-center">
-                      <span className="text-slate-300">Guest Day Fee</span>
+              <div className="p-6 space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-white mb-2">You’re invited to shoot</h1>
+                  <p className="text-slate-300">
+                    {invite.invitedByMember ? `${invite.invitedByMember.name} has invited you as their guest.` : 'You have been invited as a guest.'}
+                  </p>
+                </div>
+                <DayDetails invite={invite} />
+                {invite.dayFee > 0 && (
+                  <div className="p-4 bg-slate-800 rounded-lg">
+                    <div className="flex justify-between items-center">
+                      <span className="text-slate-300">Guest day fee</span>
                       <span className="text-white font-bold text-xl">{formatCurrency(invite.dayFee)}</span>
                     </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="space-y-3">
-                    <Button onClick={() => setStep('waiver')} fullWidth>
-                      Accept Invitation
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      onClick={handleDecline} 
-                      disabled={isProcessing}
-                      fullWidth
-                    >
-                      {isProcessing ? 'Processing...' : 'Decline'}
-                    </Button>
+                    <p className="text-slate-400 text-sm mt-2">Paid to the syndicate directly, not through ShootSync.</p>
                   </div>
+                )}
+                {actionError && <Problem message={actionError} />}
+                <div className="space-y-3">
+                  <Button onClick={() => { setActionError(null); setStep('waiver') }} fullWidth>Accept the invitation</Button>
+                  <Button variant="ghost" onClick={() => void decline()} isLoading={working} disabled={working} fullWidth>
+                    Decline
+                  </Button>
                 </div>
               </div>
             </Card>
           )}
 
-          {/* Waiver Step */}
           {step === 'waiver' && invite && (
             <Card>
-              <div className="p-6">
-                <h1 className="text-2xl font-bold text-white mb-2">Liability Waiver</h1>
-                <p className="text-slate-400 mb-6">Please read and accept the waiver to continue</p>
-
-                <div className="space-y-6">
-                  {/* Waiver Text */}
-                  <div className="h-48 overflow-y-auto p-4 bg-slate-800 rounded-lg">
-                    <pre className="text-slate-300 text-sm whitespace-pre-wrap font-sans">
-                      {WAIVER_TEXT}
-                    </pre>
-                  </div>
-
-                  {/* Emergency Contact */}
-                  <div className="space-y-4">
-                    <Input
-                      label="Emergency Contact Name"
-                      value={waiverData.emergencyContactName}
-                      onChange={(e) => setWaiverData(prev => ({ ...prev, emergencyContactName: e.target.value }))}
-                      error={formErrors.emergencyContactName}
-                      placeholder="Full name"
-                      required
-                    />
-                    <Input
-                      type="tel"
-                      label="Emergency Contact Phone"
-                      value={waiverData.emergencyContactPhone}
-                      onChange={(e) => setWaiverData(prev => ({ ...prev, emergencyContactPhone: e.target.value }))}
-                      error={formErrors.emergencyContactPhone}
-                      placeholder="+44 7xxx xxxxxx"
-                      required
-                    />
-                  </div>
-
-                  {/* Waiver Acceptance */}
+              <form onSubmit={(e) => void accept(e)} noValidate className="p-6 space-y-6">
+                <div>
+                  <h1 className="text-2xl font-bold text-white mb-2">Guest waiver</h1>
+                  <p className="text-slate-300">Read the waiver, leave an emergency contact, and accept.</p>
+                </div>
+                <div className="h-48 overflow-y-auto p-4 bg-slate-800 rounded-lg" tabIndex={0} aria-label="Waiver text">
+                  <pre className="text-slate-300 text-sm whitespace-pre-wrap font-sans">{WAIVER_TEXT}</pre>
+                </div>
+                <div className="space-y-4">
+                  <Input
+                    label="Emergency contact name"
+                    value={contact.name}
+                    onChange={(e) => setContact({ ...contact, name: e.target.value })}
+                    error={fieldErrors.name}
+                    autoComplete="off"
+                    maxLength={100}
+                    required
+                  />
+                  <Input
+                    type="tel"
+                    label="Emergency contact phone"
+                    value={contact.phone}
+                    onChange={(e) => setContact({ ...contact, phone: e.target.value })}
+                    error={fieldErrors.phone}
+                    autoComplete="off"
+                    maxLength={30}
+                    required
+                  />
+                </div>
+                <div>
                   <label className="flex items-start gap-3 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={hasAcceptedWaiver}
-                      onChange={(e) => setHasAcceptedWaiver(e.target.checked)}
+                      checked={waiverTicked}
+                      onChange={(e) => setWaiverTicked(e.target.checked)}
+                      aria-invalid={fieldErrors.waiver ? 'true' : 'false'}
                       className="mt-1 w-5 h-5 rounded border-slate-600 bg-slate-700 text-green-600 focus:ring-green-500"
                     />
-                    <span className="text-sm text-white">
-                      I have read and accept the liability waiver terms
-                    </span>
+                    <span className="text-sm text-white">I have read and accept the guest waiver</span>
                   </label>
-                  {formErrors.waiver && (
-                    <p className="text-red-500 text-sm">{formErrors.waiver}</p>
-                  )}
-
-                  {error && (
-                    <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                      <p className="text-red-400 text-sm">{error}</p>
-                    </div>
-                  )}
-
-                  {/* Actions */}
-                  <div className="space-y-3">
-                    <Button 
-                      onClick={handleWaiverSubmit} 
-                      disabled={!hasAcceptedWaiver || isProcessing}
-                      fullWidth
-                    >
-                      {isProcessing ? 'Processing...' : invite.dayFee > 0 ? 'Continue to Payment' : 'Confirm Attendance'}
-                    </Button>
-                    <Button 
-                      variant="ghost" 
-                      onClick={() => setStep('details')}
-                      disabled={isProcessing}
-                      fullWidth
-                    >
-                      Back
-                    </Button>
-                  </div>
+                  {fieldErrors.waiver && <p className="text-red-300 text-sm mt-1">{fieldErrors.waiver}</p>}
                 </div>
-              </div>
+                {actionError && <Problem message={actionError} />}
+                <div className="space-y-3">
+                  <Button type="submit" isLoading={working} disabled={working} fullWidth>Accept and confirm</Button>
+                  <Button type="button" variant="ghost" onClick={() => setStep('details')} disabled={working} fullWidth>Back</Button>
+                </div>
+              </form>
             </Card>
           )}
 
-          {/* Payment Step */}
-          {step === 'payment' && invite && (
-            <Card>
-              <div className="p-6">
-                <h1 className="text-2xl font-bold text-white mb-2">Payment</h1>
-                <p className="text-slate-400 mb-6">Complete your booking with secure payment</p>
-
-                <div className="space-y-6">
-                  {/* Payment Summary */}
-                  <div className="p-4 bg-slate-800 rounded-lg space-y-3">
-                    <div className="flex justify-between">
-                      <span className="text-slate-400">Guest day fee</span>
-                      <span className="text-white">{formatCurrency(invite.dayFee)}</span>
-                    </div>
-                    <div className="border-t border-slate-700 pt-3 flex justify-between">
-                      <span className="text-white font-medium">Total</span>
-                      <span className="text-green-500 font-bold text-xl">{formatCurrency(invite.dayFee)}</span>
-                    </div>
-                  </div>
-
-                  {/* Stripe Payment Button - TODO: Replace with actual Stripe integration */}
-                  <Button 
-                    onClick={handlePayment} 
-                    disabled={isProcessing}
-                    fullWidth
-                  >
-                    {isProcessing ? 'Processing Payment...' : `Pay ${formatCurrency(invite.dayFee)}`}
-                  </Button>
-
-                  <p className="text-slate-500 text-xs text-center">
-                    Secure payment powered by Stripe
-                  </p>
-                </div>
-              </div>
-            </Card>
-          )}
-
-          {/* Confirmed Step */}
           {step === 'confirmed' && invite && (
             <Card>
-              <div className="p-6 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 bg-green-500/10 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                  </svg>
+              <div className="p-6 space-y-6 text-center">
+                <div>
+                  <h1 className="text-2xl font-bold text-white mb-2">You’re confirmed</h1>
+                  <p className="text-slate-300">
+                    See you at {invite.shootDay.locationName}. Keep this link: it shows the day’s details.
+                  </p>
                 </div>
-                <h2 className="text-2xl font-bold text-white mb-2">You're All Set!</h2>
-                <p className="text-slate-400 mb-6">
-                  Your booking for {invite.shootDay?.locationName} is confirmed
-                </p>
-
-                <div className="p-4 bg-slate-800 rounded-lg text-left space-y-3 mb-6">
-                  <div>
-                    <p className="text-slate-500 text-sm">Date</p>
-                    <p className="text-white">
-                      {invite.shootDay?.date ? formatLongDate(invite.shootDay.date) : 'TBC'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 text-sm">Meet Time</p>
-                    <p className="text-white">
-                      {invite.shootDay?.meetTime ? formatTime(invite.shootDay.meetTime) : 'TBC'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-slate-500 text-sm">Location</p>
-                    <p className="text-white">{invite.shootDay?.locationName}</p>
-                    {invite.shootDay?.locationPostcode && (
-                      <p className="text-slate-400 text-sm">{invite.shootDay.locationPostcode}</p>
-                    )}
-                  </div>
-                </div>
-
-                <p className="text-slate-500 text-sm">
-                  A confirmation email has been sent to {invite.email}
-                </p>
+                <DayDetails invite={invite} />
+                {fee && <p className="text-slate-200 text-left">{fee}</p>}
               </div>
             </Card>
           )}
 
-          {/* Declined Step */}
           {step === 'declined' && (
             <Card>
               <div className="p-6 text-center">
-                <div className="w-16 h-16 mx-auto mb-4 bg-slate-700 rounded-full flex items-center justify-center">
-                  <svg className="w-8 h-8 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-bold text-white mb-2">Invitation Declined</h2>
-                <p className="text-slate-400">
-                  You have declined this invitation. The host has been notified.
+                <h1 className="text-2xl font-bold text-white mb-2">Invitation declined</h1>
+                <p className="text-slate-300">
+                  You’ve declined this invitation. If that was a mistake, ask the person who invited you to add you again.
                 </p>
               </div>
             </Card>

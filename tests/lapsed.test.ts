@@ -11,7 +11,7 @@
 import { after, before, beforeEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
-import { CAPTAIN_A, CAPTAIN_B, GUN_A, INVITE_TOKEN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
+import { CAPTAIN_A, CAPTAIN_B, GUN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
 import { CASES, snapshot } from './routeCases.js'
 import { LAPSED_CAPTAIN_MESSAGE } from '../server/access.js'
 
@@ -67,14 +67,6 @@ describe('a syndicate without a paid-up plan is read-only', () => {
       }
     })
   }
-
-  it('a guest cannot pay a day fee while the plan is lapsed: the captain could not cancel or refund from the app', async () => {
-    await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { rsvpStatus: 'CONFIRMED', waiverAccepted: true } })
-    await lapse('CANCELLED')
-    const res = await call(server, '/api/stripe/create-checkout-session', { method: 'POST', body: { token: INVITE_TOKEN_A } })
-    assert.equal(res.status, 409)
-    assert.match(res.json.error, /can’t take payments online at the moment/)
-  })
 
   it("a gun's own changes are refused too, with a sentence about the captain", async () => {
     await lapse('CANCELLED')
