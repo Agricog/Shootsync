@@ -10,7 +10,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiPath, apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card, { StatCard } from '../../components/common/Card'
@@ -61,6 +61,7 @@ const taxYearLabel = (start: string) => {
 
 export default function Finances() {
   const { id: syndicateId } = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<PaySummary | null>(null)
@@ -285,6 +286,7 @@ export default function Finances() {
                     <div className="mt-4">
                       <Button
                         size="sm"
+                        disabled={!canWrite}
                         onClick={() => {
                           setPayingId(beater.id)
                           setReference('')

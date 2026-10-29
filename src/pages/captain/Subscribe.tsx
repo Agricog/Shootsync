@@ -4,7 +4,7 @@
  */
 
 import { useState } from 'react'
-import { Navigate, useNavigate } from 'react-router-dom'
+import { Link, Navigate, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
 import { useSubscription } from '../../hooks/useSubscription'
@@ -65,8 +65,18 @@ export default function Subscribe() {
     </nav>
   )
 
-  // A failed renewal is put right by updating the card, not by buying a second plan.
-  if (syndicate.subscription.status === 'PAST_DUE') {
+  // A syndicate that has had a plan can still be looked at and exported while it's read-only.
+  const backToSyndicate = syndicate.subscription.status !== null && (
+    <p className="mt-6 text-center">
+      <Link to="/dashboard" className="text-green-400 underline underline-offset-2 hover:text-green-300">
+        Back to {syndicate.name}
+      </Link>
+    </p>
+  )
+
+  // A failed payment is put right by updating the card, not by buying a second plan.
+  const status = syndicate.subscription.status
+  if (status === 'PAST_DUE' || status === 'INCOMPLETE') {
     return (
       <>
         <Helmet>
@@ -75,7 +85,9 @@ export default function Subscribe() {
         <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
           <Card className="max-w-md w-full">
             <div className="p-8 text-center">
-              <h1 className="text-2xl font-bold text-white mb-3">Your last payment didn’t go through</h1>
+              <h1 className="text-2xl font-bold text-white mb-3">
+                {status === 'INCOMPLETE' ? 'Your first payment hasn’t gone through' : 'Your last payment didn’t go through'}
+              </h1>
               <p className="text-slate-300 mb-6">
                 Update your card for {syndicate.name} and Stripe will take the payment again. Your plan and records are kept.
               </p>
@@ -83,6 +95,7 @@ export default function Subscribe() {
               <Button onClick={() => void handleOpenBilling()} isLoading={openingBilling} disabled={openingBilling} className="w-full">
                 Update payment details
               </Button>
+              {backToSyndicate}
               {otherSyndicates}
             </div>
           </Card>
@@ -173,6 +186,7 @@ export default function Subscribe() {
           <p className="text-center text-slate-400 text-sm mt-8">
             No contract. Every plan has a {BILLING_TERMS.moneyBackDays}-day money-back guarantee.
           </p>
+          {backToSyndicate}
           {otherSyndicates}
         </div>
       </div>

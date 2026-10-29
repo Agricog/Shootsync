@@ -8,7 +8,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useAuth } from '@clerk/clerk-react'
-import { apiRequest } from '../lib/api'
+import { PLAN_CHANGED_EVENT, apiRequest } from '../lib/api'
 import { chooseSyndicate, parseMemberships, type Membership } from '../lib/membership'
 import { REMEMBERED_SYNDICATE_KEY } from '../lib/storageKeys'
 
@@ -98,6 +98,26 @@ export function SyndicateProvider({ children }: { children: ReactNode }) {
     }
   }, [isLoaded, isSignedIn, userId, reload])
 
+  // A plan can change while the app is open: paid on another device, cancelled in Stripe's
+  // portal, a card failing overnight. Look again when the server says so, and when the user
+  // comes back to the tab (at most once a minute), so the screens offer only what will work.
+  const lastFocusCheck = useRef(0)
+  useEffect(() => {
+    if (state !== 'ready') return
+    const onPlanChanged = () => void reload()
+    const onVisible = () => {
+      if (document.visibilityState !== 'visible' || Date.now() - lastFocusCheck.current < 60_000) return
+      lastFocusCheck.current = Date.now()
+      void reload()
+    }
+    window.addEventListener(PLAN_CHANGED_EVENT, onPlanChanged)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => {
+      window.removeEventListener(PLAN_CHANGED_EVENT, onPlanChanged)
+      document.removeEventListener('visibilitychange', onVisible)
+    }
+  }, [state, reload])
+
   const select = useCallback((syndicateId: string) => {
     setCurrentId((previous) => {
       const exists = memberships.some((m) => m.id === syndicateId)
@@ -137,4 +157,13 @@ export function useCaptainSyndicate(): Membership {
   const value = useContext(CaptainSyndicateContext)
   if (!value) throw new Error('useCaptainSyndicate must be used inside <CaptainRoute>')
   return value
+}
+
+/**
+ * Whether the captain can change anything in the syndicate on show: only while its plan is
+ * paid up. The server refuses changes otherwise (402); screens use this to offer only what
+ * will work, and the banner in DashboardLayout says why.
+ */
+export function useCanWrite(): boolean {
+  return useCaptainSyndicate().subscription.isActive
 }

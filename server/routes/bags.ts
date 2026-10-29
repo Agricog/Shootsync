@@ -11,7 +11,6 @@ import {
   requireSyndicateAccess,
   syndicateOfBag,
   syndicateOfShoot,
-  userIdOf,
   withoutCaptainOnlyFields,
 } from '../access.js'
 
@@ -58,10 +57,9 @@ export function bagRoutes({ prisma }: Deps): Router {
 
   // GET /api/bags?shootId=
   router.get('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const shootId = queryString(req.query.shootId)
     const syndicateId = await syndicateOfShoot(prisma, shootId)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'member')
 
     const bags = await prisma.bagRecord.findMany({
       where: { shootId },
@@ -73,9 +71,8 @@ export function bagRoutes({ prisma }: Deps): Router {
   // GET /api/bags/season?syndicateId= - the season's game book: totals by species, and each
   // shoot day's bag. "The season" is the syndicate's season dates; cancelled days are left out.
   router.get('/season', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'member')
 
     const syndicate = await prisma.syndicate.findUniqueOrThrow({ where: { id: syndicateId }, select: { seasonStart: true, seasonEnd: true } })
     // The whole of the last day counts, whatever time of day the dates were stored with.
@@ -115,9 +112,8 @@ export function bagRoutes({ prisma }: Deps): Router {
 
   // GET /api/bags/:id
   router.get('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBag(prisma, req.params.id)
-    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'member')
 
     const bag = await prisma.bagRecord.findUnique({
       where: { id: req.params.id },
@@ -130,10 +126,9 @@ export function bagRoutes({ prisma }: Deps): Router {
 
   // POST /api/bags
   router.post('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const data = createBagSchema.parse(req.body)
     const syndicateId = await syndicateOfShoot(prisma, data.shootId)
-    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'member')
 
     const bag = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, data.shootId)
@@ -160,9 +155,8 @@ export function bagRoutes({ prisma }: Deps): Router {
 
   // PATCH /api/bags/:id
   router.patch('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBag(prisma, req.params.id)
-    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'member')
     const data = updateBagSchema.parse(req.body)
 
     // The captain can correct any bag; a gun only the ones they recorded.
@@ -185,9 +179,8 @@ export function bagRoutes({ prisma }: Deps): Router {
 
   // DELETE /api/bags/:id - captain only
   router.delete('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBag(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     await prisma.bagRecord.delete({ where: { id: req.params.id } })
     res.json({ success: true })

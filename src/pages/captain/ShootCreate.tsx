@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiRequest } from '../../lib/api'
 import { emptyShootDraft, newShootPayload, validateShoot, type ShootDraft } from '../../utils/shootForm'
 import DashboardLayout from '../../components/layout/DashboardLayout'
@@ -12,6 +12,7 @@ import ShootDayFields from '../../components/shoots/ShootDayFields'
 export default function ShootCreate() {
   const navigate = useNavigate()
   const syndicate = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const [draft, setDraft] = useState<ShootDraft>(emptyShootDraft)
   const [showErrors, setShowErrors] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -54,7 +55,7 @@ export default function ShootCreate() {
             )}
 
             <div className="flex flex-wrap gap-3">
-              <Button type="submit" isLoading={saving} disabled={saving}>
+              <Button type="submit" isLoading={saving} disabled={saving || !canWrite}>
                 Schedule the day
               </Button>
               <Button type="button" variant="ghost" onClick={() => navigate('/shoots')} disabled={saving}>

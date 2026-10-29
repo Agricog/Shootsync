@@ -6,6 +6,7 @@
 import { type ReactNode } from 'react'
 import Navigation from './Navigation'
 import Footer from './Footer'
+import ReadOnlyNotice from './ReadOnlyNotice'
 import { useSessionTimeout } from '../../hooks/useSessionTimeout'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import ErrorBoundary from '../common/ErrorBoundary'
@@ -36,6 +37,7 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-slate-900 flex flex-col">
       <Navigation />
+      <ReadOnlyNotice />
 
       {!isOnline && (
         <div role="status" className="bg-amber-500/10 border-b border-amber-500/20 px-4 py-2">

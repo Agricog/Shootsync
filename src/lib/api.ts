@@ -9,6 +9,13 @@
 
 export type Result<T> = { ok: true; data: T; status: number } | { ok: false; error: string; status: number }
 
+/**
+ * Sent on window when the server refuses a change because the plan isn't paid up (402):
+ * the plan changed since the app last looked, so SyndicateProvider fetches it again and
+ * every screen switches to read-only, instead of each one finding out on its next save.
+ */
+export const PLAN_CHANGED_EVENT = 'shootsync:plan-changed'
+
 export const OFFLINE_MESSAGE = 'Could not reach ShootSync. Check your signal and try again: nothing was saved.'
 
 /** The message to show for a failed response, from whatever JSON (or nothing) the server sent. */
@@ -55,6 +62,8 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     }
   }
 
+  // Read through globalThis: this file is also loaded by the server-side tests, which have no window.
+  if (response.status === 402) (globalThis as { window?: EventTarget }).window?.dispatchEvent(new Event(PLAN_CHANGED_EVENT))
   if (!response.ok) return { ok: false, error: errorMessageFrom(response.status, json), status: response.status }
   return { ok: true, data: json as T, status: response.status }
 }

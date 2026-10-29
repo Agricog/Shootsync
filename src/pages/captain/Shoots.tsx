@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiPath, apiRequest } from '../../lib/api'
 import { SHOOT_STATUS_LABEL } from '../../lib/shootDays'
 import DashboardLayout from '../../components/layout/DashboardLayout'
@@ -35,6 +35,7 @@ const statusColour = (status: string) => {
 
 export default function Shoots() {
   const syndicate = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const [shoots, setShoots] = useState<ShootDay[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -61,7 +62,7 @@ export default function Shoots() {
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
           <h1 className="text-2xl font-bold text-white">Shoot days</h1>
-          <ButtonLink to="/shoots/new">Schedule a shoot day</ButtonLink>
+          {canWrite && <ButtonLink to="/shoots/new">Schedule a shoot day</ButtonLink>}
         </div>
 
         {loading ? (
@@ -79,7 +80,7 @@ export default function Shoots() {
           <Card>
             <div className="text-center py-8">
               <p className="text-slate-300 mb-4">No shoot days scheduled yet.</p>
-              <ButtonLink to="/shoots/new">Schedule your first shoot day</ButtonLink>
+              {canWrite && <ButtonLink to="/shoots/new">Schedule your first shoot day</ButtonLink>}
             </div>
           </Card>
         ) : (

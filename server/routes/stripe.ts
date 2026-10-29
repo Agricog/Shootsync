@@ -8,7 +8,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
-import { HttpError, handle, notFound } from '../access.js'
+import { HttpError, handle, isLiveSubscription, notFound } from '../access.js'
 import { INVITE_TOKEN_PATTERN } from './guests.js'
 
 const checkoutSchema = z.object({
@@ -28,11 +28,15 @@ export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
     const guest = await prisma.guestGun.findUnique({
       where: { inviteToken: parsed.data.token },
       include: {
-        shootDay: { select: { date: true, locationName: true, syndicate: { select: { name: true, status: true } } } },
+        shootDay: { select: { date: true, locationName: true, syndicate: { select: { name: true, status: true, stripeSubscriptionStatus: true } } } },
       },
     })
     // An archived syndicate takes no more payments.
     if (!guest || guest.shootDay.syndicate.status !== 'ACTIVE') throw notFound('This invitation is invalid or has expired.')
+    // Nor does one whose plan has lapsed: its captain couldn't cancel the day or the guest from the app.
+    if (!isLiveSubscription(guest.shootDay.syndicate.stripeSubscriptionStatus)) {
+      throw new HttpError(409, 'This syndicate can’t take payments online at the moment. Please ask the person who invited you how to pay.')
+    }
     if (guest.paymentStatus === 'PAID') throw new HttpError(409, 'Already paid')
     if (guest.rsvpStatus !== 'CONFIRMED' || !guest.waiverAccepted) {
       throw new HttpError(409, 'Please accept the invitation and waiver first')

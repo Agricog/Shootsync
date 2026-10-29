@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiPath, apiRequest } from '../../lib/api'
 import { londonDate } from '../../utils/beaterPayCalculator'
 import { nextShootFrom } from '../../lib/shootDays'
@@ -66,12 +66,15 @@ export default function CaptainDashboard() {
     setLoading(false)
   }, [syndicate.id])
 
-  const subscribed = syndicate.subscription.isActive
+  // A syndicate that has never had a plan starts on the plan page. One whose plan has lapsed
+  // opens as usual, read-only, with the notice saying why.
+  const neverSubscribed = syndicate.subscription.status === null
+  const canWrite = useCanWrite()
   useEffect(() => {
-    if (subscribed) void load()
-  }, [load, subscribed])
+    if (!neverSubscribed) void load()
+  }, [load, neverSubscribed])
 
-  if (!subscribed) return <Navigate to="/subscribe" replace />
+  if (neverSubscribed) return <Navigate to="/subscribe" replace />
 
   const next = stats.nextShoot
   const nextShoot =
@@ -118,7 +121,7 @@ export default function CaptainDashboard() {
         <Card>
           <h2 className="text-lg font-semibold text-white mb-4">Quick actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <ButtonLink to="/shoots/new" fullWidth>Schedule a shoot day</ButtonLink>
+            {canWrite && <ButtonLink to="/shoots/new" fullWidth>Schedule a shoot day</ButtonLink>}
             <ButtonLink to="/members" variant="secondary" fullWidth>Members</ButtonLink>
             <ButtonLink to="/bags/record" variant="secondary" fullWidth>Game book</ButtonLink>
           </div>

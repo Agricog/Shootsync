@@ -37,8 +37,7 @@ export function syndicateRoutes({ prisma }: Deps): Router {
 
   // GET /api/syndicates/:id
   router.get('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    const access = await requireSyndicateAccess(prisma, req.params.id, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, req.params.id, req, 'member')
 
     const syndicate = await prisma.syndicate.findUnique({
       where: { id: req.params.id },
@@ -94,8 +93,7 @@ export function syndicateRoutes({ prisma }: Deps): Router {
 
   // PATCH /api/syndicates/:id - captain only
   router.patch('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    await requireSyndicateAccess(prisma, req.params.id, userId, 'captain')
+    await requireSyndicateAccess(prisma, req.params.id, req, 'captain')
     const data = updateSyndicateSchema.parse(req.body)
 
     // The season must still end after it starts once this change is applied, whichever end moves.
@@ -117,8 +115,8 @@ export function syndicateRoutes({ prisma }: Deps): Router {
   // DELETE /api/syndicates/:id - archive, captain only. The syndicate disappears from the app
   // (its records stay in the database). Never while a plan is still being charged for it.
   router.delete('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    await requireSyndicateAccess(prisma, req.params.id, userId, 'captain')
+    // Archiving needs the plan to have ended, so it is always open to a lapsed syndicate.
+    await requireSyndicateAccess(prisma, req.params.id, req, 'captain', { allowLapsed: true })
 
     const { stripeSubscriptionStatus } = await prisma.syndicate.findUniqueOrThrow({
       where: { id: req.params.id },

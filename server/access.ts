@@ -77,22 +77,43 @@ export function isLiveSubscription(status: string | null | undefined): boolean {
   return status != null && LIVE_SUBSCRIPTION_STATES.has(status)
 }
 
+export interface AccessOptions {
+  /**
+   * Let this write through while the plan isn't paid up. Only for the ways back to a paid
+   * plan (choosing one, the billing portal) and archiving, which needs the plan to have ended.
+   */
+  allowLapsed?: boolean
+}
+
+/** What a captain is told when a write is refused because the plan has lapsed. */
+export const LAPSED_CAPTAIN_MESSAGE =
+  'This syndicate is read-only until its plan is active. Choose a plan, or update your payment details, in Settings. Everything you have recorded is still here.'
+const LAPSED_MEMBER_MESSAGE = 'This syndicate is read-only until its captain renews the plan.'
+
 /**
+ * Who may act on a syndicate, and whether they may change anything.
+ *
  * Captain: the syndicate's captain only.
  * Member: the captain, or an ACTIVE gun (role CAPTAIN, GUN or HYBRID) whose Clerk ID matches the caller.
  * An archived syndicate is gone from the app for everyone: same 404 as one that never existed.
+ *
+ * Reads (GET) are always allowed to someone with access, so a lapsed captain keeps every record
+ * and export. Any other method is a change, and is refused with 402 unless the plan is paid up.
+ * The decision is taken from the request itself, so a new route is read-only-when-lapsed by default.
  */
 export async function requireSyndicateAccess(
   prisma: PrismaClient,
   syndicateId: string | null | undefined,
-  userId: string,
-  level: AccessLevel
+  req: Request,
+  level: AccessLevel,
+  options: AccessOptions = {}
 ): Promise<SyndicateAccess> {
+  const userId = userIdOf(req)
   if (!syndicateId || typeof syndicateId !== 'string') throw notFound()
 
   const syndicate = await prisma.syndicate.findUnique({
     where: { id: syndicateId },
-    select: { id: true, captainClerkId: true, status: true },
+    select: { id: true, captainClerkId: true, status: true, stripeSubscriptionStatus: true },
   })
   if (!syndicate || syndicate.status !== 'ACTIVE') throw notFound()
 
@@ -102,13 +123,14 @@ export async function requireSyndicateAccess(
   })
 
   const isCaptain = syndicate.captainClerkId === userId
-  if (isCaptain) {
-    return { syndicateId, isCaptain, memberId: member?.id ?? null }
+  if (!isCaptain && !(level === 'member' && member)) throw notFound()
+
+  const isWrite = req.method !== 'GET' && req.method !== 'HEAD'
+  if (isWrite && !options.allowLapsed && !isLiveSubscription(syndicate.stripeSubscriptionStatus)) {
+    throw new HttpError(402, isCaptain ? LAPSED_CAPTAIN_MESSAGE : LAPSED_MEMBER_MESSAGE)
   }
-  if (level === 'member' && member) {
-    return { syndicateId, isCaptain, memberId: member.id }
-  }
-  throw notFound()
+
+  return { syndicateId, isCaptain, memberId: member?.id ?? null }
 }
 
 // ---------------------------------------------------------------------------

@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiPath, apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
@@ -44,6 +44,7 @@ const EMPTY_DRAFT = { name: '', email: '', phone: '' }
 
 export default function Members() {
   const syndicate = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -124,7 +125,7 @@ export default function Members() {
               </p>
             )}
           </div>
-          {!adding && <Button onClick={() => setAdding(true)}>Add a member</Button>}
+          {!adding && canWrite && <Button onClick={() => setAdding(true)}>Add a member</Button>}
         </div>
 
         {adding && (
@@ -166,7 +167,7 @@ export default function Members() {
             <Card>
               <div className="text-center py-8">
                 <p className="text-slate-300 mb-4">No members yet. Add your guns to use the peg draw and shoot day sheets.</p>
-                <Button onClick={() => setAdding(true)}>Add your first member</Button>
+                {canWrite && <Button onClick={() => setAdding(true)}>Add your first member</Button>}
               </div>
             </Card>
           )
@@ -187,7 +188,7 @@ export default function Members() {
                       </span>
                       {updating === member.id ? (
                         <LoadingSpinner size="sm" />
-                      ) : member.status === 'ACTIVE' ? (
+                      ) : !canWrite ? null : member.status === 'ACTIVE' ? (
                         <Button variant="ghost" size="sm" onClick={() => void setStatus(member, 'INACTIVE')}>
                           Make inactive
                         </Button>

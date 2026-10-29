@@ -51,3 +51,19 @@ export function parseMemberships(body: unknown): Membership[] | null {
   )
   return valid.length === list.length ? valid : null
 }
+
+/** Why a captain's syndicate is read-only, and the one thing to do about it. */
+export function readOnlyReason(syndicate: Membership): { text: string; action: string } {
+  switch (syndicate.subscription.status) {
+    case null:
+      return { text: `Choose a plan to start using ${syndicate.name}. Until then you can look around, but nothing can be saved.`, action: 'Choose a plan' }
+    case 'PAST_DUE':
+      return { text: `The last payment for ${syndicate.name} didn’t go through, so it’s read-only. Update your card and everything opens up again.`, action: 'Update payment' }
+    case 'INCOMPLETE':
+      // The plan was chosen but its first payment hasn't been taken: paying it opens the
+      // syndicate, and choosing another plan would only start a second subscription.
+      return { text: `The first payment for ${syndicate.name} hasn’t gone through yet, so it’s read-only. Finish paying and everything opens up.`, action: 'Update payment' }
+    default:
+      return { text: `The plan for ${syndicate.name} isn’t active, so it’s read-only. Everything is still here to view and export.`, action: 'Choose a plan' }
+  }
+}

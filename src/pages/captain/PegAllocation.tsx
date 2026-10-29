@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiPath, apiRequest as api } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
@@ -51,10 +51,11 @@ const shortDate = (iso: string) =>
 const text = 'text-white'
 const muted = 'text-slate-400'
 const field =
-  'px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500'
+  'px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60 disabled:cursor-not-allowed'
 
 export default function PegAllocation() {
   const syndicate = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const [searchParams, setSearchParams] = useSearchParams()
   const shootIdParam = searchParams.get('shootId')
 
@@ -339,7 +340,7 @@ export default function PegAllocation() {
                         variant={index === 0 ? 'primary' : 'secondary'}
                         onClick={() => draw(method)}
                         isLoading={busy === method}
-                        disabled={busy !== null}
+                        disabled={busy !== null || !canWrite}
                       >
                         {method === 'fair' ? 'Fair draw' : 'Random draw'}
                       </Button>
@@ -373,7 +374,7 @@ export default function PegAllocation() {
                       {dirty ? 'Not saved yet.' : 'Saved.'} Change a peg to swap two guns.
                     </p>
                   </div>
-                  <Button onClick={save} isLoading={busy === 'save'} disabled={busy !== null || !dirty}>
+                  <Button onClick={save} isLoading={busy === 'save'} disabled={busy !== null || !dirty || !canWrite}>
                     Save pegs
                   </Button>
                 </div>
@@ -399,6 +400,7 @@ export default function PegAllocation() {
                           <select
                             value={allocation.pegNumber}
                             onChange={(e) => setPeg(allocation.memberId, Number(e.target.value))}
+                            disabled={!canWrite}
                             className={field}
                             aria-label={`Peg for ${gun?.name ?? 'this gun'}`}
                           >

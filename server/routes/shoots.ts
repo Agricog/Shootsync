@@ -11,7 +11,6 @@ import {
   syndicateOfMember,
   syndicateOfShoot,
   syndicateSelect,
-  userIdOf,
   withoutCaptainOnlyFields,
 } from '../access.js'
 import { fairDraw, randomDraw } from '../pegDraw.js'
@@ -98,9 +97,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // GET /api/shoots?syndicateId= - captain and active members
   router.get('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
-    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'member')
     const status = statusFilter.parse(queryString(req.query.status))
 
     const shoots = await prisma.shootDay.findMany({
@@ -119,9 +117,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // GET /api/shoots/:id - full shoot sheet, captain only
   router.get('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const shoot = await prisma.shootDay.findUnique({
       where: { id: req.params.id },
@@ -155,9 +152,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // POST /api/shoots - captain only
   router.post('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const data = createShootSchema.parse(req.body)
-    await requireSyndicateAccess(prisma, data.syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, data.syndicateId, req, 'captain')
 
     const shoot = await prisma.shootDay.create({
       data: {
@@ -180,9 +176,8 @@ export function shootRoutes({ prisma }: Deps): Router {
   // The date can only move while the day is still scheduled and nobody has been owed or paid
   // for it: pay, the HMRC tax-year count and the peg history all hang off the date.
   router.patch('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const data = updateShootSchema.parse(req.body)
 
     const shoot = await prisma.$transaction(async (tx) => {
@@ -204,9 +199,8 @@ export function shootRoutes({ prisma }: Deps): Router {
   // Completing the day records what each confirmed beater is owed (server/beaterPay.ts).
   // Completing again is harmless: the records are brought into line, never doubled.
   router.post('/:id/complete', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const shoot = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
@@ -222,9 +216,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // POST /api/shoots/:id/cancel - captain only. Not once beaters have been paid for the day.
   router.post('/:id/cancel', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const shoot = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
@@ -259,9 +252,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // POST /api/shoots/:id/beaters - book beaters at their own day rate, captain only
   router.post('/:id/beaters', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const { beaterIds } = bookBeatersSchema.parse(req.body)
 
     await prisma.$transaction(async (tx) => {
@@ -290,9 +282,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // PATCH /api/shoots/:id/beaters/:bookingId - status or day rate, captain only
   router.patch('/:id/beaters/:bookingId', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const data = updateBookingSchema.parse(req.body)
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -314,9 +305,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // DELETE /api/shoots/:id/beaters/:bookingId - take a beater off the day, captain only
   router.delete('/:id/beaters/:bookingId', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
@@ -377,9 +367,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // GET /api/shoots/:id/pegs - the day's saved pegs and each gun's record this season, captain only
   router.get('/:id/pegs', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const shoot = await pegShoot(req.params.id)
 
     const [guns, history, saved] = await Promise.all([
@@ -406,9 +395,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // POST /api/shoots/:id/pegs/draw - propose a draw; saves nothing, captain only
   router.post('/:id/pegs/draw', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const { method, numberOfPegs, memberIds } = drawSchema.parse(req.body)
     if (memberIds.length > numberOfPegs) throw new HttpError(400, `There are ${memberIds.length} guns but only ${numberOfPegs} pegs`)
 
@@ -427,9 +415,8 @@ export function shootRoutes({ prisma }: Deps): Router {
   // PUT /api/shoots/:id/pegs - save the whole peg list at once, captain only.
   // Guns left off the list lose their peg for this day; nothing else about them changes.
   router.put('/:id/pegs', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const { allocations } = savePegsSchema.parse(req.body)
 
     const shoot = await pegShoot(req.params.id)
@@ -464,9 +451,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // POST /api/shoots/:id/checkin - captain checks anyone in; a member checks themselves in
   router.post('/:id/checkin', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'member')
     const { memberId } = checkInSchema.parse(req.body)
 
     if (!access.isCaptain && access.memberId !== memberId) throw notFound()
@@ -480,9 +466,8 @@ export function shootRoutes({ prisma }: Deps): Router {
 
   // DELETE /api/shoots/:id - captain only, not once completed, never once anyone has been paid for it
   router.delete('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfShoot(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)

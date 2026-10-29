@@ -29,7 +29,8 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
   router.post('/create-checkout', handle(async (req, res) => {
     const userId = userIdOf(req)
     const { syndicateId, planTier, email } = checkoutSchema.parse(req.body)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    // Choosing a plan is how a lapsed syndicate becomes writable again.
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
 
     const syndicate = await prisma.syndicate.findUnique({
       where: { id: syndicateId },
@@ -98,9 +99,9 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
 
   // POST /api/subscriptions/portal - Stripe billing portal
   router.post('/portal', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const { syndicateId } = portalSchema.parse(req.body)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    // Updating a card is how a past-due syndicate becomes writable again.
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
 
     const syndicate = await prisma.syndicate.findUnique({
       where: { id: syndicateId },
@@ -117,8 +118,7 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
 
   // GET /api/subscriptions/status/:syndicateId - captain and active members
   router.get('/status/:syndicateId', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    await requireSyndicateAccess(prisma, req.params.syndicateId, userId, 'member')
+    await requireSyndicateAccess(prisma, req.params.syndicateId, req, 'member')
 
     const syndicate = await prisma.syndicate.findUnique({
       where: { id: req.params.syndicateId },

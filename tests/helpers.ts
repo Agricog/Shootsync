@@ -199,6 +199,9 @@ export async function seed(prisma: PrismaClient) {
         seasonEnd: new Date('2027-02-01'),
         subscriptionAmount: 800,
         stripeCustomerId: `cus_secret_${label}`,
+        // Paid up, on the plan with room to spare: tests about lapsed plans and limits say so themselves.
+        stripeSubscriptionStatus: 'ACTIVE',
+        planTier: 'STANDARD',
       },
     })
     const captainMember = await prisma.member.create({

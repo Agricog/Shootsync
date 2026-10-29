@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
 import { apiPath, apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
@@ -79,6 +79,7 @@ export default function ShootDetail() {
   const { id } = useParams<{ id: string }>()
   const syndicate = useCaptainSyndicate()
   const { select } = useSyndicates()
+  const canWrite = useCanWrite()
 
   const [shoot, setShoot] = useState<ShootDay | null>(null)
   const [loading, setLoading] = useState(true)
@@ -315,7 +316,7 @@ export default function ShootDetail() {
               Briefing sheet (PDF)
             </Button>
             <ButtonLink to={`/pegs?shootId=${shoot.id}`} variant="secondary">Pegs</ButtonLink>
-            {!editingDay && (
+            {!editingDay && canWrite && (
               <Button variant="secondary" onClick={() => setEditingDay(true)}>
                 Edit day
               </Button>
@@ -343,7 +344,7 @@ export default function ShootDetail() {
           }`}>
             {shoot.status === 'COMPLETED' ? 'Completed' : shoot.status === 'CANCELLED' ? 'Cancelled' : 'Scheduled'}
           </span>
-          {shoot.status === 'SCHEDULED' && !confirmingComplete && new Date(shoot.date).getTime() <= Date.now() && (
+          {canWrite && shoot.status === 'SCHEDULED' && !confirmingComplete && new Date(shoot.date).getTime() <= Date.now() && (
             <Button size="sm" variant="secondary" onClick={() => setConfirmingComplete(true)}>
               Mark day complete
             </Button>
@@ -435,7 +436,7 @@ export default function ShootDetail() {
             <h2 className="text-lg font-semibold text-green-500">
               Guests ({shoot.guestGuns?.length || 0})
             </h2>
-            {!showInviteForm && shoot.status === 'SCHEDULED' && (
+            {!showInviteForm && canWrite && shoot.status === 'SCHEDULED' && (
               <Button onClick={() => { setShowInviteForm(true); setGuestNotice(null) }} size="sm">
                 Add a guest
               </Button>
@@ -574,7 +575,7 @@ export default function ShootDetail() {
                       <span className="text-sm text-slate-400 ml-auto">Paid, so kept on record</span>
                     ) : guest.rsvpStatus === 'DECLINED' && guest.waiverAccepted ? (
                       <span className="text-sm text-slate-400 ml-auto">Withdrawn</span>
-                    ) : (
+                    ) : !canWrite ? null : (
                       <button
                         type="button"
                         onClick={() => void handleRemoveGuest(guest.id)}
@@ -597,6 +598,7 @@ export default function ShootDetail() {
           shootId={shoot.id}
           syndicateId={shoot.syndicateId}
           shootStatus={shoot.status}
+          readOnly={!canWrite}
           bookings={shoot.beaterBookings ?? []}
           payments={shoot.beaterPayments ?? []}
           onChanged={refreshShoot}

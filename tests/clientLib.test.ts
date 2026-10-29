@@ -6,8 +6,8 @@
 
 import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { OFFLINE_MESSAGE, apiPath, apiRequest, errorMessageFrom } from '../src/lib/api.js'
-import { chooseSyndicate, parseMemberships, type Membership } from '../src/lib/membership.js'
+import { OFFLINE_MESSAGE, PLAN_CHANGED_EVENT, apiPath, apiRequest, errorMessageFrom } from '../src/lib/api.js'
+import { chooseSyndicate, parseMemberships, readOnlyReason, type Membership } from '../src/lib/membership.js'
 import { nextShootFrom } from '../src/lib/shootDays.js'
 import { newSyndicateForm, newSyndicatePayload, suggestedSeason, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyShootDraft, newShootPayload, validateShoot } from '../src/utils/shootForm.js'
@@ -49,6 +49,25 @@ describe('API client', () => {
     assert.equal(failed.ok, false)
     respond(204, null)
     assert.deepEqual(await apiRequest('/api/x', { method: 'DELETE' }), { ok: true, data: null, status: 204 })
+  })
+
+  it('a lapsed-plan refusal (402) tells the app to look at the plan again; other failures do not', async () => {
+    const target = new EventTarget()
+    const heard: string[] = []
+    target.addEventListener(PLAN_CHANGED_EVENT, (e) => heard.push(e.type))
+    const g = globalThis as { window?: unknown }
+    g.window = target
+    try {
+      respond(409, JSON.stringify({ error: 'Already paid' }))
+      await apiRequest('/api/x', { method: 'POST', body: {} })
+      assert.deepEqual(heard, [])
+      respond(402, JSON.stringify({ error: 'This syndicate is read-only until its plan is active.' }))
+      const res = await apiRequest('/api/x', { method: 'POST', body: {} })
+      assert.equal(res.ok, false)
+      assert.deepEqual(heard, [PLAN_CHANGED_EVENT])
+    } finally {
+      delete g.window
+    }
   })
 
   it('no signal is reported as no signal, and says nothing was saved', async () => {
@@ -102,6 +121,26 @@ describe('which syndicate is on show', () => {
     assert.equal(parseMemberships({ syndicates: [{ id: 'a' }] }), null)
     assert.equal(parseMemberships({}), null)
     assert.equal(parseMemberships(null), null)
+  })
+})
+
+describe('why a syndicate is read-only', () => {
+  const s = (status: string | null): Membership => ({
+    id: 'a', name: 'Beatrice', role: 'CAPTAIN', memberId: null, seasonStart: '', seasonEnd: '',
+    defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
+    subscription: { status, planTier: null, isActive: false, currentPeriodEnd: null },
+  })
+
+  it('names the syndicate, the reason and the one thing to do', () => {
+    assert.deepEqual(readOnlyReason(s(null)).action, 'Choose a plan')
+    assert.match(readOnlyReason(s(null)).text, /^Choose a plan to start using Beatrice\./)
+    assert.deepEqual(readOnlyReason(s('PAST_DUE')).action, 'Update payment')
+    assert.match(readOnlyReason(s('PAST_DUE')).text, /didn’t go through/)
+    assert.deepEqual(readOnlyReason(s('INCOMPLETE')).action, 'Update payment')
+    assert.match(readOnlyReason(s('INCOMPLETE')).text, /first payment/)
+    for (const status of ['CANCELLED']) {
+      assert.match(readOnlyReason(s(status)).text, /still here to view and export/)
+    }
   })
 })
 

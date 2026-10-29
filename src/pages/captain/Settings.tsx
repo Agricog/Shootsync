@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
 import { useSubscription } from '../../hooks/useSubscription'
-import { useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
 import { apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
@@ -41,6 +41,7 @@ function Field({ id, title, hint, error, children }: { id: string; title: string
 
 export default function Settings() {
   const current = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const { reload } = useSyndicates()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -227,7 +228,7 @@ export default function Settings() {
               )}
 
               <div className="flex gap-3">
-                <Button type="submit" isLoading={saving} disabled={saving || !dirty}>
+                <Button type="submit" isLoading={saving} disabled={saving || !dirty || !canWrite}>
                   Save settings
                 </Button>
                 {dirty && (
@@ -254,12 +255,17 @@ export default function Settings() {
                 </p>
               ) : subscription.status === 'PAST_DUE' ? (
                 <p className="text-amber-200">Your last payment didn’t go through. Update your card under Manage billing.</p>
+              ) : subscription.status === 'INCOMPLETE' ? (
+                <p className="text-amber-200">Your first payment hasn’t gone through yet. Finish paying under Manage billing.</p>
               ) : (
                 <p className="text-slate-300">No active plan.</p>
               )}
-              <p className="mt-2 text-sm text-slate-400">
-                Update your card, download invoices or cancel. If you cancel, your plan runs to the end of the month you’ve paid for.
-              </p>
+              {/* Only describe the billing page when there is one to open. */}
+              {subscription.status && subscription.status !== 'CANCELLED' && (
+                <p className="mt-2 text-sm text-slate-400">
+                  Under Manage billing you can change plan, update your card, download invoices or cancel. If you cancel, your plan runs to the end of the month you’ve paid for.
+                </p>
+              )}
               {billingError && <p role="alert" className="mt-3 text-red-300">{billingError}</p>}
               <div className="mt-4">
                 {subscription.loading || subscription.error ? null : subscription.status && subscription.status !== 'CANCELLED' ? (

@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
@@ -114,6 +114,7 @@ function BeaterForm({ draft, onChange, existing, saving, error, onSubmit, onCanc
 
 export default function Beaters() {
   const syndicate = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const syndicateId = syndicate.id
   const defaultRate = syndicate.defaultBeaterRate
   const [beaters, setBeaters] = useState<Beater[]>([])
@@ -219,7 +220,7 @@ export default function Beaters() {
                 <Link to="/finances" className="text-green-400 underline">Beaters’ pay</Link>.
               </p>
             </div>
-            {editing !== 'new' && <Button onClick={startNew}>Add beater</Button>}
+            {editing !== 'new' && canWrite && <Button onClick={startNew}>Add beater</Button>}
           </div>
 
           <div role="status" aria-live="polite">
@@ -274,15 +275,15 @@ export default function Beaters() {
                           </p>
                         </div>
                         <div className="flex items-start gap-2">
-                          <Button size="sm" variant="secondary" onClick={() => startEdit(beater)} disabled={editing !== null}>
+                          <Button size="sm" variant="secondary" onClick={() => startEdit(beater)} disabled={editing !== null || !canWrite}>
                             Edit
                           </Button>
                           {beater.status === 'ACTIVE' ? (
-                            <Button size="sm" variant="ghost" onClick={() => setStatus(beater, 'INACTIVE')} disabled={editing !== null}>
+                            <Button size="sm" variant="ghost" onClick={() => setStatus(beater, 'INACTIVE')} disabled={editing !== null || !canWrite}>
                               Make inactive
                             </Button>
                           ) : (
-                            <Button size="sm" variant="ghost" onClick={() => setStatus(beater, 'ACTIVE')} disabled={editing !== null}>
+                            <Button size="sm" variant="ghost" onClick={() => setStatus(beater, 'ACTIVE')} disabled={editing !== null || !canWrite}>
                               Reactivate
                             </Button>
                           )}

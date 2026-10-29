@@ -369,6 +369,11 @@ describe('API', () => {
   })
 
   describe('plan checkout', () => {
+    // These start from a syndicate that has never had a plan (the seed is paid up).
+    beforeEach(async () => {
+      await prisma.syndicate.updateMany({ data: { stripeSubscriptionStatus: null, planTier: null, stripeSubscriptionId: null } })
+    })
+
     it('is idempotent, so a double-click cannot start two subscriptions', async () => {
       await call(server, '/api/subscriptions/create-checkout', {
         method: 'POST', as: CAPTAIN_A, body: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD', email: 'a@example.com' },
@@ -446,6 +451,11 @@ describe('API', () => {
   })
 
   describe('Stripe webhook', () => {
+    // These start from a syndicate that has never had a plan (the seed is paid up).
+    beforeEach(async () => {
+      await prisma.syndicate.updateMany({ data: { stripeSubscriptionStatus: null, planTier: null, stripeSubscriptionId: null } })
+    })
+
     function signed(payload: object) {
       const body = JSON.stringify(payload)
       const signature = stripe.webhooks.generateTestHeaderString({ payload: body, secret: TEST_WEBHOOK_SECRET })

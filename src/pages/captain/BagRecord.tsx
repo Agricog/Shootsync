@@ -12,7 +12,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiRequest } from '../../lib/api'
 import { londonDate } from '../../utils/beaterPayCalculator'
 import DashboardLayout from '../../components/layout/DashboardLayout'
@@ -152,6 +152,7 @@ function BagForm({ draft, onChange, onSubmit, saving, submitLabel, onCancel, voi
 
 export default function BagRecord() {
   const { id: syndicateId } = useCaptainSyndicate()
+  const canWrite = useCanWrite()
   const [loading, setLoading] = useState(true)
   const [shoots, setShoots] = useState<ShootDay[]>([])
   const [shootId, setShootId] = useState<string | null>(null)
@@ -379,26 +380,28 @@ export default function BagRecord() {
               </div>
             </Card>
 
-            <Card>
-              <h2 className="text-lg font-semibold text-white mb-4">Record a drive</h2>
-              <BagForm
-                draft={draft}
-                onChange={setDraft}
-                onSubmit={record}
-                saving={saving && !editingId}
-                submitLabel={`Save drive ${draft.driveNumber || ''}`}
-                voice={
-                  speechSupported ? (
-                    <Button type="button" variant={listening ? 'primary' : 'secondary'} onClick={listen} disabled={listening}>
-                      {listening ? 'Listening…' : 'Say the bag'}
-                    </Button>
-                  ) : (
-                    <p className="text-sm text-slate-500">Saying the numbers works in Chrome and Edge.</p>
-                  )
-                }
-              />
-              {heard && <p className="mt-3 text-sm text-slate-300" aria-live="polite">{heard}</p>}
-            </Card>
+            {canWrite && (
+              <Card>
+                <h2 className="text-lg font-semibold text-white mb-4">Record a drive</h2>
+                <BagForm
+                  draft={draft}
+                  onChange={setDraft}
+                  onSubmit={record}
+                  saving={saving && !editingId}
+                  submitLabel={`Save drive ${draft.driveNumber || ''}`}
+                  voice={
+                    speechSupported ? (
+                      <Button type="button" variant={listening ? 'primary' : 'secondary'} onClick={listen} disabled={listening}>
+                        {listening ? 'Listening…' : 'Say the bag'}
+                      </Button>
+                    ) : (
+                      <p className="text-sm text-slate-400">Saying the numbers works in Chrome and Edge.</p>
+                    )
+                  }
+                />
+                {heard && <p className="mt-3 text-sm text-slate-300" aria-live="polite">{heard}</p>}
+              </Card>
+            )}
 
             {bags.length > 0 && (
               <Card>
@@ -417,11 +420,11 @@ export default function BagRecord() {
                             {bag.otherDescription ? ` (${bag.otherDescription})` : ''}
                           </span>
                           <span className="font-semibold text-green-400">{total(bag)}</span>
-                          <Button size="sm" variant="secondary" disabled={saving || editingId !== null}
+                          <Button size="sm" variant="secondary" disabled={saving || editingId !== null || !canWrite}
                             onClick={() => { setEditingId(bag.id); setEditDraft(draftFrom(bag)); setConfirmDelete(null); setNotice(null) }}>
                             Edit
                           </Button>
-                          <Button size="sm" variant={confirmDelete === bag.id ? 'danger' : 'ghost'} disabled={saving || editingId !== null} onClick={() => remove(bag)}>
+                          <Button size="sm" variant={confirmDelete === bag.id ? 'danger' : 'ghost'} disabled={saving || editingId !== null || !canWrite} onClick={() => remove(bag)}>
                             {confirmDelete === bag.id ? `Delete drive ${bag.driveNumber}?` : 'Delete'}
                           </Button>
                         </div>

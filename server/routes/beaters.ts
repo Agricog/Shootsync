@@ -1,6 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
+import { assertRoomFor, lockSyndicate } from '../planLimits.js'
 import {
   HttpError,
   handle,
@@ -9,7 +10,6 @@ import {
   queryString,
   requireSyndicateAccess,
   syndicateOfBeater,
-  userIdOf,
 } from '../access.js'
 import { HMRC_CASUAL_DAY_LIMIT, lockShoots, normaliseAccountNumber, normaliseSortCode, poundsToPence, taxYearOf } from '../beaterPay.js'
 
@@ -97,9 +97,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
 
   // GET /api/beaters?syndicateId= - bank details masked
   router.get('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const status = statusFilter.parse(queryString(req.query.status))
 
     const beaters = await prisma.beater.findMany({
@@ -113,9 +112,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
   // Money is in pence. A day counts once the shoot is completed and the beater was confirmed
   // (server/beaterPay.ts). Inactive beaters still appear while they are owed money.
   router.get('/payments/summary', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const taxYear = taxYearOf(new Date())
 
     const beaters = await prisma.beater.findMany({
@@ -199,9 +197,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
   // GET /api/beaters/payments/owed?syndicateId= - just the total owed, in pence, for the
   // dashboard: no names or bank details travel for a single figure.
   router.get('/payments/owed', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = queryString(req.query.syndicateId)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const owed = await prisma.beaterPayment.aggregate({ where: { syndicateId, status: 'PENDING' }, _sum: { amount: true } })
     res.set('Cache-Control', 'no-store')
     res.json({ totalOutstanding: owed._sum.amount ?? 0 })
@@ -209,9 +206,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
 
   // GET /api/beaters/:id - bank details masked
   router.get('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const beater = await prisma.beater.findUnique({
       where: { id: req.params.id },
@@ -236,45 +232,53 @@ export function beaterRoutes({ prisma }: Deps): Router {
 
   // POST /api/beaters
   router.post('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const data = createBeaterInput.parse(req.body)
-    await requireSyndicateAccess(prisma, data.syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, data.syndicateId, req, 'captain')
 
-    const beater = await prisma.beater.create({
-      data: {
-        syndicateId: data.syndicateId,
-        name: data.name,
-        email: data.email,
-        phone: data.phone,
-        dayRate: data.dayRate ?? 40,
-        bankName: data.bankName,
-        bankSortCode: data.bankSortCode,
-        bankAccountNumber: data.bankAccountNumber,
-        notes: data.notes,
-      },
+    const beater = await prisma.$transaction(async (tx) => {
+      await assertRoomFor(tx, data.syndicateId, 'beaters')
+      return tx.beater.create({
+        data: {
+          syndicateId: data.syndicateId,
+          name: data.name,
+          email: data.email,
+          phone: data.phone,
+          dayRate: data.dayRate ?? 40,
+          bankName: data.bankName,
+          bankSortCode: data.bankSortCode,
+          bankAccountNumber: data.bankAccountNumber,
+          notes: data.notes,
+        },
+      })
     })
     res.status(201).json(maskBankDetails(beater))
   }))
 
   // PATCH /api/beaters/:id
   router.patch('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const { clearBankDetails, ...data } = updateBeaterSchema.parse(req.body)
 
-    const beater = await prisma.beater.update({
-      where: { id: req.params.id },
-      data: { ...data, ...(clearBankDetails ? { bankSortCode: null, bankAccountNumber: null, bankName: null } : {}) },
+    const beater = await prisma.$transaction(async (tx) => {
+      // Bringing an inactive beater back takes a place on the plan.
+      if (data.status === 'ACTIVE') {
+        await lockSyndicate(tx, syndicateId)
+        const current = await tx.beater.findUniqueOrThrow({ where: { id: req.params.id }, select: { status: true } })
+        if (current.status !== 'ACTIVE') await assertRoomFor(tx, syndicateId, 'beaters')
+      }
+      return tx.beater.update({
+        where: { id: req.params.id },
+        data: { ...data, ...(clearBankDetails ? { bankSortCode: null, bankAccountNumber: null, bankName: null } : {}) },
+      })
     })
     res.json(maskBankDetails(beater))
   }))
 
   // DELETE /api/beaters/:id - mark inactive
   router.delete('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const beater = await prisma.beater.update({
       where: { id: req.params.id },
@@ -287,9 +291,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
   // Each line names the payment and the amount shown. If any is no longer owed at that
   // amount (paid elsewhere, rate changed, day changed), nothing is marked and the page reloads.
   router.post('/:id/pay', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const { payments, paymentReference } = paySchema.parse(req.body)
     const ids = payments.map((p) => p.paymentId)
 

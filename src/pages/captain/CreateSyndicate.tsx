@@ -92,22 +92,22 @@ export default function CreateSyndicate() {
             </div>
           </Card>
         ) : (
-        <Card>
-          <form onSubmit={submit} noValidate className="space-y-5">
-            {field('name', 'Syndicate name', 'For example Beatrice Pheasant Syndicate.', { maxLength: 100, autoFocus: true, autoComplete: 'organization' })}
+          <Card>
+            <form onSubmit={submit} noValidate className="space-y-5">
+              {field('name', 'Syndicate name', 'For example Beatrice Pheasant Syndicate.', { maxLength: 100, autoFocus: true, autoComplete: 'organization' })}
 
-            <div className="grid sm:grid-cols-2 gap-4">
-              {field('seasonStart', 'Season starts', 'Your first shoot day can be later.', { type: 'date' })}
-              {field('seasonEnd', 'Season ends', 'Your last shoot day can be earlier.', { type: 'date' })}
-            </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {field('seasonStart', 'Season starts', 'Your first shoot day can be later.', { type: 'date' })}
+                {field('seasonEnd', 'Season ends', 'Your last shoot day can be earlier.', { type: 'date' })}
+              </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
-              {field('subscriptionAmount', 'Members’ subscription (£)', 'What each gun pays the syndicate for the season. 0 if you don’t track it.', { inputMode: 'numeric' })}
-              {field('defaultBeaterRate', 'Beaters’ usual day rate (£)', 'New beaters start on this.', { inputMode: 'numeric' })}
-            </div>
+              <div className="grid sm:grid-cols-2 gap-4">
+                {field('subscriptionAmount', 'Members’ subscription (£)', 'What each gun pays the syndicate for the season. 0 if you don’t track it.', { inputMode: 'numeric' })}
+                {field('defaultBeaterRate', 'Beaters’ usual day rate (£)', 'New beaters start on this.', { inputMode: 'numeric' })}
+              </div>
 
-            {error && (
-              <p role="alert" className="rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{error}</p>
+              {error && (
+                <p role="alert" className="rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{error}</p>
             )}
 
             <div className="flex flex-wrap gap-3">

@@ -142,6 +142,68 @@ describe('the signed-in app', () => {
   })
 })
 
+describe('a syndicate without a paid-up plan', () => {
+  const layout = read('src/components/layout/DashboardLayout.tsx')
+
+  it('every signed-in page shows the read-only notice (it lives in the shared layout)', () => {
+    assert.match(layout, /<Navigation \/>\s*<ReadOnlyNotice \/>/)
+  })
+
+  /** Screens that change data, and why any is allowed to without checking the plan itself. */
+  const EXEMPT: Record<string, string> = {
+    'src/pages/captain/CreateSyndicate.tsx': 'a new syndicate is created before it has a plan',
+    'src/pages/captain/Subscribe.tsx': 'choosing a plan is how a lapsed syndicate is opened up again',
+    'src/components/shoots/ShootDayEditor.tsx': 'only rendered by ShootDetail when canWrite is true',
+  }
+
+  /**
+   * Places the file reads canWrite or readOnly, leaving out where they are declared, so a
+   * value fetched and never looked at gates nothing (and a mention in a string or comment
+   * is not code at all).
+   */
+  function gateUses(source: ts.SourceFile): number {
+    let uses = 0
+    walk(source, (node) => {
+      if (!ts.isIdentifier(node) || !['canWrite', 'readOnly'].includes(node.text)) return
+      const parent = node.parent
+      const declaring =
+        ((ts.isVariableDeclaration(parent) || ts.isParameter(parent) || ts.isBindingElement(parent)) && parent.name === node) ||
+        (ts.isBindingElement(parent) && parent.propertyName === node) ||
+        ((ts.isPropertyAssignment(parent) || ts.isPropertySignature(parent) || ts.isPropertyAccessExpression(parent)) && parent.name === node)
+      if (!declaring) uses++
+    })
+    return uses
+  }
+  const probe = (code: string) => gateUses(ts.createSourceFile('probe.tsx', code, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX))
+
+  it('the gate check counts reads, not declarations, strings or comments', () => {
+    assert.equal(probe('const canWrite = useCanWrite()'), 0)
+    assert.equal(probe("const canWrite = useCanWrite(); const s = 'canWrite' // canWrite"), 0)
+    assert.equal(probe('function F({ canWrite }: { canWrite: boolean }) { return null }'), 0)
+    assert.equal(probe('const canWrite = useCanWrite(); const x = canWrite && 1'), 1)
+    assert.equal(probe('const canWrite = useCanWrite(); const el = <Button disabled={!canWrite} />'), 1)
+  })
+
+  it('every screen that changes data offers it only while the plan is paid up', () => {
+    const offenders: string[] = []
+    for (const file of shipped) {
+      if (!/^src\/(pages\/captain|components)\//.test(file) || EXEMPT[file]) continue
+      const code = stripComments(read(file))
+      const writes = /method:\s*['"](POST|PATCH|PUT|DELETE)['"]|send\([^)]*['"](POST|PATCH|PUT|DELETE)['"]|run\([^)]*['"](POST|PATCH|PUT|DELETE)['"]/.test(code)
+      if (writes && gateUses(parse(file)) === 0) offenders.push(file)
+    }
+    assert.deepEqual(offenders, [])
+  })
+
+  it('the exemptions are real files that still write', () => {
+    for (const file of Object.keys(EXEMPT)) assert.ok(shipped.includes(file), `${file} is not shipped`)
+  })
+
+  it('ShootDayEditor is only shown when the plan is paid up', () => {
+    assert.match(read('src/pages/captain/ShootDetail.tsx'), /!editingDay && canWrite &&/)
+  })
+})
+
 describe('what this browser keeps (Standard §03 Layer 4)', () => {
   /** String constants declared anywhere in the shipped code, by name. */
   function constants(): Map<string, string> {

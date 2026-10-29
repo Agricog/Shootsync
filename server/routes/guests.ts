@@ -11,7 +11,6 @@ import {
   requireSyndicateAccess,
   syndicateOfGuest,
   syndicateOfShoot,
-  userIdOf,
 } from '../access.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
@@ -139,11 +138,10 @@ export function guestRoutes({ prisma }: Deps): Router {
 
   // GET /api/guests?shootId= or ?syndicateId= - captain only
   router.get('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const shootId = queryString(req.query.shootId)
     const syndicateId = shootId ? await syndicateOfShoot(prisma, shootId) : queryString(req.query.syndicateId)
     if (!syndicateId) throw new HttpError(400, 'shootId or syndicateId is required')
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const guests = await prisma.guestGun.findMany({
       where: shootId ? { shootId } : { shootDay: { syndicateId } },
@@ -155,9 +153,8 @@ export function guestRoutes({ prisma }: Deps): Router {
 
   // GET /api/guests/:id - captain only
   router.get('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfGuest(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     const guest = await prisma.guestGun.findUnique({
       where: { id: req.params.id },
@@ -181,10 +178,9 @@ export function guestRoutes({ prisma }: Deps): Router {
 
   // POST /api/guests - invite a guest
   router.post('/', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const data = createGuestSchema.parse(req.body)
     const syndicateId = await syndicateOfShoot(prisma, data.shootId)
-    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'member')
 
     // The inviting member must be an active gun of the same syndicate, and a non-captain may only invite as themselves.
     const inviter = await prisma.member.findUnique({ where: { id: data.invitedByMemberId }, select: { syndicateId: true, status: true, role: true } })
@@ -217,9 +213,8 @@ export function guestRoutes({ prisma }: Deps): Router {
 
   // PATCH /api/guests/:id - captain only
   router.patch('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfGuest(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const data = updateGuestSchema.parse(req.body)
 
     const guest = await prisma.guestGun.update({ where: { id: req.params.id }, data })
@@ -228,9 +223,8 @@ export function guestRoutes({ prisma }: Deps): Router {
 
   // DELETE /api/guests/:id - captain only
   router.delete('/:id', handle(async (req, res) => {
-    const userId = userIdOf(req)
     const syndicateId = await syndicateOfGuest(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'captain')
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
     // Paid or refunded guests stay on record: removing them would delete the record of the money.
     // A guest who has signed the waiver may be on the card page right now, so they are withdrawn

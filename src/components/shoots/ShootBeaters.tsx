@@ -37,6 +37,8 @@ interface Props {
   shootId: string
   syndicateId: string
   shootStatus: string
+  /** The plan has lapsed: show the bookings, change nothing. */
+  readOnly?: boolean
   bookings: Booking[]
   payments: PaymentLine[]
   onChanged: () => Promise<void>
@@ -55,9 +57,9 @@ async function send(path: string, method: string, body?: unknown): Promise<strin
   return result.ok ? null : result.error
 }
 
-const field = 'px-2 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500'
+const field = 'px-2 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-60 disabled:cursor-not-allowed'
 
-export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookings, payments, onChanged }: Props) {
+export default function ShootBeaters({ shootId, syndicateId, shootStatus, readOnly = false, bookings, payments, onChanged }: Props) {
   const [team, setTeam] = useState<BeaterOption[]>([])
   const [adding, setAdding] = useState(false)
   const [chosen, setChosen] = useState<Set<string>>(new Set())
@@ -69,6 +71,8 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookin
 
   const cancelled = shootStatus === 'CANCELLED'
   const completed = shootStatus === 'COMPLETED'
+  // Nothing can be changed on a cancelled day, or while the plan has lapsed.
+  const locked = cancelled || readOnly
   const booked = new Set(bookings.map((b) => b.beater.id))
   const available = team.filter((b) => !booked.has(b.id))
   const paymentFor = (beaterId: string) => payments.find((p) => p.beaterId === beaterId)
@@ -115,7 +119,7 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookin
         <h2 className="text-lg font-semibold text-green-500">
           Beaters ({confirmedCount} confirmed{askedCount > 0 ? `, ${askedCount} asked` : ''})
         </h2>
-        {!cancelled && !adding && (
+        {!locked && !adding && (
           <Button size="sm" onClick={() => setAdding(true)}>
             Book beaters
           </Button>
@@ -210,7 +214,7 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookin
                         max={1000}
                         defaultValue={booking.dayRate}
                         aria-label={`Day rate for ${booking.beater.name}`}
-                        disabled={busy !== null || cancelled}
+                        disabled={busy !== null || locked}
                         onBlur={(e) => {
                           const value = Number(e.target.value)
                           if (!Number.isInteger(value) || value < 0 || value > 1000) {
@@ -226,7 +230,7 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookin
                     <select
                       value={booking.status}
                       aria-label={`Status for ${booking.beater.name}`}
-                      disabled={busy !== null || cancelled}
+                      disabled={busy !== null || locked}
                       onChange={(e) => run(booking.id, bookingPath(booking.id), 'PATCH', { status: e.target.value })}
                       className={field}
                     >
@@ -237,7 +241,7 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookin
                       ))}
                     </select>
                     {payment && <span className="text-sm text-amber-300">Owed {formatCurrency(payment.amount)}</span>}
-                    {!cancelled && (
+                    {!locked && (
                       <button
                         type="button"
                         onClick={() => {
