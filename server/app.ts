@@ -137,7 +137,13 @@ export function createApp(options: AppOptions) {
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   }))
 
-  app.use('/api', authGate(verifyToken))
+  app.use('/api', authGate(verifyToken, deps.prisma))
+
+  // The browser's word that a signed-in user is still busy on a page that isn't saving anything
+  // (server/sessionPolicy.ts). The auth gate above has already recorded the activity.
+  app.post('/api/session/ping', (_req, res) => {
+    res.status(204).end()
+  })
 
   app.use('/api/me', meRoutes(deps))
   app.use('/api/syndicates', syndicateRoutes(deps))

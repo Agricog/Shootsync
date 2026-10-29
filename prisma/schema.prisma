@@ -283,6 +283,16 @@ model ActivityLog {
 // SCHEMA VERSION
 // ============================================
 
+/// When each signed-in Clerk session first and last used ShootSync (server/sessionPolicy.ts), so
+/// the server ends a session 15 minutes after it started, and one left idle. Migration 0003.
+model SessionActivity {
+  sessionId   String   @id @map("session_id")
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@map("session_activity")
+}
+
 /// One row per migration applied to this database (prisma/migrations/<id>/migration.sql ends by
 /// inserting its own row). The server refuses to start without the migration its code needs.
 model SchemaMigration {

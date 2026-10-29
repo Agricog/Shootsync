@@ -5,9 +5,12 @@
 
 import { SignIn } from '@clerk/clerk-react'
 import { Helmet } from 'react-helmet-async'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
+import { SESSION_ENDED_TEXT, SIGNED_OUT_PARAM, signedOutReason } from '../../lib/sessionClock'
 
 export default function Login() {
+  const [searchParams] = useSearchParams()
+  const signedOut = signedOutReason(searchParams.get(SIGNED_OUT_PARAM))
   return (
     <>
       <Helmet>
@@ -23,6 +26,12 @@ export default function Login() {
             </div>
             <span className="text-white font-semibold text-xl">ShootSync</span>
           </Link>
+
+          {signedOut && (
+            <p role="status" className="mb-6 rounded-lg px-4 py-3 bg-amber-500/10 border border-amber-500/30 text-amber-100 text-sm text-center">
+              {SESSION_ENDED_TEXT[signedOut]}
+            </p>
+          )}
 
           <div className="flex justify-center">
             <SignIn

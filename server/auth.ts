@@ -8,10 +8,16 @@
  * never from the request body or query string (Standard §07.4).
  *
  * Header-only (no cookie auth) keeps state-changing routes immune to CSRF.
+ *
+ * Every signed-in request also passes the session limits (server/sessionPolicy.ts): 15 minutes
+ * from sign-in, 10 minutes idle. A refusal is 401 with `code: 'session_ended'` and a sentence,
+ * and the browser signs the user out with that sentence.
  */
 
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { verifyToken } from '@clerk/backend'
+import type { PrismaClient } from '@prisma/client'
+import { SESSION_ENDED_MESSAGES, absoluteLimitReached, touchSession, type SessionEndReason, type VerifiedSession } from './sessionPolicy.js'
 
 declare global {
   namespace Express {
@@ -21,17 +27,33 @@ declare global {
   }
 }
 
-/** Resolves a session token to a Clerk user ID, or throws if the token is not valid. */
-export type TokenVerifier = (token: string) => Promise<string>
+/** Resolves a session token to the user, their session and its age, or throws if the token is not valid. */
+export type TokenVerifier = (token: string) => Promise<VerifiedSession>
+
+/**
+ * The parts of a verified Clerk token the app relies on. The user and session are required: a
+ * token without a session (a server-to-server token, say) is refused, never waved through. How
+ * long ago the user signed in is read when the token says (fva[0] whole minutes before it was
+ * issued, plus the token's own age); when it doesn't, the server's own record of the session's
+ * start still enforces the absolute limit (server/sessionPolicy.ts).
+ */
+export function sessionFromClaims(
+  payload: { sub?: unknown; sid?: unknown; fva?: unknown; iat?: unknown },
+  nowSeconds: number = Math.floor(Date.now() / 1000),
+): VerifiedSession {
+  if (typeof payload.sub !== 'string' || !payload.sub) throw new Error('Token has no subject')
+  if (typeof payload.sid !== 'string' || !payload.sid) throw new Error('Token has no session')
+  const fva = Array.isArray(payload.fva) ? payload.fva[0] : undefined
+  const issued = typeof payload.iat === 'number' && Number.isFinite(payload.iat) ? payload.iat : null
+  const secondsSinceSignIn =
+    typeof fva === 'number' && Number.isFinite(fva) && fva >= 0 && issued !== null
+      ? fva * 60 + Math.max(0, nowSeconds - issued)
+      : null
+  return { userId: payload.sub, sessionId: payload.sid, secondsSinceSignIn }
+}
 
 export function createClerkVerifier(secretKey: string, authorizedParties: string[]): TokenVerifier {
-  return async (token: string) => {
-    const payload = await verifyToken(token, { secretKey, authorizedParties })
-    if (!payload.sub) {
-      throw new Error('Token has no subject')
-    }
-    return payload.sub
-  }
+  return async (token: string) => sessionFromClaims(await verifyToken(token, { secretKey, authorizedParties }))
 }
 
 const INVITE_TOKEN = '[a-f0-9]{64}'
@@ -64,7 +86,11 @@ function bearerToken(req: Request): string | null {
  * Mount at /api. Public routes pass straight through; everything else must
  * carry a valid token, and the verified user ID is attached as req.auth.
  */
-export function authGate(verify: TokenVerifier): RequestHandler {
+function sessionEnded(res: Response, reason: SessionEndReason) {
+  return res.status(401).json({ error: SESSION_ENDED_MESSAGES[reason], code: 'session_ended', reason })
+}
+
+export function authGate(verify: TokenVerifier, prisma: PrismaClient): RequestHandler {
   return async (req: Request, res: Response, next: NextFunction) => {
     if (isPublicRoute(req.method, req.path)) {
       return next()
@@ -75,12 +101,22 @@ export function authGate(verify: TokenVerifier): RequestHandler {
       return res.status(401).json({ error: 'Sign in required' })
     }
 
+    let session: VerifiedSession
     try {
-      const userId = await verify(token)
-      req.auth = { userId }
-      return next()
+      session = await verify(token)
     } catch {
       return res.status(401).json({ error: 'Sign in required' })
     }
+    if (absoluteLimitReached(session)) return sessionEnded(res, 'absolute')
+    try {
+      const ended = await touchSession(prisma, session.sessionId)
+      if (ended) return sessionEnded(res, ended)
+    } catch (err) {
+      // The database is down: nothing past this point could work either, and nothing is let through unchecked.
+      console.error('[auth] could not check session activity:', err)
+      return res.status(503).json({ error: 'ShootSync had a problem checking your session. Try again in a moment.' })
+    }
+    req.auth = { userId: session.userId }
+    return next()
   }
 }

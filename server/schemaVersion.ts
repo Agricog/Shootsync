@@ -15,7 +15,7 @@
 import type { PrismaClient } from '@prisma/client'
 
 /** The newest migration this code needs. tests/migrations.test.ts keeps it equal to the newest file. */
-export const REQUIRED_MIGRATION = '0002_unpaid_status'
+export const REQUIRED_MIGRATION = '0003_session_activity'
 
 export type SchemaProblem = 'not-recorded' | 'no-table' | 'no-permission' | 'unreachable'
 export type SchemaState = { ready: true } | { ready: false; problem: SchemaProblem; reason: string }

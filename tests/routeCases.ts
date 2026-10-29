@@ -97,6 +97,7 @@ export const SELF_SCOPED = [
   'GET /api/me',
   'GET /api/syndicates', // the syndicates the caller captains
   'POST /api/syndicates', // the caller becomes captain of a new one
+  'POST /api/session/ping', // the caller's own session is still in use
 ]
 
 /** Every row in the database, so a refused request can be proven to have changed nothing. */

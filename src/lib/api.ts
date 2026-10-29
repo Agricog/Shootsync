@@ -16,6 +16,13 @@ export type Result<T> = { ok: true; data: T; status: number } | { ok: false; err
  */
 export const PLAN_CHANGED_EVENT = 'shootsync:plan-changed'
 
+/**
+ * Sent on window when the server has ended the session (401 with code 'session_ended': 15 minutes
+ * from sign-in, or 10 minutes idle). The event's detail is the server's sentence; the session
+ * timer signs the user out and shows it on the sign-in page.
+ */
+export const SESSION_ENDED_EVENT = 'shootsync:session-ended'
+
 export const OFFLINE_MESSAGE = 'Could not reach ShootSync. Check your signal and try again: nothing was saved.'
 
 /** The message to show for a failed response, from whatever JSON (or nothing) the server sent. */
@@ -63,7 +70,12 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   }
 
   // Read through globalThis: this file is also loaded by the server-side tests, which have no window.
-  if (response.status === 402) (globalThis as { window?: EventTarget }).window?.dispatchEvent(new Event(PLAN_CHANGED_EVENT))
+  const target = (globalThis as { window?: EventTarget }).window
+  if (response.status === 402) target?.dispatchEvent(new Event(PLAN_CHANGED_EVENT))
+  const ended = json as { code?: unknown; reason?: unknown } | null
+  if (response.status === 401 && ended?.code === 'session_ended') {
+    target?.dispatchEvent(new CustomEvent(SESSION_ENDED_EVENT, { detail: { reason: ended.reason === 'absolute' ? 'absolute' : 'idle' } }))
+  }
   if (!response.ok) return { ok: false, error: errorMessageFrom(response.status, json), status: response.status }
   return { ok: true, data: json as T, status: response.status }
 }

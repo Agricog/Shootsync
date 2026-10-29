@@ -1,122 +1,143 @@
 /**
- * Session Timeout Hook - ShootSync
- * Enforces session security with idle timeout
+ * Session timeout - ShootSync (Build Standard, Layer 2: 15 minutes absolute, 10 minutes idle)
+ *
+ * Mounted once for the whole app (SessionHygiene), so moving between pages never restarts the
+ * clock. It measures from when the user signed in (Clerk's session), and from their last
+ * keypress, tap, click or scroll in any ShootSync tab: the time is shared between tabs, so a tab
+ * left in the background never signs them out while they're busy in another. A minute before
+ * either limit it returns a warning to show; at the limit it signs the user out and sends them to
+ * the sign-in page, which says why.
+ *
+ * The server enforces the same limits on every request (server/sessionPolicy.ts). While the user
+ * is busy, the server is told so every couple of minutes, so a long form being filled in isn't
+ * mistaken for an idle session. If the server ends the session first (a computer that slept,
+ * say), its refusal signs the user out here too.
  */
 
-import { useEffect, useRef, useCallback } from 'react'
-import { useAuth } from './useAuth'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useAuth, useClerk, useSession } from '@clerk/clerk-react'
+import { SESSION_ENDED_EVENT, apiRequest } from '../lib/api'
+import { clearLocalAccountData } from '../lib/session'
+import { LAST_ACTIVITY_KEY } from '../lib/storageKeys'
+import { SESSION_CLOCK, SIGNED_OUT_PARAM, sessionClock, shouldPing, type SessionClockState, type SessionEndReason } from '../lib/sessionClock'
 
-const SESSION_TIMEOUT = 30 * 60 * 1000 // 30 minutes absolute
-const IDLE_TIMEOUT = 15 * 60 * 1000 // 15 minutes idle
-const WARNING_BEFORE = 2 * 60 * 1000 // Warning 2 minutes before
+const ACTIVITY_EVENTS = ['keydown', 'pointerdown', 'touchstart', 'scroll', 'wheel'] as const
+const TICK_MS = 1000
+/** How often, at most, this tab shares its activity with the others. */
+const SHARE_EVERY_MS = 5000
 
-interface UseSessionTimeoutOptions {
-  onTimeout?: () => void
-  onWarning?: (secondsRemaining: number) => void
-  enabled?: boolean
-}
-
-export function useSessionTimeout(options: UseSessionTimeoutOptions = {}) {
-  const { signOut, isSignedIn } = useAuth()
-  const { onTimeout, onWarning, enabled = true } = options
-
-  const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const idleTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const warningTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastActivityRef = useRef<number>(Date.now())
-
-  const handleTimeout = useCallback(async () => {
-    if (onTimeout) {
-      onTimeout()
-    }
-    await signOut()
-  }, [onTimeout, signOut])
-
-  const clearAllTimeouts = useCallback(() => {
-    if (sessionTimeoutRef.current) {
-      clearTimeout(sessionTimeoutRef.current)
-      sessionTimeoutRef.current = null
-    }
-    if (idleTimeoutRef.current) {
-      clearTimeout(idleTimeoutRef.current)
-      idleTimeoutRef.current = null
-    }
-    if (warningTimeoutRef.current) {
-      clearTimeout(warningTimeoutRef.current)
-      warningTimeoutRef.current = null
-    }
-  }, [])
-
-  const resetIdleTimeout = useCallback(() => {
-    lastActivityRef.current = Date.now()
-
-    if (idleTimeoutRef.current) {
-      clearTimeout(idleTimeoutRef.current)
-    }
-    if (warningTimeoutRef.current) {
-      clearTimeout(warningTimeoutRef.current)
-    }
-
-    if (onWarning) {
-      warningTimeoutRef.current = setTimeout(() => {
-        const secondsRemaining = Math.ceil(WARNING_BEFORE / 1000)
-        onWarning(secondsRemaining)
-      }, IDLE_TIMEOUT - WARNING_BEFORE)
-    }
-
-    idleTimeoutRef.current = setTimeout(() => {
-      handleTimeout()
-    }, IDLE_TIMEOUT)
-  }, [handleTimeout, onWarning])
-
-  useEffect(() => {
-    if (!enabled || !isSignedIn) {
-      clearAllTimeouts()
-      return
-    }
-
-    sessionTimeoutRef.current = setTimeout(() => {
-      handleTimeout()
-    }, SESSION_TIMEOUT)
-
-    resetIdleTimeout()
-
-    const activityEvents = ['mousedown', 'keydown', 'scroll', 'touchstart', 'mousemove']
-    
-    const handleActivity = () => {
-      resetIdleTimeout()
-    }
-
-    activityEvents.forEach((event) => {
-      window.addEventListener(event, handleActivity, { passive: true })
-    })
-
-    return () => {
-      clearAllTimeouts()
-      activityEvents.forEach((event) => {
-        window.removeEventListener(event, handleActivity)
-      })
-    }
-  }, [enabled, isSignedIn, handleTimeout, resetIdleTimeout, clearAllTimeouts])
-
-  return {
-    resetIdleTimeout,
-    lastActivity: lastActivityRef.current,
+function sharedActivity(): number {
+  try {
+    const value = Number(localStorage.getItem(LAST_ACTIVITY_KEY))
+    return Number.isFinite(value) ? value : 0
+  } catch {
+    return 0
   }
 }
 
-export function useIdleWarning() {
-  const warningShownRef = useRef(false)
+function shareActivity(at: number): void {
+  try {
+    localStorage.setItem(LAST_ACTIVITY_KEY, String(at))
+  } catch {
+    /* storage unavailable: each tab keeps its own clock */
+  }
+}
 
-  const showWarning = useCallback((secondsRemaining: number) => {
-    if (warningShownRef.current) return
-    warningShownRef.current = true
-    console.warn(`[ShootSync] Session will expire in ${secondsRemaining} seconds due to inactivity`)
-  }, [])
+export interface SessionWarning {
+  reason: SessionEndReason
+  msLeft: number
+}
 
-  const resetWarning = useCallback(() => {
-    warningShownRef.current = false
-  }, [])
+export function useSessionTimeout(): { warning: SessionWarning | null; stayActive: () => void } {
+  const { isSignedIn } = useAuth()
+  const { session } = useSession()
+  const clerk = useClerk()
+  const [state, setState] = useState<SessionClockState | null>(null)
+  // Clerk hands out a new session object each time it refreshes the token (about every minute):
+  // the clock restarts only for a different session, never for a refresh of the same one.
+  const sessionId = session?.id ?? null
+  const createdAtMs = session?.createdAt instanceof Date ? session.createdAt.getTime() : null
 
-  return { showWarning, resetWarning }
+  const lastActivity = useRef(Date.now())
+  const lastShared = useRef(0)
+  const lastPing = useRef(0)
+  const signingOut = useRef(false)
+
+  /** The latest activity in any tab. */
+  const latestActivity = () => Math.max(lastActivity.current, sharedActivity())
+
+  const signOut = useCallback((reason: SessionEndReason) => {
+    if (signingOut.current) return
+    signingOut.current = true
+    const destination = `/login?${SIGNED_OUT_PARAM}=${reason}`
+    clerk.signOut({ redirectUrl: destination }).catch(() => {
+      // No signal, say: clear what this browser holds and leave the app anyway. The server
+      // refuses the session whatever happens here.
+      signingOut.current = false
+      void clearLocalAccountData().finally(() => window.location.assign(destination))
+    })
+  }, [clerk])
+
+  const noteActivity = useCallback(() => {
+    const now = Date.now()
+    // Back after the idle limit (a phone woken from the background): the first tap doesn't
+    // count as having stayed; the session has already ended.
+    if (now - latestActivity() >= SESSION_CLOCK.idleMs) {
+      signOut('idle')
+      return
+    }
+    lastActivity.current = now
+    if (now - lastShared.current >= SHARE_EVERY_MS) {
+      lastShared.current = now
+      shareActivity(now)
+    }
+    if (shouldPing(now, lastPing.current)) {
+      lastPing.current = now
+      void apiRequest('/api/session/ping', { method: 'POST' })
+    }
+  }, [signOut])
+
+  useEffect(() => {
+    if (!isSignedIn || !sessionId) {
+      setState(null)
+      signingOut.current = false
+      return
+    }
+    // Opening the app counts as activity; the absolute limit counts from when this session was
+    // created, however many times the page has been reloaded.
+    const signedInAt = createdAtMs ?? Date.now()
+    const now = Date.now()
+    lastActivity.current = now
+    lastShared.current = now
+    lastPing.current = now
+    shareActivity(now)
+
+    const tick = () => {
+      const next = sessionClock(Date.now(), signedInAt, latestActivity())
+      // Re-render only when there is something to show: the warning, its countdown, or its end.
+      setState((previous) => (!next.warn && !previous?.warn ? previous ?? next : next))
+      if (next.ended) signOut(next.reason)
+    }
+    tick()
+    const timer = window.setInterval(tick, TICK_MS)
+
+    const onActivity = () => noteActivity()
+    // Capture, so scrolling inside a panel counts as well as scrolling the page.
+    for (const event of ACTIVITY_EVENTS) window.addEventListener(event, onActivity, { passive: true, capture: true })
+
+    const onServerEnded = (e: Event) => {
+      const reason = (e as CustomEvent<{ reason?: SessionEndReason }>).detail?.reason
+      signOut(reason === 'absolute' ? 'absolute' : 'idle')
+    }
+    window.addEventListener(SESSION_ENDED_EVENT, onServerEnded)
+
+    return () => {
+      window.clearInterval(timer)
+      for (const event of ACTIVITY_EVENTS) window.removeEventListener(event, onActivity, { capture: true })
+      window.removeEventListener(SESSION_ENDED_EVENT, onServerEnded)
+    }
+  }, [isSignedIn, sessionId, createdAtMs, noteActivity, signOut])
+
+  const warning = state && state.warn && !state.ended ? { reason: state.reason, msLeft: state.msLeft } : null
+  return { warning, stayActive: noteActivity }
 }

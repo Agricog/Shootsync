@@ -7,7 +7,6 @@ import { type ReactNode } from 'react'
 import Navigation from './Navigation'
 import Footer from './Footer'
 import ReadOnlyNotice from './ReadOnlyNotice'
-import { useSessionTimeout } from '../../hooks/useSessionTimeout'
 import { useOnlineStatus } from '../../hooks/useOnlineStatus'
 import ErrorBoundary from '../common/ErrorBoundary'
 
@@ -26,12 +25,6 @@ export default function DashboardLayout({
   action,
   fullWidth = false,
 }: DashboardLayoutProps) {
-  useSessionTimeout({
-    onTimeout: () => {
-      console.log('[ShootSync] Session timed out')
-    },
-  })
-
   const isOnline = useOnlineStatus()
 
   return (

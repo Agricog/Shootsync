@@ -12,7 +12,7 @@ import { PrismaClient } from '@prisma/client'
 import Stripe from 'stripe'
 import { createApp } from '../server/app.js'
 import type { AppConfig } from '../server/config.js'
-import type { TokenVerifier } from '../server/auth.js'
+import { sessionFromClaims, type TokenVerifier } from '../server/auth.js'
 
 export const TEST_WEBHOOK_SECRET = 'whsec_test_shootsync'
 
@@ -26,14 +26,22 @@ export const testConfig: AppConfig = {
   stripePriceIds: { STARTER: 'price_starter_test', STANDARD: 'price_standard_test' },
 }
 
-/** "test-token.<userId>" signs in as <userId>; anything else is rejected, like a bad Clerk token. */
+/**
+ * "test-token.<userId>" signs in as <userId>, in session sess_<userId>, signed in a minute ago.
+ * "test-token.<userId>.<minutes>" says how many minutes ago, and "test-token.<userId>.nofva"
+ * carries no sign-in age at all. Anything else is rejected, like a bad Clerk token. The claims go
+ * through the same reader as Clerk's (sessionFromClaims), issued now.
+ */
 export const testVerifier: TokenVerifier = async (token) => {
-  const match = /^test-token\.(user_[A-Za-z0-9_]+)$/.exec(token)
+  const match = /^test-token\.(user_[A-Za-z0-9_]+)(?:\.(\d+|nofva))?$/.exec(token)
   if (!match) throw new Error('invalid token')
-  return match[1]
+  const iat = Math.floor(Date.now() / 1000)
+  const fva = match[2] === 'nofva' ? undefined : [match[2] === undefined ? 1 : Number(match[2]), -1]
+  return sessionFromClaims({ sub: match[1], sid: `sess_${match[1]}`, fva, iat }, iat)
 }
 
-export const tokenFor = (userId: string) => `test-token.${userId}`
+export const tokenFor = (userId: string, minutesSinceSignIn?: number | 'nofva') =>
+  minutesSinceSignIn === undefined ? `test-token.${userId}` : `test-token.${userId}.${minutesSinceSignIn}`
 
 /** A client for the disposable test database, or for another database on the same server. */
 export function createTestPrisma(databaseUrl = process.env.DATABASE_URL): PrismaClient {
@@ -188,6 +196,7 @@ const TABLES = [
   'beaters',
   'members',
   'syndicates',
+  'session_activity',
 ]
 
 export async function resetDatabase(prisma: PrismaClient) {

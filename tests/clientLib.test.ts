@@ -6,9 +6,10 @@
 
 import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
-import { OFFLINE_MESSAGE, PLAN_CHANGED_EVENT, apiPath, apiRequest, errorMessageFrom } from '../src/lib/api.js'
+import { OFFLINE_MESSAGE, PLAN_CHANGED_EVENT, SESSION_ENDED_EVENT, apiPath, apiRequest, errorMessageFrom } from '../src/lib/api.js'
 import { chooseSyndicate, parseMemberships, planNotice, type Membership } from '../src/lib/membership.js'
 import { nextShootFrom } from '../src/lib/shootDays.js'
+import { SESSION_CLOCK, formatCountdown, sessionClock, shouldPing, signedOutReason } from '../src/lib/sessionClock.js'
 import { newSyndicateForm, newSyndicatePayload, suggestedSeason, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyShootDraft, newShootPayload, validateShoot } from '../src/utils/shootForm.js'
 import { fieldLabel, friendlyMessage } from '../server/validation.js'
@@ -65,6 +66,27 @@ describe('API client', () => {
       const res = await apiRequest('/api/x', { method: 'POST', body: {} })
       assert.equal(res.ok, false)
       assert.deepEqual(heard, [PLAN_CHANGED_EVENT])
+    } finally {
+      delete g.window
+    }
+  })
+
+  it('a session the server has ended tells the app to sign out, with the reason; other 401s do not', async () => {
+    const target = new EventTarget()
+    const heard: unknown[] = []
+    target.addEventListener(SESSION_ENDED_EVENT, (e) => heard.push((e as CustomEvent).detail))
+    const g = globalThis as { window?: unknown }
+    g.window = target
+    try {
+      respond(401, JSON.stringify({ error: 'Sign in required' }))
+      await apiRequest('/api/x')
+      assert.deepEqual(heard, [])
+      respond(401, JSON.stringify({ error: 'x', code: 'session_ended', reason: 'absolute' }))
+      const res = await apiRequest('/api/x')
+      assert.equal(res.ok, false)
+      respond(401, JSON.stringify({ error: 'x', code: 'session_ended', reason: 'idle' }))
+      await apiRequest('/api/x')
+      assert.deepEqual(heard, [{ reason: 'absolute' }, { reason: 'idle' }])
     } finally {
       delete g.window
     }
@@ -227,5 +249,43 @@ describe('validation messages', () => {
     assert.equal(friendlyMessage({ path: ['email'], code: 'invalid_format', format: 'email' }), 'Email must be a valid email address.')
     assert.equal(friendlyMessage({ path: ['memberIds'], code: 'too_small', origin: 'array', minimum: 1 }), 'Guns: choose at least one.')
     assert.equal(friendlyMessage({ path: ['status'], code: 'invalid_value' }), 'Status is not one of the allowed choices.')
+  })
+})
+
+describe('the session clock (15 minutes from sign-in, 10 idle)', () => {
+  const min = 60_000
+  const signedIn = 1_000_000
+
+  it('counts down to whichever limit comes first', () => {
+    const fresh = sessionClock(signedIn, signedIn, signedIn)
+    assert.deepEqual([fresh.reason, fresh.msLeft, fresh.warn, fresh.ended], ['idle', 10 * min, false, false])
+    // Busy for 12 minutes: the absolute limit is now the nearer one.
+    const busy = sessionClock(signedIn + 12 * min, signedIn, signedIn + 12 * min)
+    assert.deepEqual([busy.reason, busy.msLeft], ['absolute', 3 * min])
+  })
+
+  it('warns in the last minute, and ends at the limit', () => {
+    assert.equal(sessionClock(signedIn + 9 * min - 1, signedIn, signedIn).warn, false)
+    const warned = sessionClock(signedIn + 9 * min, signedIn, signedIn)
+    assert.deepEqual([warned.warn, warned.ended, warned.msLeft], [true, false, min])
+    const ended = sessionClock(signedIn + 11 * min, signedIn, signedIn)
+    assert.deepEqual([ended.ended, ended.msLeft, ended.reason], [true, 0, 'idle'])
+    const absolute = sessionClock(signedIn + 15 * min, signedIn, signedIn + 15 * min)
+    assert.deepEqual([absolute.ended, absolute.reason], [true, 'absolute'])
+  })
+
+  it('tells the server a busy user is still there at most every couple of minutes', () => {
+    assert.equal(shouldPing(signedIn + SESSION_CLOCK.pingEveryMs - 1, signedIn), false)
+    assert.equal(shouldPing(signedIn + SESSION_CLOCK.pingEveryMs, signedIn), true)
+  })
+
+  it('shows the time left as m:ss, and reads only known reasons from the sign-in link', () => {
+    assert.equal(formatCountdown(60_000), '1:00')
+    assert.equal(formatCountdown(44_001), '0:45')
+    assert.equal(formatCountdown(0), '0:00')
+    assert.equal(signedOutReason('idle'), 'idle')
+    assert.equal(signedOutReason('absolute'), 'absolute')
+    assert.equal(signedOutReason('<script>'), null)
+    assert.equal(signedOutReason(null), null)
   })
 })
