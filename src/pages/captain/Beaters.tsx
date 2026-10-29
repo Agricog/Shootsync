@@ -11,7 +11,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
+import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -31,19 +32,9 @@ interface Beater {
   notes?: string | null
 }
 
-async function send(path: string, method: string, body?: unknown): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
-  try {
-    const response = await fetch(path, {
-      method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    const data = await response.json().catch(() => null)
-    if (!response.ok) return { ok: false, error: data?.details?.[0]?.message || data?.error || `Something went wrong (${response.status})` }
-    return { ok: true, data }
-  } catch {
-    return { ok: false, error: 'Could not reach ShootSync. Check your connection and try again.' }
-  }
+async function send(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
+  const result = await apiRequest<any>(path, { method, body })
+  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error }
 }
 
 const input = 'w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-green-500'
@@ -122,14 +113,14 @@ function BeaterForm({ draft, onChange, existing, saving, error, onSubmit, onCanc
 }
 
 export default function Beaters() {
-  const { user } = useAuth()
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
-  const [defaultRate, setDefaultRate] = useState(40)
+  const syndicate = useCaptainSyndicate()
+  const syndicateId = syndicate.id
+  const defaultRate = syndicate.defaultBeaterRate
   const [beaters, setBeaters] = useState<Beater[]>([])
   const [loading, setLoading] = useState(true)
   const [showInactive, setShowInactive] = useState(false)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
-  const [draft, setDraft] = useState<Draft>(emptyDraft(40))
+  const [draft, setDraft] = useState<Draft>(() => emptyDraft(syndicate.defaultBeaterRate))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -141,21 +132,12 @@ export default function Beaters() {
   }, [])
 
   useEffect(() => {
-    if (!user?.id) return
     ;(async () => {
       setLoading(true)
-      const result = await send('/api/syndicates', 'GET')
-      if (result.ok && result.data.length > 0) {
-        const syndicate = result.data[0]
-        setSyndicateId(syndicate.id)
-        setDefaultRate(syndicate.defaultBeaterRate ?? 40)
-        await load(syndicate.id)
-      } else if (!result.ok) {
-        setError(result.error)
-      }
+      await load(syndicateId)
       setLoading(false)
     })()
-  }, [user?.id, load])
+  }, [syndicateId, load])
 
   const startNew = () => {
     setEditing('new')
@@ -172,7 +154,7 @@ export default function Beaters() {
   }
 
   const save = async () => {
-    if (!syndicateId || !editing) return
+    if (!editing) return
     const isEdit = editing !== 'new'
     const payload = payloadFrom(draft, isEdit)
     if ('error' in payload) {
@@ -195,7 +177,6 @@ export default function Beaters() {
   }
 
   const clearBank = async (beater: Beater) => {
-    if (!syndicateId) return
     setSaving(true)
     setError(null)
     const result = await send(`/api/beaters/${encodeURIComponent(beater.id)}`, 'PATCH', { clearBankDetails: true })
@@ -210,7 +191,6 @@ export default function Beaters() {
   }
 
   const setStatus = async (beater: Beater, status: Beater['status']) => {
-    if (!syndicateId) return
     setError(null)
     const result = await send(`/api/beaters/${encodeURIComponent(beater.id)}`, 'PATCH', { status })
     if (!result.ok) setError(result.error)
@@ -239,7 +219,7 @@ export default function Beaters() {
                 <Link to="/finances" className="text-green-400 underline">Beaters’ pay</Link>.
               </p>
             </div>
-            {editing !== 'new' && syndicateId && <Button onClick={startNew}>Add beater</Button>}
+            {editing !== 'new' && <Button onClick={startNew}>Add beater</Button>}
           </div>
 
           <div role="status" aria-live="polite">
@@ -263,12 +243,6 @@ export default function Beaters() {
             <div className="flex justify-center py-12">
               <LoadingSpinner size="lg" />
             </div>
-          ) : !syndicateId ? (
-            <Card>
-              <p className="text-slate-300">
-                You haven’t set up a syndicate yet. <Link to="/dashboard" className="text-green-400 underline">Create your syndicate</Link> first.
-              </p>
-            </Card>
           ) : visible.length === 0 && editing !== 'new' ? (
             <Card>
               <p className="text-slate-300">No beaters yet. Add your beating team to book them onto shoot days.</p>

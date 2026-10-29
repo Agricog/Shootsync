@@ -8,21 +8,21 @@ import {
   queryString,
   requireSyndicateAccess,
   syndicateOfMember,
-  syndicateSelect,
   userIdOf,
 } from '../access.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
 
-// clerkUserId is never taken from the browser: an invited member gets a server-generated
-// placeholder until they sign in and accept.
+// clerkUserId is never taken from the browser: a member added by the captain gets a
+// server-generated placeholder, which no sign-in can ever match.
 const createMemberSchema = z.object({
   syndicateId: z.string().min(1),
   email: z.string().trim().email().max(254),
   name: z.string().trim().min(1).max(100),
   phone: optionalText(30),
-  role: z.enum(['CAPTAIN', 'GUN', 'BEATER', 'HYBRID']).optional(),
+  // Members are guns. Beaters are kept on the Beaters page, with their day rate and pay.
+  role: z.enum(['GUN']).optional(),
   bascNumber: optionalText(30),
   insuranceExpiry: dateString.transform((s) => new Date(s)).optional(),
   emergencyContactName: optionalText(100),
@@ -56,20 +56,6 @@ export function memberRoutes({ prisma }: Deps): Router {
     res.json(members)
   }))
 
-  // GET /api/members/by-clerk/:clerkUserId - the signed-in user's own membership only
-  router.get('/by-clerk/:clerkUserId', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    if (req.params.clerkUserId !== userId) throw notFound('Member not found')
-    const syndicateId = queryString(req.query.syndicateId)
-
-    const member = await prisma.member.findFirst({
-      where: { clerkUserId: userId, ...(syndicateId ? { syndicateId } : {}) },
-      include: { syndicate: { select: syndicateSelect } },
-    })
-    if (!member) throw notFound('Member not found')
-    res.json(member)
-  }))
-
   // GET /api/members/:id - captain only
   router.get('/:id', handle(async (req, res) => {
     const userId = userIdOf(req)
@@ -91,7 +77,7 @@ export function memberRoutes({ prisma }: Deps): Router {
     res.json(member)
   }))
 
-  // POST /api/members - invite, captain only
+  // POST /api/members - add a gun to the list, captain only
   router.post('/', handle(async (req, res) => {
     const userId = userIdOf(req)
     const data = createMemberSchema.parse(req.body)
@@ -109,8 +95,9 @@ export function memberRoutes({ prisma }: Deps): Router {
         insuranceExpiry: data.insuranceExpiry,
         emergencyContactName: data.emergencyContactName,
         emergencyContactPhone: data.emergencyContactPhone,
-        invitedAt: new Date(),
-        status: 'PENDING',
+        // On the gun list from the moment the captain adds them. Nothing is sent to them:
+        // their own sign-in is a separate, later step.
+        status: 'ACTIVE',
       },
     })
     res.status(201).json(member)
@@ -144,22 +131,6 @@ export function memberRoutes({ prisma }: Deps): Router {
         status,
         ...(status === 'ACTIVE' && !existing?.acceptedAt ? { acceptedAt: new Date() } : {}),
       },
-    })
-    res.json(member)
-  }))
-
-  // POST /api/members/:id/accept - only the invited person themselves
-  router.post('/:id/accept', handle(async (req, res) => {
-    const userId = userIdOf(req)
-    const existing = await prisma.member.findUnique({
-      where: { id: req.params.id },
-      select: { clerkUserId: true },
-    })
-    if (!existing || existing.clerkUserId !== userId) throw notFound('Member not found')
-
-    const member = await prisma.member.update({
-      where: { id: req.params.id },
-      data: { status: 'ACTIVE', acceptedAt: new Date() },
     })
     res.json(member)
   }))

@@ -4,6 +4,7 @@
  */
 
 import { forwardRef } from 'react'
+import { Link, type LinkProps } from 'react-router-dom'
 
 type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost'
 type ButtonSize = 'sm' | 'md' | 'lg'
@@ -28,6 +29,37 @@ const sizeStyles: Record<ButtonSize, string> = {
   sm: 'px-3 py-1.5 text-sm',
   md: 'px-4 py-2 text-base',
   lg: 'px-6 py-3 text-lg',
+}
+
+/** The look of a button, for an element that isn't one (a link that takes you somewhere). */
+export function buttonClasses({ variant = 'primary', size = 'md', fullWidth = false, className = '' }: {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  fullWidth?: boolean
+  className?: string
+} = {}): string {
+  return [
+    'inline-flex items-center justify-center gap-2 font-medium rounded-lg transition-colors duration-200',
+    'focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-slate-900',
+    variantStyles[variant],
+    sizeStyles[size],
+    fullWidth ? 'w-full' : '',
+    className,
+  ].filter(Boolean).join(' ')
+}
+
+interface ButtonLinkProps extends LinkProps {
+  variant?: ButtonVariant
+  size?: ButtonSize
+  fullWidth?: boolean
+}
+
+/**
+ * A link that looks like a button. Use this, not a <Button> inside a <Link>: a button inside
+ * a link is two controls in one place, which screen readers and keyboards trip over.
+ */
+export function ButtonLink({ variant, size, fullWidth, className, ...props }: ButtonLinkProps) {
+  return <Link className={buttonClasses({ variant, size, fullWidth, className })} {...props} />
 }
 
 const Button = forwardRef<HTMLButtonElement, ButtonProps>(

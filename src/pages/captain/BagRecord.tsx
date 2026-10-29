@@ -12,7 +12,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
+import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { apiRequest } from '../../lib/api'
+import { londonDate } from '../../utils/beaterPayCalculator'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -79,24 +81,14 @@ function bodyFrom(d: Draft): { body: Record<string, unknown> } | { error: string
   return { body: { driveNumber: drive, ...counts, otherDescription: d.otherDescription.trim() || null, notes: d.notes.trim() || null } }
 }
 
-async function send(path: string, method: string, body?: unknown): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
-  try {
-    const response = await fetch(path, {
-      method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    const data = await response.json().catch(() => null)
-    if (!response.ok) return { ok: false, error: data?.details?.[0]?.message || data?.error || `Something went wrong (${response.status})` }
-    return { ok: true, data }
-  } catch {
-    return { ok: false, error: 'Could not reach ShootSync. Check your connection and try again: nothing was saved.' }
-  }
+async function send(path: string, method: 'GET' | 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<{ ok: true; data: any } | { ok: false; error: string }> {
+  const result = await apiRequest<any>(path, { method, body })
+  return result.ok ? { ok: true, data: result.data } : { ok: false, error: result.error }
 }
 
 /** Today's shoot if there is one, else the most recent one that has happened, else the next one. */
 function defaultShoot(shoots: ShootDay[]): string | null {
-  const today = new Date().toLocaleDateString('en-CA') // the date where the captain is, as YYYY-MM-DD
+  const today = londonDate(new Date()) // the UK date, as YYYY-MM-DD
   const day = (s: ShootDay) => s.date.slice(0, 10)
   return (
     shoots.find((s) => day(s) === today)?.id ??
@@ -159,9 +151,8 @@ function BagForm({ draft, onChange, onSubmit, saving, submitLabel, onCancel, voi
 }
 
 export default function BagRecord() {
-  const { user } = useAuth()
+  const { id: syndicateId } = useCaptainSyndicate()
   const [loading, setLoading] = useState(true)
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
   const [shoots, setShoots] = useState<ShootDay[]>([])
   const [shootId, setShootId] = useState<string | null>(null)
   const [bags, setBags] = useState<Bag[]>([])
@@ -206,26 +197,21 @@ export default function BagRecord() {
   }, [])
 
   useEffect(() => {
-    if (!user?.id) return
     ;(async () => {
       setLoading(true)
-      const syndicates = await send('/api/syndicates', 'GET')
-      if (syndicates.ok && syndicates.data.length > 0) {
-        const id = syndicates.data[0].id
-        setSyndicateId(id)
-        const list = await send(`/api/shoots?syndicateId=${encodeURIComponent(id)}`, 'GET')
-        if (list.ok) {
-          const usable: ShootDay[] = list.data.filter((s: ShootDay) => s.status !== 'CANCELLED')
-          setShoots(usable)
-          setShootId(defaultShoot(usable))
-        }
-        await loadSeason(id)
-      } else if (!syndicates.ok) {
-        setError(syndicates.error)
+      setError(null)
+      const list = await send(`/api/shoots?syndicateId=${encodeURIComponent(syndicateId)}`, 'GET')
+      if (list.ok) {
+        const usable: ShootDay[] = list.data.filter((s: ShootDay) => s.status !== 'CANCELLED')
+        setShoots(usable)
+        setShootId(defaultShoot(usable))
+      } else {
+        setError(list.error)
       }
+      await loadSeason(syndicateId)
       setLoading(false)
     })()
-  }, [user?.id, loadSeason])
+  }, [syndicateId, loadSeason])
 
   useEffect(() => {
     setBags([])
@@ -242,7 +228,7 @@ export default function BagRecord() {
     if (currentShoot.current !== forShoot) return
     setNotice(message)
     await loadBags(forShoot, resetForm)
-    if (syndicateId) await loadSeason(syndicateId)
+    await loadSeason(syndicateId)
   }
 
   const record = async () => {

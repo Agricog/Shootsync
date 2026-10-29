@@ -1,137 +1,110 @@
-import { useEffect, useState } from 'react'
+/**
+ * Members - ShootSync
+ *
+ * The syndicate's gun list. Adding a gun puts them on the list for peg draws, shoot days and
+ * guest invites straight away. Nothing is sent to them: guns don't sign in to ShootSync yet,
+ * and this page says so rather than implying an invitation went out.
+ * Beaters are kept on the Beaters page, with their day rate and pay.
+ */
+
+import { useCallback, useEffect, useState } from 'react'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
+import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { apiPath, apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 
-interface Syndicate {
-  id: string
-  name: string
-}
-
 interface Member {
   id: string
   name: string
   email: string
-  phone?: string
+  phone?: string | null
   role: string
-  status: string
-  subscriptionStatus: string
-  insuranceExpiry?: string
+  status: 'ACTIVE' | 'PENDING' | 'INACTIVE'
 }
 
+const STATUS_LABEL: Record<Member['status'], string> = {
+  ACTIVE: 'Active',
+  PENDING: 'Not yet active',
+  INACTIVE: 'Inactive',
+}
+
+const statusColour = (status: Member['status']) => {
+  switch (status) {
+    case 'ACTIVE': return 'bg-green-900 text-green-200'
+    case 'PENDING': return 'bg-yellow-900 text-yellow-200'
+    default: return 'bg-slate-700 text-slate-200'
+  }
+}
+
+const EMPTY_DRAFT = { name: '', email: '', phone: '' }
+
 export default function Members() {
-  const { user } = useAuth()
-  const syndicateApi = useApi<Syndicate>('syndicates')
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
+  const syndicate = useCaptainSyndicate()
   const [members, setMembers] = useState<Member[]>([])
   const [loading, setLoading] = useState(true)
-  const [showInviteForm, setShowInviteForm] = useState(false)
-  const [inviteData, setInviteData] = useState({ name: '', email: '', phone: '', role: 'GUN' })
-  const [inviting, setInviting] = useState(false)
-  const [updatingStatus, setUpdatingStatus] = useState<string | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const memberApi = useApi<Member>('members')
+  const [adding, setAdding] = useState(false)
+  const [draft, setDraft] = useState(EMPTY_DRAFT)
+  const [saving, setSaving] = useState(false)
+  const [addError, setAddError] = useState<string | null>(null)
+
+  const [updating, setUpdating] = useState<string | null>(null)
+  const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    const result = await apiRequest<Member[]>(apiPath('/api/members', { syndicateId: syndicate.id }))
+    if (result.ok) setMembers(result.data)
+    else setLoadError(result.error)
+    setLoading(false)
+  }, [syndicate.id])
 
   useEffect(() => {
-    if (user?.id) {
-      loadData()
-    }
-  }, [user?.id])
+    void load()
+  }, [load])
 
-  const loadData = async () => {
-    setLoading(true)
-    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
-    if (syndicates.length > 0) {
-      setSyndicateId(syndicates[0].id)
-      const memberData = await memberApi.fetchAll({ syndicateId: syndicates[0].id })
-      setMembers(memberData)
-    }
-    setLoading(false)
-  }
-
-  const handleInvite = async (e: React.FormEvent) => {
+  const add = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!syndicateId) return
-
-    setInviting(true)
-    const result = await memberApi.create({
-      ...inviteData,
-      syndicateId,
-      clerkUserId: `pending_${Date.now()}`,
-    } as any)
-
-    if (result) {
-      setMembers([...members, result])
-      setInviteData({ name: '', email: '', phone: '', role: 'GUN' })
-      setShowInviteForm(false)
-    }
-    setInviting(false)
-  }
-
-  const handleStatusChange = async (memberId: string, newStatus: 'ACTIVE' | 'PENDING' | 'INACTIVE') => {
-    setUpdatingStatus(memberId)
-    try {
-      const response = await fetch(`/api/members/${memberId}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus }),
-      })
-
-      if (response.ok) {
-        const updatedMember = await response.json()
-        setMembers(members.map(m => m.id === memberId ? updatedMember : m))
-      }
-    } catch (error) {
-      console.error('Failed to update member status:', error)
-    }
-    setUpdatingStatus(null)
-  }
-
-  const handleRemoveMember = async (memberId: string) => {
-    if (!confirm('Are you sure you want to remove this member? They will be marked as inactive.')) {
+    setSaving(true)
+    setAddError(null)
+    const result = await apiRequest<Member>('/api/members', {
+      method: 'POST',
+      body: {
+        syndicateId: syndicate.id,
+        name: draft.name.trim(),
+        email: draft.email.trim(),
+        phone: draft.phone.trim() || undefined,
+      },
+    })
+    setSaving(false)
+    if (!result.ok) {
+      setAddError(`Not added: ${result.error}`)
       return
     }
-    await handleStatusChange(memberId, 'INACTIVE')
+    setMembers((list) => [...list, result.data].sort((a, b) => a.name.localeCompare(b.name)))
+    setDraft(EMPTY_DRAFT)
+    setAdding(false)
   }
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'ACTIVE': return 'bg-green-900 text-green-200'
-      case 'PENDING': return 'bg-yellow-900 text-yellow-200'
-      case 'INACTIVE': return 'bg-slate-700 text-slate-200'
-      default: return 'bg-slate-700 text-slate-200'
+  const setStatus = async (member: Member, status: Member['status']) => {
+    setUpdating(member.id)
+    setRowError(null)
+    const result = await apiRequest<Member>(`/api/members/${encodeURIComponent(member.id)}/status`, { method: 'PATCH', body: { status } })
+    setUpdating(null)
+    if (!result.ok) {
+      setRowError({ id: member.id, message: result.error })
+      return
     }
+    setMembers((list) => list.map((m) => (m.id === member.id ? result.data : m)))
   }
 
-  const getRoleColor = (role: string) => {
-    switch (role) {
-      case 'CAPTAIN': return 'bg-purple-900 text-purple-200'
-      case 'GUN': return 'bg-blue-900 text-blue-200'
-      case 'BEATER': return 'bg-orange-900 text-orange-200'
-      case 'HYBRID': return 'bg-teal-900 text-teal-200'
-      default: return 'bg-slate-700 text-slate-200'
-    }
-  }
-
-  // Count members by status
-  const activeCount = members.filter(m => m.status === 'ACTIVE').length
-  const pendingCount = members.filter(m => m.status === 'PENDING').length
-  const inactiveCount = members.filter(m => m.status === 'INACTIVE').length
-
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <div className="flex justify-center items-center h-64">
-          <LoadingSpinner size="lg" />
-        </div>
-      </DashboardLayout>
-    )
-  }
+  const count = (status: Member['status']) => members.filter((m) => m.status === status).length
 
   return (
     <DashboardLayout>
@@ -140,56 +113,36 @@ export default function Members() {
       </Helmet>
 
       <div className="space-y-6">
-        <div className="flex justify-between items-center">
+        <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">Members</h1>
-            <p className="text-gray-400 text-sm mt-1">
-              {activeCount} active · {pendingCount} pending · {inactiveCount} inactive
-            </p>
+            {!loading && !loadError && (
+              <p className="text-slate-300 text-sm mt-1">
+                {count('ACTIVE')} active
+                {count('PENDING') > 0 && ` · ${count('PENDING')} not yet active`}
+                {count('INACTIVE') > 0 && ` · ${count('INACTIVE')} inactive`}
+              </p>
+            )}
           </div>
-          <Button onClick={() => setShowInviteForm(true)}>Invite Member</Button>
+          {!adding && <Button onClick={() => setAdding(true)}>Add a member</Button>}
         </div>
 
-        {/* Invite Form Modal */}
-        {showInviteForm && (
+        {adding && (
           <Card>
-            <h2 className="text-lg font-semibold text-white mb-4">Invite New Member</h2>
-            <form onSubmit={handleInvite} className="space-y-4">
-              <Input
-                label="Name"
-                value={inviteData.name}
-                onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })}
-                required
-              />
-              <Input
-                label="Email"
-                type="email"
-                value={inviteData.email}
-                onChange={(e) => setInviteData({ ...inviteData, email: e.target.value })}
-                required
-              />
-              <Input
-                label="Phone"
-                value={inviteData.phone}
-                onChange={(e) => setInviteData({ ...inviteData, phone: e.target.value })}
-              />
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">Role</label>
-                <select
-                  value={inviteData.role}
-                  onChange={(e) => setInviteData({ ...inviteData, role: e.target.value })}
-                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-lg text-white"
-                >
-                  <option value="GUN">Gun</option>
-                  <option value="BEATER">Beater</option>
-                  <option value="HYBRID">Hybrid (Gun & Beater)</option>
-                </select>
-              </div>
-              <div className="flex gap-3">
-                <Button type="submit" disabled={inviting}>
-                  {inviting ? 'Inviting...' : 'Send Invite'}
-                </Button>
-                <Button type="button" variant="secondary" onClick={() => setShowInviteForm(false)}>
+            <h2 className="text-lg font-semibold text-white mb-1">Add a member</h2>
+            <p className="text-sm text-slate-300 mb-4">
+              They go straight onto your gun list for peg draws and shoot days. Nothing is sent to them.
+            </p>
+            <form onSubmit={add} className="space-y-4">
+              <Input label="Name" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} required maxLength={100} autoFocus />
+              <Input label="Email" type="email" value={draft.email} onChange={(e) => setDraft({ ...draft, email: e.target.value })} required maxLength={254} />
+              <Input label="Phone (optional)" type="tel" value={draft.phone} onChange={(e) => setDraft({ ...draft, phone: e.target.value })} maxLength={30} />
+              {addError && (
+                <p role="alert" className="rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{addError}</p>
+              )}
+              <div className="flex flex-wrap gap-3">
+                <Button type="submit" isLoading={saving} disabled={saving}>Add to the list</Button>
+                <Button type="button" variant="ghost" onClick={() => { setAdding(false); setAddError(null) }} disabled={saving}>
                   Cancel
                 </Button>
               </div>
@@ -197,78 +150,63 @@ export default function Members() {
           </Card>
         )}
 
-        {/* Members List */}
-        {members.length === 0 ? (
+        {loading ? (
+          <div className="flex justify-center items-center h-64">
+            <LoadingSpinner size="lg" />
+          </div>
+        ) : loadError ? (
           <Card>
-            <div className="text-center py-8">
-              <p className="text-gray-400 mb-4">No members yet. Invite your first member to get started.</p>
-              <Button onClick={() => setShowInviteForm(true)}>Invite Your First Member</Button>
+            <div role="alert" className="text-center py-6">
+              <p className="text-slate-200 mb-4">{loadError}</p>
+              <Button onClick={() => void load()}>Try again</Button>
             </div>
           </Card>
+        ) : members.length === 0 ? (
+          !adding && (
+            <Card>
+              <div className="text-center py-8">
+                <p className="text-slate-300 mb-4">No members yet. Add your guns to use the peg draw and shoot day sheets.</p>
+                <Button onClick={() => setAdding(true)}>Add your first member</Button>
+              </div>
+            </Card>
+          )
         ) : (
-          <div className="space-y-4">
+          <ul className="space-y-4">
             {members.map((member) => (
-              <Card key={member.id} hover>
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">{member.name}</h3>
-                    <p className="text-gray-300">{member.email}</p>
-                    {member.phone && <p className="text-gray-400 text-sm">{member.phone}</p>}
-                  </div>
-                  <div className="flex flex-col items-end gap-2">
-                    <div className="flex items-center gap-2">
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getRoleColor(member.role)}`}>
-                        {member.role}
-                      </span>
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${getStatusColor(member.status)}`}>
-                        {member.status}
-                      </span>
+              <li key={member.id}>
+                <Card>
+                  <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-3">
+                    <div className="min-w-0">
+                      <h2 className="text-lg font-semibold text-white">{member.name}</h2>
+                      <p className="text-slate-300 break-words">{member.email}</p>
+                      {member.phone && <p className="text-slate-400 text-sm">{member.phone}</p>}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {updatingStatus === member.id ? (
+                    <div className="flex flex-col sm:items-end gap-2">
+                      <span className={`self-start sm:self-auto px-3 py-1 rounded-full text-sm font-medium ${statusColour(member.status)}`}>
+                        {STATUS_LABEL[member.status] ?? member.status}
+                      </span>
+                      {updating === member.id ? (
                         <LoadingSpinner size="sm" />
+                      ) : member.status === 'ACTIVE' ? (
+                        <Button variant="ghost" size="sm" onClick={() => void setStatus(member, 'INACTIVE')}>
+                          Make inactive
+                        </Button>
                       ) : (
-                        <>
-                          {member.status === 'PENDING' && (
-                            <button
-                              onClick={() => handleStatusChange(member.id, 'ACTIVE')}
-                              className="text-sm text-green-400 hover:text-green-300 font-medium"
-                            >
-                              Activate
-                            </button>
-                          )}
-                          {member.status === 'ACTIVE' && (
-                            <button
-                              onClick={() => handleStatusChange(member.id, 'INACTIVE')}
-                              className="text-sm text-amber-400 hover:text-amber-300 font-medium"
-                            >
-                              Deactivate
-                            </button>
-                          )}
-                          {member.status === 'INACTIVE' && (
-                            <button
-                              onClick={() => handleStatusChange(member.id, 'ACTIVE')}
-                              className="text-sm text-green-400 hover:text-green-300 font-medium"
-                            >
-                              Reactivate
-                            </button>
-                          )}
-                          {member.status !== 'INACTIVE' && (
-                            <button
-                              onClick={() => handleRemoveMember(member.id)}
-                              className="text-sm text-red-400 hover:text-red-300 font-medium ml-2"
-                            >
-                              Remove
-                            </button>
-                          )}
-                        </>
+                        <Button variant="ghost" size="sm" onClick={() => void setStatus(member, 'ACTIVE')}>
+                          {member.status === 'PENDING' ? 'Make active' : 'Make active again'}
+                        </Button>
                       )}
                     </div>
                   </div>
-                </div>
-              </Card>
+                  {rowError?.id === member.id && (
+                    <p role="alert" className="mt-3 rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">
+                      {rowError.message}
+                    </p>
+                  )}
+                </Card>
+              </li>
             ))}
-          </div>
+          </ul>
         )}
       </div>
     </DashboardLayout>

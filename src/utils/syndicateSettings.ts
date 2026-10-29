@@ -1,7 +1,10 @@
 /**
- * Syndicate settings form: shape and checks, shared by the Settings page and its tests.
- * Money is whole pounds. The server checks everything again; these checks are for the captain.
+ * Syndicate settings form: shape and checks, shared by the Settings page, the new-syndicate
+ * page and their tests. Money is whole pounds. The server checks everything again; these
+ * checks are for the captain.
  */
+
+import { seasonDates, speciesById } from './seasonDates.js'
 
 export interface SyndicateSettings {
   id: string
@@ -74,4 +77,44 @@ export function settingsPayload(form: SettingsForm, saved: SyndicateSettings): R
     pegRotationRule: before.pegRotationRule,
   }
   return Object.fromEntries(Object.entries(next).filter(([key, value]) => value !== old[key]))
+}
+
+/** "2026-10-01": a UTC date as the form's date fields hold it. */
+const isoDay = (date: Date) => date.toISOString().slice(0, 10)
+
+/**
+ * The pheasant season a new syndicate is most likely setting up for, from the UK date today:
+ * the one under way, or the next one once the last has closed. The captain can change both dates.
+ */
+export function suggestedSeason(today: string): { seasonStart: string; seasonEnd: string } {
+  const pheasant = speciesById('pheasant').seasons.englandWales!
+  const year = Number(today.slice(0, 4))
+  const lastYears = seasonDates(pheasant, year - 1)
+  const { opens, closes } = today <= isoDay(lastYears.closes) ? lastYears : seasonDates(pheasant, year)
+  return { seasonStart: isoDay(opens), seasonEnd: isoDay(closes) }
+}
+
+/** A new syndicate's form: the likely season, the usual defaults, no name. */
+export function newSyndicateForm(today: string): SettingsForm {
+  return {
+    name: '',
+    ...suggestedSeason(today),
+    subscriptionAmount: '0',
+    subscriptionType: 'ANNUAL',
+    defaultBeaterRate: '40',
+    pegRotationRule: 'FAIR_ROTATION',
+  }
+}
+
+/** What to send to create a syndicate from the form. */
+export function newSyndicatePayload(form: SettingsForm) {
+  return {
+    name: form.name.trim(),
+    seasonStart: form.seasonStart,
+    seasonEnd: form.seasonEnd,
+    subscriptionAmount: Number(form.subscriptionAmount),
+    subscriptionType: form.subscriptionType,
+    defaultBeaterRate: Number(form.defaultBeaterRate),
+    pegRotationRule: form.pegRotationRule,
+  }
 }

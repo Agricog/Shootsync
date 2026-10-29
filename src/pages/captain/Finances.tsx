@@ -10,7 +10,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
+import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { apiPath, apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card, { StatCard } from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -59,10 +60,9 @@ const taxYearLabel = (start: string) => {
 }
 
 export default function Finances() {
-  const { user } = useAuth()
+  const { id: syndicateId } = useCaptainSyndicate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
   const [data, setData] = useState<PaySummary | null>(null)
   const [payingId, setPayingId] = useState<string | null>(null)
   const [reference, setReference] = useState('')
@@ -70,63 +70,45 @@ export default function Finances() {
   const [notice, setNotice] = useState<string | null>(null)
 
   const load = useCallback(async (id: string) => {
-    try {
-      const response = await fetch(`/api/beaters/payments/summary?syndicateId=${encodeURIComponent(id)}`)
-      if (!response.ok) throw new Error(String(response.status))
-      setData(await response.json())
+    const result = await apiRequest<PaySummary>(apiPath('/api/beaters/payments/summary', { syndicateId: id }))
+    if (result.ok) {
+      setData(result.data)
       setError(null)
-    } catch {
-      setError('Could not load beaters’ pay. Check your connection and try again.')
+    } else {
+      setError(`Could not load beaters’ pay. ${result.error}`)
     }
   }, [])
 
   useEffect(() => {
-    if (!user?.id) return
     ;(async () => {
       setLoading(true)
-      try {
-        const response = await fetch('/api/syndicates')
-        const syndicates: { id: string }[] = response.ok ? await response.json() : []
-        if (syndicates.length > 0) {
-          setSyndicateId(syndicates[0].id)
-          await load(syndicates[0].id)
-        }
-      } catch {
-        setError('Could not load your syndicate. Check your connection and try again.')
-      }
+      await load(syndicateId)
       setLoading(false)
     })()
-  }, [user?.id, load])
+  }, [syndicateId, load])
 
   const markPaid = async (beater: BeaterPay) => {
-    if (!syndicateId) return
     setSaving(true)
     setError(null)
-    try {
-      const response = await fetch(`/api/beaters/${encodeURIComponent(beater.id)}/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Exactly what's on screen: if any amount has changed since, nothing is marked.
-        body: JSON.stringify({
-          payments: beater.owed.map((o) => ({ paymentId: o.paymentId, amount: o.amount })),
-          paymentReference: reference.trim() || undefined,
-        }),
-      })
-      const body = await response.json().catch(() => null)
-      if (response.status === 409) {
-        await load(syndicateId)
-        setPayingId(null)
-        setError(`Nothing marked paid: what ${beater.name} is owed has changed. The amounts below are up to date; check them against your bank before marking paid.`)
-      } else if (!response.ok) {
-        throw new Error(String(response.status))
-      } else {
-        setNotice(`${beater.name} marked paid ${formatCurrency(body?.total ?? beater.totalOutstanding)}.`)
-        setPayingId(null)
-        setReference('')
-        await load(syndicateId)
-      }
-    } catch {
-      setError(`Not saved: ${beater.name} is still shown as owed. Try again.`)
+    const result = await apiRequest<{ total?: number }>(`/api/beaters/${encodeURIComponent(beater.id)}/pay`, {
+      method: 'POST',
+      // Exactly what's on screen: if any amount has changed since, nothing is marked.
+      body: {
+        payments: beater.owed.map((o) => ({ paymentId: o.paymentId, amount: o.amount })),
+        paymentReference: reference.trim() || undefined,
+      },
+    })
+    if (result.ok) {
+      setNotice(`${beater.name} marked paid ${formatCurrency(result.data?.total ?? beater.totalOutstanding)}.`)
+      setPayingId(null)
+      setReference('')
+      await load(syndicateId)
+    } else if (result.status === 409) {
+      await load(syndicateId)
+      setPayingId(null)
+      setError(`Nothing marked paid: what ${beater.name} is owed has changed. The amounts below are up to date; check them against your bank before marking paid.`)
+    } else {
+      setError(`Not saved: ${beater.name} is still shown as owed. ${result.error}`)
     }
     setSaving(false)
   }

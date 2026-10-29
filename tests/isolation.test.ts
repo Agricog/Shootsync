@@ -12,6 +12,7 @@
 import { after, before, beforeEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
+import { PUBLIC_ROUTES } from '../server/auth.js'
 import {
   BEATER_ROLE_A,
   CAPTAIN_A,
@@ -19,7 +20,9 @@ import {
   GUN_A,
   STRANGER,
   call,
+  concrete,
   createTestPrisma,
+  registeredRoutes,
   createTestStripe,
   resetDatabase,
   seed,
@@ -94,6 +97,19 @@ const CASES: Case[] = [
   { name: 'subscription status', method: 'GET', path: (x) => `/api/subscriptions/status/${x.syndicate.id}`, level: 'member' },
 ]
 
+/**
+ * Routes that act only on the caller's own account, so there is no other syndicate's data to
+ * reach through them. Each has its own tests. Everything else must be in CASES above.
+ */
+const SELF_SCOPED = [
+  'GET /api/me',
+  'GET /api/syndicates', // the syndicates the caller captains
+  'POST /api/syndicates', // the caller becomes captain of a new one
+]
+
+/** "/api/shoots/:id/beaters/:bookingId" -> a pattern matching any concrete path of that shape. */
+const routePattern = (path: string) => new RegExp(`^${path.replace(/\/$/, '').replace(/:[A-Za-z]+/g, '[^/?]+')}(\\?.*)?$`)
+
 /** Every row in the database, so a refused request can be proven to have changed nothing. */
 async function snapshot(prisma: PrismaClient) {
   const [syndicates, members, beaters, shoots, attendances, bags, payments, bookings, guests] = await Promise.all([
@@ -129,6 +145,42 @@ describe('cross-account isolation', () => {
   beforeEach(async () => {
     await resetDatabase(prisma)
     data = await seed(prisma)
+  })
+
+  it('every signed-in route is in the matrix, or acts only on the caller’s own account', async () => {
+    const { stripe } = createTestStripe()
+    const routes = registeredRoutes(prisma, stripe)
+    assert.ok(routes.length >= 50, `only found ${routes.length} routes`)
+    // Which route each case actually reaches: the most specific one that matches it, as Express
+    // does ("/api/bags/season" is the season route, not "/api/bags/:id" with id "season").
+    const params = (path: string) => (path.match(/:/g) ?? []).length
+    const reached = new Set(
+      CASES.map((c) => {
+        const target = routes
+          .filter((r) => r.method === c.method && routePattern(r.path).test(c.path(data.a)))
+          .sort((x, y) => params(x.path) - params(y.path))[0]
+        return target ? `${target.method} ${target.path.replace(/\/$/, '')}` : `none: ${c.name}`
+      })
+    )
+    assert.deepEqual([...reached].filter((r) => r.startsWith('none')), [])
+
+    const missing: string[] = []
+    for (const route of routes) {
+      const path = route.path.replace(/\/$/, '')
+      // A public route's parameters have a fixed shape (a 64-hex token, a Stripe session ID).
+      const sample = path.replace(':token', 'a'.repeat(64)).replace(':sessionId', 'cs_test_abcdefghijkl')
+      const isPublic = PUBLIC_ROUTES.some((p) => p.method === route.method && p.path.test(concrete(sample).replace(/^\/api/, '')))
+      if (isPublic) continue
+      if (SELF_SCOPED.includes(`${route.method} ${path}`)) continue
+      if (!reached.has(`${route.method} ${path}`)) missing.push(`${route.method} ${path}`)
+    }
+    assert.deepEqual(missing, [])
+  })
+
+  it('the self-scoped list names only routes that exist', () => {
+    const { stripe } = createTestStripe()
+    const routes = registeredRoutes(prisma, stripe).map((r) => `${r.method} ${r.path.replace(/\/$/, '')}`)
+    for (const entry of SELF_SCOPED) assert.ok(routes.includes(entry), `${entry} is not a route`)
   })
 
   for (const testCase of CASES) {

@@ -22,6 +22,7 @@ import { bagRoutes } from './routes/bags.js'
 import { guestRoutes } from './routes/guests.js'
 import { stripeRoutes } from './routes/stripe.js'
 import { subscriptionRoutes } from './routes/subscriptions.js'
+import { meRoutes } from './routes/me.js'
 import { stripeWebhookHandler } from './routes/stripeWebhook.js'
 
 export interface AppOptions extends Deps {
@@ -128,6 +129,7 @@ export function createApp(options: AppOptions) {
 
   app.use('/api', authGate(verifyToken))
 
+  app.use('/api/me', meRoutes(deps))
   app.use('/api/syndicates', syndicateRoutes(deps))
   app.use('/api/members', memberRoutes(deps))
   app.use('/api/beaters', beaterRoutes(deps))

@@ -39,6 +39,19 @@ export const shootDraftFrom = (s: ShootFields): ShootDraft => ({
   captainNotes: s.captainNotes ?? '',
 })
 
+/** A new day: the usual meet time and four drives, everything else blank. */
+export const emptyShootDraft = (): ShootDraft => ({
+  date: '',
+  locationName: '',
+  locationAddress: '',
+  locationPostcode: '',
+  locationWhat3Words: '',
+  meetTime: '08:30',
+  drivesPlanned: '4',
+  expectedBag: '',
+  captainNotes: '',
+})
+
 export const MEET_TIME = /^([01]\d|2[0-3]):[0-5]\d$/
 
 /** "///filled.count.soap" or "filled.count.soap" -> "filled.count.soap"; null if not three words. */
@@ -60,7 +73,16 @@ export function validateShoot(d: ShootDraft): Partial<Record<keyof ShootDraft, s
   return problems
 }
 
-/** What to send. Blank optional fields are cleared. */
+/** What to send when scheduling a new day: blank optional fields are simply left out. */
+export function newShootPayload(syndicateId: string, d: ShootDraft) {
+  const fields = shootPayload(d)
+  return {
+    syndicateId,
+    ...Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null)),
+  }
+}
+
+/** What to send when editing. Blank optional fields are cleared. */
 export function shootPayload(d: ShootDraft) {
   return {
     date: d.date,

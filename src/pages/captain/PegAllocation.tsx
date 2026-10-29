@@ -13,7 +13,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
+import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { apiPath, apiRequest as api } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -44,26 +45,6 @@ interface PegSheet {
   saved: Allocation[]
 }
 
-type Result<T> = { ok: true; data: T } | { ok: false; error: string }
-
-/** Same-origin API call; the session wrapper adds the sign-in token. Never throws. */
-async function api<T>(path: string, init?: RequestInit): Promise<Result<T>> {
-  try {
-    const response = await fetch(path, {
-      ...init,
-      headers: init?.body ? { 'Content-Type': 'application/json' } : undefined,
-    })
-    const body = await response.json().catch(() => null)
-    if (!response.ok) {
-      const detail = body?.details?.[0]?.message
-      return { ok: false, error: detail || body?.error || `Something went wrong (${response.status})` }
-    }
-    return { ok: true, data: body as T }
-  } catch {
-    return { ok: false, error: 'Could not reach ShootSync. Check your connection and try again.' }
-  }
-}
-
 const shortDate = (iso: string) =>
   new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 
@@ -73,7 +54,7 @@ const field =
   'px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500'
 
 export default function PegAllocation() {
-  const { user } = useAuth()
+  const syndicate = useCaptainSyndicate()
   const [searchParams, setSearchParams] = useSearchParams()
   const shootIdParam = searchParams.get('shootId')
 
@@ -98,29 +79,23 @@ export default function PegAllocation() {
   currentShoot.current = shootId
   const [message, setMessage] = useState<{ kind: 'error' | 'success'; text: string } | null>(null)
 
-  // The captain's syndicate and its shoot days.
+  // The syndicate's shoot days.
   useEffect(() => {
-    if (!user?.id) return
     let cancelled = false
     ;(async () => {
       setLoading(true)
-      const syndicates = await api<{ id: string; pegRotationRule?: string }[]>('/api/syndicates')
+      setLoadError(null)
+      setPreferRandom(syndicate.pegRotationRule === 'RANDOM')
+      const list = await api<ShootOption[]>(apiPath('/api/shoots', { syndicateId: syndicate.id }))
       if (cancelled) return
-      if (!syndicates.ok) {
-        setLoadError(syndicates.error)
-      } else if (syndicates.data.length > 0) {
-        setPreferRandom(syndicates.data[0].pegRotationRule === 'RANDOM')
-        const list = await api<ShootOption[]>(`/api/shoots?syndicateId=${encodeURIComponent(syndicates.data[0].id)}`)
-        if (cancelled) return
-        if (list.ok) setShoots(list.data.filter((s) => s.status !== 'CANCELLED'))
-        else setLoadError(list.error)
-      }
+      if (list.ok) setShoots(list.data.filter((s) => s.status !== 'CANCELLED'))
+      else setLoadError(list.error)
       setLoading(false)
     })()
     return () => {
       cancelled = true
     }
-  }, [user?.id])
+  }, [syndicate.id, syndicate.pegRotationRule])
 
   // The chosen day's pegs and every gun's record this season.
   useEffect(() => {
@@ -190,7 +165,7 @@ export default function PegAllocation() {
     setBusy(method)
     const result = await api<{ allocations: Allocation[] }>(`/api/shoots/${encodeURIComponent(shootId)}/pegs/draw`, {
       method: 'POST',
-      body: JSON.stringify({ method, numberOfPegs, memberIds: [...shooting] }),
+      body: { method, numberOfPegs, memberIds: [...shooting] },
     })
     setBusy(null)
     if (currentShoot.current !== shootId) return
@@ -224,7 +199,7 @@ export default function PegAllocation() {
     setMessage(null)
     const result = await api<{ saved: Allocation[] }>(`/api/shoots/${encodeURIComponent(shootId)}/pegs`, {
       method: 'PUT',
-      body: JSON.stringify({ allocations }),
+      body: { allocations },
     })
     setBusy(null)
     if (currentShoot.current !== shootId) return

@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
-import { useParams, Link, useNavigate } from 'react-router-dom'
+import { useCallback, useEffect, useState } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
+import { useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
+import { apiPath, apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
-import Button from '../../components/common/Button'
+import Button, { ButtonLink } from '../../components/common/Button'
 import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatLongDate } from '../../utils/dateHelpers'
@@ -18,12 +18,16 @@ interface Member {
   id: string
   name: string
   email: string
-  clerkUserId?: string
+  role?: string
+  status?: string
 }
+
+const RSVP_LABEL: Record<string, string> = { PENDING: 'Not replied', CONFIRMED: 'Coming', DECLINED: 'Not coming' }
 
 interface ShootDay {
   id: string
   syndicateId: string
+  syndicate: { id: string; name: string }
   date: string
   locationName: string
   locationAddress?: string
@@ -48,7 +52,8 @@ interface ShootDay {
     paymentStatus: string
     waiverAccepted: boolean
     inviteToken?: string
-    invitedByMember?: Member
+    pegNumber?: number | null
+    invitedByMember?: { id: string; name: string } | null
   }>
   beaterBookings: Booking[]
   beaterPayments: PaymentLine[]
@@ -72,24 +77,29 @@ interface ShootDay {
 
 export default function ShootDetail() {
   const { id } = useParams<{ id: string }>()
-  const { user } = useAuth()
-  const shootApi = useApi<ShootDay>('shoots')
-  const memberApi = useApi<Member>('members')
+  const syndicate = useCaptainSyndicate()
+  const { select } = useSyndicates()
 
   const [shoot, setShoot] = useState<ShootDay | null>(null)
   const [loading, setLoading] = useState(true)
-  const [currentMember, setCurrentMember] = useState<Member | null>(null)
+  const [loadError, setLoadError] = useState<{ status: number; message: string } | null>(null)
+  // The syndicate's active guns: a guest is always some gun's guest.
+  const [guns, setGuns] = useState<Member[]>([])
 
-  // Guest invite state
+  // Adding a guest
   const [showInviteForm, setShowInviteForm] = useState(false)
-  const [inviteData, setInviteData] = useState({
+  const blankGuest = useCallback(() => ({
     name: '',
     email: '',
     phone: '',
     dayFee: 5000, // £50.00 default
-  })
+    invitedByMemberId: syndicate.memberId ?? '',
+  }), [syndicate.memberId])
+  const [inviteData, setInviteData] = useState(blankGuest)
   const [inviting, setInviting] = useState(false)
   const [inviteError, setInviteError] = useState<string | null>(null)
+  const [guestNotice, setGuestNotice] = useState<string | null>(null)
+  const [guestError, setGuestError] = useState<string | null>(null)
   const [copiedToken, setCopiedToken] = useState<string | null>(null)
 
   const navigate = useNavigate()
@@ -100,119 +110,112 @@ export default function ShootDetail() {
   const [completing, setCompleting] = useState(false)
   const [completeError, setCompleteError] = useState<string | null>(null)
 
-  useEffect(() => {
-    if (id) {
-      loadShoot()
-    }
+  const refreshShoot = useCallback(async () => {
+    if (!id) return
+    const result = await apiRequest<ShootDay>(`/api/shoots/${encodeURIComponent(id)}`)
+    if (result.ok) setShoot(result.data)
   }, [id])
 
-  const refreshShoot = async () => {
-    const data = await shootApi.fetchOne(id!)
-    if (data) setShoot(data)
-  }
+  useEffect(() => {
+    if (!id) return
+    let stale = false
+    ;(async () => {
+      setLoading(true)
+      setLoadError(null)
+      const sheet = await apiRequest<ShootDay>(`/api/shoots/${encodeURIComponent(id)}`)
+      if (stale) return
+      if (!sheet.ok) {
+        setLoadError({ status: sheet.status, message: sheet.error })
+        setLoading(false)
+        return
+      }
+      // Opened from a link or a bookmark while another syndicate was on show: this day
+      // belongs to one the captain also runs, so show that one, everywhere.
+      if (sheet.data.syndicateId !== syndicate.id) select(sheet.data.syndicateId)
+      const members = await apiRequest<Member[]>(apiPath('/api/members', { syndicateId: sheet.data.syndicateId, status: 'ACTIVE' }))
+      if (stale) return
+      setShoot(sheet.data)
+      // A guest is a gun's guest: guns only, never a member kept for another reason.
+      if (members.ok) setGuns(members.data.filter((m) => m.role !== 'BEATER'))
+      setLoading(false)
+    })()
+    return () => {
+      stale = true
+    }
+  }, [id, syndicate.id, select])
 
   const completeShoot = async () => {
     if (!shoot) return
     setCompleting(true)
     setCompleteError(null)
-    try {
-      const response = await fetch(`/api/shoots/${encodeURIComponent(shoot.id)}/complete`, { method: 'POST' })
-      if (!response.ok) {
-        const data = await response.json().catch(() => null)
-        throw new Error(data?.error || `Something went wrong (${response.status})`)
-      }
+    const result = await apiRequest<unknown>(`/api/shoots/${encodeURIComponent(shoot.id)}/complete`, { method: 'POST' })
+    if (result.ok) {
       setConfirmingComplete(false)
       await refreshShoot()
-    } catch (err) {
-      setCompleteError(err instanceof Error ? err.message : 'Could not complete the day.')
+    } else {
+      setCompleteError(result.error)
     }
     setCompleting(false)
   }
 
-  const loadShoot = async () => {
-    setLoading(true)
-    const data = await shootApi.fetchOne(id!)
-    setShoot(data)
-
-    // Get current member for inviting guests
-    if (data && user?.id) {
-      const members = await memberApi.fetchAll({ syndicateId: data.syndicateId })
-      // Try to find by clerkUserId first, then fall back to any active member
-      let member = members.find((m: any) => m.clerkUserId === user.id)
-      if (!member) {
-        // Fall back to first active member (captain is viewing this page)
-        member = members.find((m: any) => m.status === 'ACTIVE')
-      }
-      if (!member && members.length > 0) {
-        // Last resort: use first member
-        member = members[0]
-      }
-      if (member) {
-        setCurrentMember(member)
-      }
-    }
-
-    setLoading(false)
-  }
-
   const handleInviteGuest = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!shoot || !currentMember) return
+    if (!shoot) return
+    if (!inviteData.invitedByMemberId) {
+      setInviteError('Choose whose guest they are.')
+      return
+    }
+    if (inviteData.dayFee < 0 || inviteData.dayFee > 100_000) {
+      setInviteError('The day fee must be between £0 and £1,000.')
+      return
+    }
 
     setInviting(true)
     setInviteError(null)
-
-    try {
-      const response = await fetch('/api/guests', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          shootId: shoot.id,
-          invitedByMemberId: currentMember.id,
-          name: inviteData.name.trim(),
-          email: inviteData.email.trim(),
-          phone: inviteData.phone.trim() || undefined,
-          dayFee: inviteData.dayFee,
-        }),
-      })
-
-      if (response.ok) {
-        setInviteData({ name: '', email: '', phone: '', dayFee: 5000 })
-        setShowInviteForm(false)
-        loadShoot() // Reload to show new guest
-      } else {
-        const errorData = await response.json()
-        setInviteError(errorData.error || 'Failed to invite guest')
-      }
-    } catch (err) {
-      console.error('Error inviting guest:', err)
-      setInviteError('Failed to invite guest. Please try again.')
-    }
-
+    const result = await apiRequest<{ name: string }>('/api/guests', {
+      method: 'POST',
+      body: {
+        shootId: shoot.id,
+        invitedByMemberId: inviteData.invitedByMemberId,
+        name: inviteData.name.trim(),
+        email: inviteData.email.trim(),
+        phone: inviteData.phone.trim() || undefined,
+        dayFee: inviteData.dayFee,
+      },
+    })
     setInviting(false)
+    if (!result.ok) {
+      setInviteError(`Not added: ${result.error}`)
+      return
+    }
+    setInviteData(blankGuest())
+    setShowInviteForm(false)
+    setGuestNotice(`${result.data.name} added. ShootSync doesn’t email guests: copy their invite link below and send it to them yourself.`)
+    await refreshShoot()
   }
 
   const handleRemoveGuest = async (guestId: string) => {
-    if (!confirm('Are you sure you want to remove this guest?')) return
-
-    try {
-      const response = await fetch(`/api/guests/${guestId}`, {
-        method: 'DELETE',
-      })
-
-      if (response.ok) {
-        loadShoot()
-      }
-    } catch (err) {
-      console.error('Error removing guest:', err)
+    if (!confirm('Remove this guest from the day?')) return
+    setGuestError(null)
+    setGuestNotice(null)
+    const result = await apiRequest<unknown>(`/api/guests/${encodeURIComponent(guestId)}`, { method: 'DELETE' })
+    if (!result.ok) {
+      setGuestError(result.error)
+      return
     }
+    await refreshShoot()
   }
 
-  const copyInviteLink = (token: string) => {
+  const copyInviteLink = async (token: string) => {
     const link = `${window.location.origin}/guest/accept/${token}`
-    navigator.clipboard.writeText(link)
-    setCopiedToken(token)
-    setTimeout(() => setCopiedToken(null), 2000)
+    try {
+      await navigator.clipboard.writeText(link)
+      setCopiedToken(token)
+      setTimeout(() => setCopiedToken(null), 2000)
+    } catch {
+      // No clipboard (an old browser, or permission refused): show the link to copy by hand.
+      window.prompt('Copy this invite link and send it to your guest:', link)
+    }
   }
 
   const getRsvpStatusColor = (status: string) => {
@@ -231,11 +234,15 @@ export default function ShootDetail() {
     }
   }
 
+  // Guns on today's draw. Someone left out of a later draw keeps their attendance record
+  // (and any check-in) but isn't on the day's sheet.
+  const pegged = shoot?.attendances?.filter((att) => att.pegNumber != null) ?? []
+
   const handleGenerateBriefing = () => {
     if (!shoot) return
 
     generateShootBriefingPDF({
-      syndicateName: (shoot as any).syndicate?.name || 'Shooting Syndicate',
+      syndicateName: shoot.syndicate.name,
       shootDate: formatLongDate(shoot.date),
       locationName: shoot.locationName,
       locationAddress: shoot.locationAddress,
@@ -246,14 +253,14 @@ export default function ShootDetail() {
       expectedBag: shoot.expectedBag,
       captainNotes: shoot.captainNotes,
       guns: [
-        ...(shoot.attendances?.map(att => ({
+        ...pegged.map(att => ({
           name: att.member?.name || 'Unknown',
           pegNumber: att.pegNumber,
           isGuest: false,
-        })) || []),
+        })),
         ...(shoot.guestGuns?.filter(g => g.rsvpStatus === 'CONFIRMED').map(guest => ({
           name: guest.name,
-          pegNumber: undefined,
+          pegNumber: guest.pegNumber ?? undefined,
           isGuest: true,
         })) || []),
       ],
@@ -274,13 +281,13 @@ export default function ShootDetail() {
   }
 
   if (!shoot) {
+    const missing = loadError?.status === 404
     return (
       <DashboardLayout>
-        <div className="text-center py-12">
-          <h1 className="text-2xl font-bold text-white mb-4">Shoot Not Found</h1>
-          <Link to="/shoots">
-            <Button>Back to Shoots</Button>
-          </Link>
+        <div role="alert" className="text-center py-12">
+          <h1 className="text-2xl font-bold text-white mb-4">{missing ? 'Shoot day not found' : 'This shoot day didn’t load'}</h1>
+          {!missing && loadError && <p className="text-slate-300 mb-6">{loadError.message}</p>}
+          <ButtonLink to="/shoots">Back to shoot days</ButtonLink>
         </div>
       </DashboardLayout>
     )
@@ -305,19 +312,15 @@ export default function ShootDetail() {
           </div>
           <div className="flex flex-wrap gap-3">
             <Button onClick={handleGenerateBriefing}>
-              Generate Briefing
+              Briefing sheet (PDF)
             </Button>
-            <Link to={`/pegs?shootId=${shoot.id}`}>
-              <Button variant="secondary">Allocate Pegs</Button>
-            </Link>
+            <ButtonLink to={`/pegs?shootId=${shoot.id}`} variant="secondary">Pegs</ButtonLink>
             {!editingDay && (
               <Button variant="secondary" onClick={() => setEditingDay(true)}>
                 Edit day
               </Button>
             )}
-            <Link to="/shoots">
-              <Button variant="secondary">Back</Button>
-            </Link>
+            <ButtonLink to="/shoots" variant="secondary">Back</ButtonLink>
           </div>
         </div>
 
@@ -356,7 +359,7 @@ export default function ShootDetail() {
               <p className="mt-2 text-slate-300">
                 {confirmed.length === 0
                   ? 'No beaters are marked Confirmed, so nobody will be owed beating pay for this day.'
-                  : `${confirmed.length} confirmed ${confirmed.length === 1 ? 'beater' : 'beaters'} will be owed ${formatCurrency(owed)} in total, shown under Finances.`}
+                  : `${confirmed.length} confirmed ${confirmed.length === 1 ? 'beater' : 'beaters'} will be owed ${formatCurrency(owed)} in total, shown under Beaters’ pay.`}
                 {asked > 0 && ` ${asked} still marked Asked ${asked === 1 ? 'is' : 'are'} not included: mark them Confirmed first if they came.`}
               </p>
               <p className="mt-2 text-sm text-slate-400">You can still change the beaters afterwards, and what’s owed will follow.</p>
@@ -390,7 +393,7 @@ export default function ShootDetail() {
             <h2 className="text-lg font-semibold text-green-500 mb-4">Shoot Details</h2>
             <div className="space-y-2">
               <p className="text-white"><span className="text-amber-500">Drives Planned:</span> {shoot.drivesPlanned}</p>
-              {shoot.expectedBag && <p className="text-white"><span className="text-amber-500">Expected Bag:</span> {shoot.expectedBag}</p>}
+              {shoot.expectedBag != null && <p className="text-white"><span className="text-amber-500">Expected Bag:</span> {shoot.expectedBag}</p>}
             </div>
           </Card>
         </div>
@@ -407,22 +410,22 @@ export default function ShootDetail() {
         <Card>
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-lg font-semibold text-green-500">
-              Guns ({shoot.attendances?.length || 0})
+              Guns ({pegged.length})
             </h2>
           </div>
-          {shoot.attendances?.length > 0 ? (
+          {pegged.length > 0 ? (
             <div className="space-y-2">
-              {shoot.attendances.map((att) => (
+              {pegged.map((att) => (
                 <div key={att.id} className="flex justify-between items-center p-3 bg-slate-800 rounded-lg">
                   <span className="text-white font-medium">{att.member?.name}</span>
                   <span className="text-amber-500 font-medium">
-                    {att.pegNumber ? `Peg ${att.pegNumber}` : 'No peg assigned'}
+                    Peg {att.pegNumber}
                   </span>
                 </div>
               ))}
             </div>
           ) : (
-            <p className="text-slate-400">No guns assigned yet. Use the peg allocation page to assign guns.</p>
+            <p className="text-slate-400">No pegs drawn for this day yet. Use Pegs to choose who is shooting and draw them.</p>
           )}
         </Card>
 
@@ -432,16 +435,44 @@ export default function ShootDetail() {
             <h2 className="text-lg font-semibold text-green-500">
               Guests ({shoot.guestGuns?.length || 0})
             </h2>
-            <Button onClick={() => setShowInviteForm(true)} size="sm">
-              Invite Guest
-            </Button>
+            {!showInviteForm && shoot.status === 'SCHEDULED' && (
+              <Button onClick={() => { setShowInviteForm(true); setGuestNotice(null) }} size="sm">
+                Add a guest
+              </Button>
+            )}
           </div>
+
+          <div role="status" aria-live="polite">
+            {guestNotice && <p className="mb-4 rounded-lg px-3 py-2 bg-green-900/40 text-green-200 border border-green-800 text-sm">{guestNotice}</p>}
+          </div>
+          {guestError && <p role="alert" className="mb-4 rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{guestError}</p>}
 
           {/* Invite Form */}
           {showInviteForm && (
             <div className="mb-6 p-4 bg-slate-800 rounded-lg">
-              <h3 className="text-white font-medium mb-4">Invite New Guest</h3>
+              <h3 className="text-white font-medium mb-1">Add a guest</h3>
+              <p className="text-sm text-slate-300 mb-4">
+                You’ll get an invite link to send them. On it they confirm, sign the waiver and pay any day fee.
+              </p>
               <form onSubmit={handleInviteGuest} className="space-y-4">
+                <div>
+                  <label htmlFor="guest-invited-by" className="block text-sm font-medium text-slate-300 mb-1">Whose guest</label>
+                  <select
+                    id="guest-invited-by"
+                    value={inviteData.invitedByMemberId}
+                    onChange={(e) => setInviteData({ ...inviteData, invitedByMemberId: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
+                    required
+                  >
+                    <option value="">Choose a gun</option>
+                    {guns.map((gun) => (
+                      <option key={gun.id} value={gun.id}>{gun.id === syndicate.memberId ? `${gun.name} (you)` : gun.name}</option>
+                    ))}
+                  </select>
+                  {guns.length === 0 && (
+                    <p className="text-sm text-amber-300 mt-1">Add your guns under Members first: every guest is a gun’s guest.</p>
+                  )}
+                </div>
                 <Input
                   label="Guest Name"
                   value={inviteData.name}
@@ -465,33 +496,34 @@ export default function ShootDetail() {
                   placeholder="+44 7xxx xxxxxx"
                 />
                 <div>
-                  <label className="block text-sm font-medium text-slate-300 mb-1">
-                    Day Fee (£)
+                  <label htmlFor="guest-day-fee" className="block text-sm font-medium text-slate-300 mb-1">
+                    Day fee (£)
                   </label>
                   <input
+                    id="guest-day-fee"
                     type="number"
+                    aria-describedby="guest-day-fee-note"
                     value={inviteData.dayFee / 100}
                     onChange={(e) => setInviteData({ ...inviteData, dayFee: Math.round((parseFloat(e.target.value) || 0) * 100) })}
                     className="w-full px-3 py-2 bg-slate-700 border border-slate-600 rounded-lg text-white"
                     min="0"
+                    max="1000"
                     step="1"
                   />
-                  <p className="text-slate-500 text-sm mt-1">
-                    Enter 0 for complimentary
+                  <p id="guest-day-fee-note" className="text-slate-400 text-sm mt-1">
+                    Up to £1,000. 0 if they shoot free.
                   </p>
                 </div>
 
                 {inviteError && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-                    <p className="text-red-400 text-sm">{inviteError}</p>
-                  </div>
+                  <p role="alert" className="rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{inviteError}</p>
                 )}
 
                 <div className="flex gap-3">
-                  <Button type="submit" disabled={inviting}>
-                    {inviting ? 'Sending...' : 'Send Invite'}
+                  <Button type="submit" isLoading={inviting} disabled={inviting || guns.length === 0}>
+                    Add guest
                   </Button>
-                  <Button type="button" variant="secondary" onClick={() => setShowInviteForm(false)}>
+                  <Button type="button" variant="secondary" onClick={() => { setShowInviteForm(false); setInviteError(null) }}>
                     Cancel
                   </Button>
                 </div>
@@ -508,10 +540,11 @@ export default function ShootDetail() {
                     <div>
                       <p className="text-white font-medium">{guest.name}</p>
                       <p className="text-slate-400 text-sm">{guest.email}</p>
+                      {guest.invitedByMember && <p className="text-slate-400 text-sm">{guest.invitedByMember.name}’s guest</p>}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getRsvpStatusColor(guest.rsvpStatus)}`}>
-                        {guest.rsvpStatus}
+                        {RSVP_LABEL[guest.rsvpStatus] ?? guest.rsvpStatus}
                       </span>
                       {guest.dayFee > 0 && (
                         <span className={`px-2 py-1 rounded text-xs font-medium ${getPaymentStatusColor(guest.paymentStatus)}`}>
@@ -522,26 +555,29 @@ export default function ShootDetail() {
                   </div>
 
                   <div className="flex items-center gap-2 mt-3">
-                    {guest.inviteToken && guest.rsvpStatus === 'PENDING' && (
+                    {/* The link is still needed after they've said yes, until any day fee is paid. */}
+                    {guest.inviteToken && guest.rsvpStatus !== 'DECLINED' && (guest.rsvpStatus === 'PENDING' || (guest.dayFee > 0 && guest.paymentStatus === 'PENDING')) && (
                       <button
-                        onClick={() => copyInviteLink(guest.inviteToken!)}
+                        type="button"
+                        onClick={() => void copyInviteLink(guest.inviteToken!)}
                         className="text-sm text-green-400 hover:text-green-300"
                       >
-                        {copiedToken === guest.inviteToken ? '✓ Copied!' : 'Copy Invite Link'}
+                        {copiedToken === guest.inviteToken ? 'Copied ✓' : 'Copy invite link'}
                       </button>
                     )}
                     {guest.waiverAccepted && (
-                      <span className="text-sm text-slate-500">Waiver signed ✓</span>
+                      <span className="text-sm text-slate-400">Waiver signed ✓</span>
                     )}
                     {guest.paymentStatus === 'PAID' && guest.rsvpStatus === 'DECLINED' ? (
                       <span className="text-sm text-amber-300 ml-auto">Paid after being withdrawn: refund them in Stripe</span>
                     ) : guest.paymentStatus !== 'PENDING' ? (
-                      <span className="text-sm text-slate-500 ml-auto">Paid, so kept on record</span>
+                      <span className="text-sm text-slate-400 ml-auto">Paid, so kept on record</span>
                     ) : guest.rsvpStatus === 'DECLINED' && guest.waiverAccepted ? (
-                      <span className="text-sm text-slate-500 ml-auto">Withdrawn</span>
+                      <span className="text-sm text-slate-400 ml-auto">Withdrawn</span>
                     ) : (
                       <button
-                        onClick={() => handleRemoveGuest(guest.id)}
+                        type="button"
+                        onClick={() => void handleRemoveGuest(guest.id)}
                         className="text-sm text-red-400 hover:text-red-300 ml-auto"
                       >
                         Remove
@@ -552,7 +588,7 @@ export default function ShootDetail() {
               ))}
             </div>
           ) : (
-            <p className="text-slate-400">No guests invited yet.</p>
+            <p className="text-slate-400">No guests for this day.</p>
           )}
         </Card>
 

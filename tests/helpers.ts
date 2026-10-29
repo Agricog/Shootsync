@@ -243,3 +243,30 @@ export async function seed(prisma: PrismaClient) {
   const b = await makeSyndicate(CAPTAIN_B, 'B', null, 'b'.repeat(64))
   return { a, b }
 }
+
+/** Every route registered on the app, read from Express itself, so a new route can't be missed. */
+export function registeredRoutes(prisma: PrismaClient, stripe: Stripe): Array<{ method: string; path: string }> {
+  const app = createApp({ prisma, stripe, config: testConfig, verifyToken: testVerifier })
+  const routes: Array<{ method: string; path: string }> = []
+
+  const walk = (stack: any[], prefix: string) => {
+    for (const layer of stack) {
+      if (layer.route) {
+        for (const method of Object.keys(layer.route.methods)) {
+          routes.push({ method: method.toUpperCase(), path: prefix + layer.route.path })
+        }
+      } else if (layer.name === 'router' && layer.handle?.stack) {
+        const source: string = layer.regexp.source
+        const mount = source.replace('^\\', '').replace('\\/?(?=\\/|$)', '').replace(/\\\//g, '/')
+        walk(layer.handle.stack, prefix + (mount === '^' ? '' : mount))
+      }
+    }
+  }
+  walk((app as any)._router.stack, '')
+  return routes.filter((r) => r.path.startsWith('/api/'))
+}
+
+/** Turn "/api/members/:id/status" into a concrete path the router will match. */
+export function concrete(path: string): string {
+  return path.replace(/:[A-Za-z]+/g, 'cl0000000000000000000000')
+}

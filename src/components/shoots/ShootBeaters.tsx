@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom'
 import Card from '../common/Card'
 import Button from '../common/Button'
 import { formatCurrency } from '../../config/stripe'
+import { apiPath, apiRequest } from '../../lib/api'
 
 export interface Booking {
   id: string
@@ -48,19 +49,10 @@ const STATUS_LABEL: Record<Booking['status'], string> = {
   NO_SHOW: 'Didn’t turn up',
 }
 
+/** null when it worked, otherwise what to tell the captain. */
 async function send(path: string, method: string, body?: unknown): Promise<string | null> {
-  try {
-    const response = await fetch(path, {
-      method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
-      body: body ? JSON.stringify(body) : undefined,
-    })
-    if (response.ok) return null
-    const data = await response.json().catch(() => null)
-    return data?.details?.[0]?.message || data?.error || `Something went wrong (${response.status})`
-  } catch {
-    return 'Could not reach ShootSync. Check your connection and try again.'
-  }
+  const result = await apiRequest<unknown>(path, { method: method as 'POST' | 'PATCH' | 'DELETE', body })
+  return result.ok ? null : result.error
 }
 
 const field = 'px-2 py-1.5 bg-slate-900 border border-slate-600 rounded-lg text-white text-sm focus:outline-none focus:ring-2 focus:ring-green-500'
@@ -84,13 +76,9 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, bookin
   useEffect(() => {
     if (!adding) return
     ;(async () => {
-      try {
-        const response = await fetch(`/api/beaters?syndicateId=${encodeURIComponent(syndicateId)}&status=ACTIVE`)
-        if (response.ok) setTeam(await response.json())
-        else setError('Could not load your beating team.')
-      } catch {
-        setError('Could not load your beating team.')
-      }
+      const result = await apiRequest<BeaterOption[]>(apiPath('/api/beaters', { syndicateId, status: 'ACTIVE' }))
+      if (result.ok) setTeam(result.data)
+      else setError(`Could not load your beating team. ${result.error}`)
     })()
   }, [adding, syndicateId])
 

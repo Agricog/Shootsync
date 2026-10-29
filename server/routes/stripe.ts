@@ -28,10 +28,11 @@ export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
     const guest = await prisma.guestGun.findUnique({
       where: { inviteToken: parsed.data.token },
       include: {
-        shootDay: { select: { date: true, locationName: true, syndicate: { select: { name: true } } } },
+        shootDay: { select: { date: true, locationName: true, syndicate: { select: { name: true, status: true } } } },
       },
     })
-    if (!guest) throw notFound('This invitation is invalid or has expired.')
+    // An archived syndicate takes no more payments.
+    if (!guest || guest.shootDay.syndicate.status !== 'ACTIVE') throw notFound('This invitation is invalid or has expired.')
     if (guest.paymentStatus === 'PAID') throw new HttpError(409, 'Already paid')
     if (guest.rsvpStatus !== 'CONFIRMED' || !guest.waiverAccepted) {
       throw new HttpError(409, 'Please accept the invitation and waiver first')

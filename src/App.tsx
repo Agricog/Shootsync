@@ -41,16 +41,6 @@ import Settings from './pages/captain/Settings'
 import Subscribe from './pages/captain/Subscribe'
 import SubscriptionSuccess from './pages/captain/SubscriptionSuccess'
 
-// Gun pages
-import GunDashboard from './pages/gun/GunDashboard'
-import MyPegs from './pages/gun/MyPegs'
-import MyPayments from './pages/gun/MyPayments'
-
-// Beater pages
-import BeaterDashboard from './pages/beater/BeaterDashboard'
-import MyBookings from './pages/beater/MyBookings'
-import MyEarnings from './pages/beater/MyEarnings'
-
 // Guest pages
 import GuestAccept from './pages/guest/GuestAccept'
 import PaymentSuccess from './pages/guest/PaymentSuccess'
@@ -58,214 +48,190 @@ import PaymentSuccess from './pages/guest/PaymentSuccess'
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
 import { PublicOnlyRoute } from './components/auth/ProtectedRoute'
+import CaptainRoute from './components/auth/CaptainRoute'
+import { SyndicateProvider } from './context/SyndicateContext'
 
 export default function App() {
   return (
     <ErrorBoundary>
       <HelmetProvider>
         <BrowserRouter>
-          <Routes>
-            {/* Public routes */}
-            <Route path="/" element={<Landing />} />
-            <Route path="/pricing" element={<Pricing />} />
-            <Route path="/features" element={<Features />} />
-            <Route path="/privacy" element={<Privacy />} />
-            <Route path="/terms" element={<Terms />} />
-            <Route path="/contact" element={<Contact />} />
-            <Route path="/guides" element={<GuidesHub />} />
-            <Route path="/guides/paying-beaters-and-pickers-up" element={<PayingBeaters />} />
-            <Route path="/guides/peg-draw-explained" element={<PegDraw />} />
-            <Route path="/guides/guest-guns" element={<GuestGuns />} />
-            <Route path="/guides/shooting-season-dates" element={<SeasonDates />} />
-            <Route path="/guides/tipping-the-keeper" element={<TippingTheKeeper />} />
-            <Route path="/guides/shooting-syndicates" element={<ShootingSyndicates />} />
-            <Route path="/guides/shooting-game-book" element={<ShootingGameBook />} />
-            <Route path="/tools/beater-pay-calculator" element={<BeaterPayCalculator />} />
-            <Route
-              path="/login/*"
-              element={
-                <PublicOnlyRoute>
-                  <Login />
-                </PublicOnlyRoute>
-              }
-            />
-            <Route
-              path="/signup/*"
-              element={
-                <PublicOnlyRoute>
-                  <Signup />
-                </PublicOnlyRoute>
-              }
-            />
+          <SyndicateProvider>
+            <Routes>
+              {/* Public routes */}
+              <Route path="/" element={<Landing />} />
+              <Route path="/pricing" element={<Pricing />} />
+              <Route path="/features" element={<Features />} />
+              <Route path="/privacy" element={<Privacy />} />
+              <Route path="/terms" element={<Terms />} />
+              <Route path="/contact" element={<Contact />} />
+              <Route path="/guides" element={<GuidesHub />} />
+              <Route path="/guides/paying-beaters-and-pickers-up" element={<PayingBeaters />} />
+              <Route path="/guides/peg-draw-explained" element={<PegDraw />} />
+              <Route path="/guides/guest-guns" element={<GuestGuns />} />
+              <Route path="/guides/shooting-season-dates" element={<SeasonDates />} />
+              <Route path="/guides/tipping-the-keeper" element={<TippingTheKeeper />} />
+              <Route path="/guides/shooting-syndicates" element={<ShootingSyndicates />} />
+              <Route path="/guides/shooting-game-book" element={<ShootingGameBook />} />
+              <Route path="/tools/beater-pay-calculator" element={<BeaterPayCalculator />} />
+              <Route
+                path="/login/*"
+                element={
+                  <PublicOnlyRoute>
+                    <Login />
+                  </PublicOnlyRoute>
+                }
+              />
+              <Route
+                path="/signup/*"
+                element={
+                  <PublicOnlyRoute>
+                    <Signup />
+                  </PublicOnlyRoute>
+                }
+              />
 
-            {/* Captain routes */}
-            <Route
-              path="/dashboard"
-              element={
-                <ProtectedRoute>
-                  <CaptainDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/pegs"
-              element={
-                <ProtectedRoute>
-                  <PegAllocation />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/syndicate/create"
-              element={
-                <ProtectedRoute>
-                  <CreateSyndicate />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/members"
-              element={
-                <ProtectedRoute>
-                  <Members />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/beaters"
-              element={
-                <ProtectedRoute>
-                  <Beaters />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/shoots"
-              element={
-                <ProtectedRoute>
-                  <Shoots />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/shoots/new"
-              element={
-                <ProtectedRoute>
-                  <ShootCreate />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/shoots/:id"
-              element={
-                <ProtectedRoute>
-                  <ShootDetail />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/bags/record"
-              element={
-                <ProtectedRoute>
-                  <BagRecord />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/finances"
-              element={
-                <ProtectedRoute>
-                  <Finances />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/settings"
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              }
-            />
+              {/* Captain routes */}
+              <Route
+                path="/dashboard"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <CaptainDashboard />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/pegs"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <PegAllocation />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/syndicate/create"
+                element={
+                  <ProtectedRoute>
+                    <CreateSyndicate />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/members"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Members />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/beaters"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Beaters />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/shoots"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Shoots />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/shoots/new"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <ShootCreate />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/shoots/:id"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <ShootDetail />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/bags/record"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <BagRecord />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/finances"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Finances />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Settings />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Gun routes */}
-            <Route
-              path="/gun/dashboard"
-              element={
-                <ProtectedRoute>
-                  <GunDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/my-pegs"
-              element={
-                <ProtectedRoute>
-                  <MyPegs />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/my-payments"
-              element={
-                <ProtectedRoute>
-                  <MyPayments />
-                </ProtectedRoute>
-              }
-            />
+              {/* Guest routes */}
+              <Route path="/guest/accept/:token" element={<GuestAccept />} />
+              <Route path="/guest/accept" element={<GuestAccept />} />
+              <Route path="/guest/payment-success" element={<PaymentSuccess />} />
 
-            {/* Beater routes */}
-            <Route
-              path="/beater/dashboard"
-              element={
-                <ProtectedRoute>
-                  <BeaterDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/beater/bookings"
-              element={
-                <ProtectedRoute>
-                  <MyBookings />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/beater/earnings"
-              element={
-                <ProtectedRoute>
-                  <MyEarnings />
-                </ProtectedRoute>
-              }
-            />
+              {/* Subscription routes */}
+              <Route
+                path="/subscribe"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Subscribe />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/subscription/success"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <SubscriptionSuccess />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
 
-            {/* Guest routes */}
-            <Route path="/guest/accept/:token" element={<GuestAccept />} />
-            <Route path="/guest/accept" element={<GuestAccept />} />
-            <Route path="/guest/payment-success" element={<PaymentSuccess />} />
-
-            {/* Subscription routes */}
-            <Route
-              path="/subscribe"
-              element={
-                <ProtectedRoute>
-                  <Subscribe />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/subscription/success"
-              element={
-                <ProtectedRoute>
-                  <SubscriptionSuccess />
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Fallback */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+              {/* Fallback */}
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </SyndicateProvider>
         </BrowserRouter>
       </HelmetProvider>
     </ErrorBoundary>

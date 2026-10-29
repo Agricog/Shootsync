@@ -1,25 +1,19 @@
-import { useEffect, useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
-import { useSubscription } from '../../hooks/useSubscription'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Navigate } from 'react-router-dom'
+import { Helmet } from 'react-helmet-async'
+import { useCaptainSyndicate } from '../../context/SyndicateContext'
+import { apiPath, apiRequest } from '../../lib/api'
+import { londonDate } from '../../utils/beaterPayCalculator'
+import { nextShootFrom } from '../../lib/shootDays'
+import { formatCurrency } from '../../config/stripe'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card, { StatCard } from '../../components/common/Card'
-import LoadingSpinner from '../../components/common/LoadingSpinner'
-import Button from '../../components/common/Button'
-
-interface Syndicate {
-  id: string
-  name: string
-  seasonStart: string
-  seasonEnd: string
-  subscriptionAmount: number
-  status: string
-}
+import Button, { ButtonLink } from '../../components/common/Button'
 
 interface Member {
   id: string
   status: string
+  role: string
 }
 
 interface ShootDay {
@@ -30,203 +24,103 @@ interface ShootDay {
 }
 
 interface DashboardStats {
-  activeMembers: number
-  nextShoot: ShootDay | null
-  seasonBag: number
-  outstandingPayments: number | null
+  activeMembers: number | null
+  nextShoot: ShootDay | null | undefined
+  seasonBag: number | null
+  owedToBeaters: number | null
 }
 
+const UNKNOWN: DashboardStats = { activeMembers: null, nextShoot: undefined, seasonBag: null, owedToBeaters: null }
+
+const dash = '–'
+
 export default function CaptainDashboard() {
-  const { user } = useAuth()
-  const { fetchAll, loading, error } = useApi<Syndicate>('syndicates')
-  const [syndicates, setSyndicates] = useState<Syndicate[]>([])
-  const [stats, setStats] = useState<DashboardStats>({
-    activeMembers: 0,
-    nextShoot: null,
-    seasonBag: 0,
-    outstandingPayments: 0,
-  })
-  const [statsLoading, setStatsLoading] = useState(false)
+  const syndicate = useCaptainSyndicate()
+  const [stats, setStats] = useState<DashboardStats>(UNKNOWN)
+  const [loading, setLoading] = useState(true)
+  const [problems, setProblems] = useState<string[]>([])
 
-  const memberApi = useApi<Member>('members')
-  const shootApi = useApi<ShootDay>('shoots')
-  const navigate = useNavigate()
-  
-  const [syndicateId, setSyndicateId] = useState<string | null>(null)
-  const { isActive, loading: subLoading } = useSubscription(syndicateId)
+  // Only the latest load may update the screen: after switching syndicate, a slow answer
+  // about the previous one is thrown away rather than shown under the new one's name.
+  const latest = useRef(0)
 
+  const load = useCallback(async () => {
+    const mine = ++latest.current
+    setLoading(true)
+    const id = syndicate.id
+    const [members, shoots, bag, owed] = await Promise.all([
+      apiRequest<Member[]>(apiPath('/api/members', { syndicateId: id })),
+      apiRequest<ShootDay[]>(apiPath('/api/shoots', { syndicateId: id })),
+      apiRequest<{ total?: number }>(apiPath('/api/bags/season', { syndicateId: id })),
+      apiRequest<{ totalOutstanding?: number }>(apiPath('/api/beaters/payments/owed', { syndicateId: id })),
+    ])
+    if (mine !== latest.current) return
+    // A figure that didn't load shows as a dash, never as a misleading nought.
+    setStats({
+      activeMembers: members.ok ? members.data.filter((m) => m.status === 'ACTIVE' && m.role !== 'BEATER').length : null,
+      nextShoot: shoots.ok ? nextShootFrom(shoots.data, londonDate(new Date())) : undefined,
+      seasonBag: bag.ok ? bag.data.total ?? 0 : null,
+      owedToBeaters: owed.ok ? owed.data.totalOutstanding ?? 0 : null,
+    })
+    setProblems([...new Set([members, shoots, bag, owed].flatMap((r) => (r.ok ? [] : [r.error])))])
+    setLoading(false)
+  }, [syndicate.id])
+
+  const subscribed = syndicate.subscription.isActive
   useEffect(() => {
-    if (user?.id) {
-      loadSyndicates()
-    }
-  }, [user?.id])
+    if (subscribed) void load()
+  }, [load, subscribed])
 
-  const loadSyndicates = async () => {
-    const data = await fetchAll({ captainClerkId: user?.id || '' })
-    setSyndicates(data)
-    
-    if (data.length > 0) {
-      setSyndicateId(data[0].id)
-      loadStats(data[0].id)
-    }
-  }
+  if (!subscribed) return <Navigate to="/subscribe" replace />
 
-  // Redirect to subscribe if no active subscription
-  useEffect(() => {
-    if (syndicateId && !subLoading && !isActive) {
-      navigate('/subscribe')
-    }
-  }, [syndicateId, subLoading, isActive, navigate])
+  const next = stats.nextShoot
+  const nextShoot =
+    next === undefined
+      ? { value: dash, subtitle: 'Couldn’t load shoot days' }
+      : next === null
+        ? { value: 'None', subtitle: 'No shoot days scheduled' }
+        : { value: new Date(next.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }), subtitle: next.locationName }
 
-  const loadStats = async (syndicateId: string) => {
-    setStatsLoading(true)
-    try {
-      // Fetch members
-      const members = await memberApi.fetchAll({ syndicateId })
-      const activeMembers = members.filter((m: Member) => m.status === 'ACTIVE').length
-
-      // Fetch shoots
-      const shoots = await shootApi.fetchAll({ syndicateId })
-      const upcomingShoots = shoots
-        .filter((s: ShootDay) => new Date(s.date) >= new Date() && s.status === 'SCHEDULED')
-        .sort((a: ShootDay, b: ShootDay) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      const nextShoot = upcomingShoots.length > 0 ? upcomingShoots[0] : null
-
-      // Fetch season bag totals
-      let seasonBag = 0
-      try {
-        const bagResponse = await fetch(`/api/bags/season?syndicateId=${syndicateId}`)
-        if (bagResponse.ok) {
-          const bagData = await bagResponse.json()
-          seasonBag = bagData.total || 0
-        }
-      } catch (err) {
-        console.error('Failed to fetch bag totals:', err)
-      }
-
-      // What the beaters are owed now, in pence (Beaters' pay page)
-      // null means "couldn't load", shown as a dash rather than a misleading £0.00.
-      let outstandingPayments: number | null = null
-      try {
-        const payResponse = await fetch(`/api/beaters/payments/owed?syndicateId=${encodeURIComponent(syndicateId)}`)
-        if (payResponse.ok) outstandingPayments = (await payResponse.json()).totalOutstanding ?? null
-      } catch (err) {
-        console.error('Failed to fetch beater pay:', err)
-      }
-
-      setStats({
-        activeMembers,
-        nextShoot,
-        seasonBag,
-        outstandingPayments,
-      })
-    } catch (err) {
-      console.error('Failed to load stats:', err)
-    }
-    setStatsLoading(false)
-  }
-
-  if (loading || subLoading) {
-    return (
-      <DashboardLayout>
-        <div className="flex justify-center items-center h-64">
-          <LoadingSpinner size="lg" />
-        </div>
-      </DashboardLayout>
-    )
-  }
-
-  if (error) {
-    return (
-      <DashboardLayout>
-        <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
-          <p className="text-red-800 dark:text-red-200">Error loading syndicates: {error}</p>
-          <Button onClick={loadSyndicates} className="mt-4">
-            Retry
-          </Button>
-        </div>
-      </DashboardLayout>
-    )
-  }
-
-  if (syndicates.length === 0) {
-    return (
-      <DashboardLayout>
-        <div className="max-w-2xl mx-auto text-center py-12">
-          <h1 className="text-3xl font-bold text-white mb-4">Welcome to ShootSync! 🎯</h1>
-          <p className="text-slate-400 mb-8">
-            Let's get started by creating your first syndicate.
-          </p>
-          <Link to="/syndicate/create">
-            <Button size="lg">Create Your Syndicate</Button>
-          </Link>
-        </div>
-      </DashboardLayout>
-    )
-  }
-
-  const activeSyndicate = syndicates[0]
-
-  // Format next shoot display
-  const formatNextShoot = () => {
-    if (!stats.nextShoot) return { value: 'TBD', subtitle: 'No shoots scheduled' }
-    const date = new Date(stats.nextShoot.date)
-    const formatted = date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-    return { value: formatted, subtitle: stats.nextShoot.locationName }
-  }
-
-  const nextShootDisplay = formatNextShoot()
+  const show = (value: string) => (loading ? '…' : value)
+  const seasonDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
   return (
     <DashboardLayout>
+      <Helmet>
+        <title>Dashboard | ShootSync</title>
+      </Helmet>
+
       <div className="space-y-6">
-        <div className="flex justify-between items-start">
+        <div className="flex flex-col sm:flex-row justify-between items-start gap-4">
           <div>
-            <h1 className="text-2xl font-bold mb-2 text-white">{activeSyndicate.name}</h1>
-            <p className="text-gray-300">
-              Season: {new Date(activeSyndicate.seasonStart).toLocaleDateString()} - {new Date(activeSyndicate.seasonEnd).toLocaleDateString()}
+            <h1 className="text-2xl font-bold mb-2 text-white">{syndicate.name}</h1>
+            <p className="text-slate-300">
+              Season: {seasonDate(syndicate.seasonStart)} to {seasonDate(syndicate.seasonEnd)}
             </p>
           </div>
-          <Link to="/settings">
-            <Button variant="secondary">Settings</Button>
-          </Link>
+          <ButtonLink to="/settings" variant="secondary">Settings</ButtonLink>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <StatCard 
-            title="Total Members" 
-            value={statsLoading ? '...' : stats.activeMembers.toString()} 
-            subtitle="Active members" 
-          />
-          <StatCard 
-            title="Next Shoot" 
-            value={statsLoading ? '...' : nextShootDisplay.value} 
-            subtitle={nextShootDisplay.subtitle} 
-          />
-          <StatCard 
-            title="Season Bag" 
-            value={statsLoading ? '...' : stats.seasonBag.toString()} 
-            subtitle="head this season" 
-          />
-          <StatCard 
-            title="Beaters owed" 
-            value={statsLoading ? '...' : stats.outstandingPayments === null ? '–' : `£${(stats.outstandingPayments / 100).toFixed(2)}`} 
-            subtitle="owed to beaters" 
-          />
+        {problems.length > 0 && !loading && (
+          <div role="alert" className="rounded-lg border border-amber-500/40 bg-amber-900/20 p-4 text-amber-100">
+            <p>Some figures didn’t load: {problems.join(' ')}</p>
+            <Button variant="secondary" size="sm" className="mt-3" onClick={() => void load()}>Try again</Button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <StatCard title="Members" value={show(stats.activeMembers === null ? dash : String(stats.activeMembers))} subtitle="Active guns" />
+          <StatCard title="Next shoot" value={show(nextShoot.value)} subtitle={loading ? undefined : nextShoot.subtitle} />
+          <StatCard title="Season bag" value={show(stats.seasonBag === null ? dash : String(stats.seasonBag))} subtitle="Head this season" />
+          <StatCard title="Beaters owed" value={show(stats.owedToBeaters === null ? dash : formatCurrency(stats.owedToBeaters))} subtitle="Not yet paid" />
         </div>
 
         <Card>
-          <h2 className="text-lg font-semibold text-white mb-4">Quick Actions</h2>
+          <h2 className="text-lg font-semibold text-white mb-4">Quick actions</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Link to="/shoots/new" className="block">
-              <Button variant="primary" className="w-full">Schedule Shoot Day</Button>
-            </Link>
-            <Link to="/members" className="block">
-              <Button variant="secondary" className="w-full">Invite Members</Button>
-            </Link>
-            <Link to="/bags/record" className="block">
-              <Button variant="secondary" className="w-full">Game book</Button>
-            </Link>
+            <ButtonLink to="/shoots/new" fullWidth>Schedule a shoot day</ButtonLink>
+            <ButtonLink to="/members" variant="secondary" fullWidth>Members</ButtonLink>
+            <ButtonLink to="/bags/record" variant="secondary" fullWidth>Game book</ButtonLink>
           </div>
         </Card>
       </div>

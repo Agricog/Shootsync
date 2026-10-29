@@ -1,7 +1,10 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
-import { handle, notFound, requireSyndicateAccess, syndicateSelect, userIdOf, withoutCaptainOnlyFields } from '../access.js'
+import { HttpError, handle, notFound, requireSyndicateAccess, syndicateSelect, userIdOf, withoutCaptainOnlyFields } from '../access.js'
+
+/** Plan states in which nothing more will be charged. */
+const SUBSCRIPTION_ENDED = new Set(['CANCELLED'])
 
 const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
 
@@ -21,11 +24,11 @@ const updateSyndicateSchema = createSyndicateSchema.partial()
 export function syndicateRoutes({ prisma }: Deps): Router {
   const router = Router()
 
-  // GET /api/syndicates - syndicates the signed-in user captains
+  // GET /api/syndicates - syndicates the signed-in user captains (archived ones are gone from the app)
   router.get('/', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicates = await prisma.syndicate.findMany({
-      where: { captainClerkId: userId },
+      where: { captainClerkId: userId, status: 'ACTIVE' },
       select: syndicateSelect,
       orderBy: { createdAt: 'desc' },
     })
@@ -111,10 +114,19 @@ export function syndicateRoutes({ prisma }: Deps): Router {
     res.json(syndicate)
   }))
 
-  // DELETE /api/syndicates/:id - archive, captain only
+  // DELETE /api/syndicates/:id - archive, captain only. The syndicate disappears from the app
+  // (its records stay in the database). Never while a plan is still being charged for it.
   router.delete('/:id', handle(async (req, res) => {
     const userId = userIdOf(req)
     await requireSyndicateAccess(prisma, req.params.id, userId, 'captain')
+
+    const { stripeSubscriptionStatus } = await prisma.syndicate.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { stripeSubscriptionStatus: true },
+    })
+    if (stripeSubscriptionStatus && !SUBSCRIPTION_ENDED.has(stripeSubscriptionStatus)) {
+      throw new HttpError(409, 'Cancel the plan for this syndicate first, in Settings, Manage billing. You can archive it once the plan has ended.')
+    }
 
     const syndicate = await prisma.syndicate.update({
       where: { id: req.params.id },

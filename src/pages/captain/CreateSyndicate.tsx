@@ -1,118 +1,124 @@
-import { useState } from 'react'
+/**
+ * Set up a syndicate - ShootSync
+ *
+ * The signed-in user becomes its captain. Next stop is choosing a plan for it.
+ */
+
+import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
+import { Helmet } from 'react-helmet-async'
+import { useSyndicates } from '../../context/SyndicateContext'
+import { apiRequest } from '../../lib/api'
+import { londonDate } from '../../utils/beaterPayCalculator'
+import { newSyndicateForm, newSyndicatePayload, validateSettings, type SettingsForm } from '../../utils/syndicateSettings'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import Input from '../../components/common/Input'
+
+const input =
+  'w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500 aria-[invalid=true]:border-red-500'
 
 export default function CreateSyndicate() {
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const { create, loading, error } = useApi('syndicates')
-  
-  const [formData, setFormData] = useState({
-    name: '',
-    seasonStart: '',
-    seasonEnd: '',
-    subscriptionAmount: 800,
-    defaultBeaterRate: 40,
-  })
+  const { memberships, reload } = useSyndicates()
+  const [form, setForm] = useState<SettingsForm>(() => newSyndicateForm(londonDate(new Date())))
+  const [showErrors, setShowErrors] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [created, setCreated] = useState(false)
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const problems = useMemo(() => validateSettings(form), [form])
+  const problem = (key: keyof SettingsForm) => (showErrors ? problems[key] : undefined)
+
+  const field = (key: 'name' | 'seasonStart' | 'seasonEnd' | 'subscriptionAmount' | 'defaultBeaterRate', title: string, hint: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+    <div>
+      <label htmlFor={`syndicate-${key}`} className="block text-sm font-medium text-slate-300 mb-1">{title}</label>
+      <input
+        id={`syndicate-${key}`}
+        className={input}
+        value={form[key]}
+        aria-invalid={Boolean(problem(key))}
+        aria-describedby={`syndicate-${key}-note`}
+        onChange={(e) => setForm({ ...form, [key]: e.target.value })}
+        {...props}
+      />
+      <p id={`syndicate-${key}-note`} className={`mt-1 text-sm ${problem(key) ? 'text-red-400' : 'text-slate-400'}`}>
+        {problem(key) ?? hint}
+      </p>
+    </div>
+  )
+
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    
-    if (!user?.id) return
-
-    const result = await create({
-      ...formData,
-      captainClerkId: user.id,
-    })
-
-    if (result) {
-      navigate('/dashboard')
+    setShowErrors(true)
+    if (Object.keys(problems).length > 0) return
+    setSaving(true)
+    setError(null)
+    const result = await apiRequest<{ id: string }>('/api/syndicates', { method: 'POST', body: newSyndicatePayload(form) })
+    if (!result.ok) {
+      setError(`Not created: ${result.error}`)
+      setSaving(false)
+      return
     }
-  }
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const { name, value, type } = e.target
-    setFormData(prev => ({
-      ...prev,
-      [name]: type === 'number' ? parseInt(value) || 0 : value,
-    }))
+    // Show the new syndicate everywhere, then choose its plan. If the app can't pick it up
+    // straight away, say so rather than showing this form again (which invites a duplicate).
+    const list = await reload(result.data.id)
+    if (!list?.some((m) => m.id === result.data.id)) {
+      setCreated(true)
+      setSaving(false)
+      return
+    }
+    navigate('/subscribe')
   }
 
   return (
     <DashboardLayout>
+      <Helmet>
+        <title>Set up your syndicate | ShootSync</title>
+      </Helmet>
+
       <div className="max-w-2xl mx-auto">
-        <h1 className="text-2xl font-bold text-white mb-6">Create Your Syndicate</h1>
-        
+        <h1 className="text-2xl font-bold text-white mb-2">Set up your syndicate</h1>
+        <p className="text-slate-300 mb-6">
+          You’ll be its captain. You can change any of this later in Settings.
+        </p>
+
+        {created ? (
+          <Card>
+            <div role="alert" className="text-center py-4">
+              <h2 className="text-lg font-semibold text-white mb-2">{form.name.trim()} is set up</h2>
+              <p className="text-slate-300 mb-6">ShootSync couldn’t load it just now. Reload the page to carry on: don’t create it again.</p>
+              <Button onClick={() => window.location.assign('/subscribe')}>Reload</Button>
+            </div>
+          </Card>
+        ) : (
         <Card>
-          <form onSubmit={handleSubmit} className="space-y-6">
+          <form onSubmit={submit} noValidate className="space-y-5">
+            {field('name', 'Syndicate name', 'For example Beatrice Pheasant Syndicate.', { maxLength: 100, autoFocus: true, autoComplete: 'organization' })}
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {field('seasonStart', 'Season starts', 'Your first shoot day can be later.', { type: 'date' })}
+              {field('seasonEnd', 'Season ends', 'Your last shoot day can be earlier.', { type: 'date' })}
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-4">
+              {field('subscriptionAmount', 'Members’ subscription (£)', 'What each gun pays the syndicate for the season. 0 if you don’t track it.', { inputMode: 'numeric' })}
+              {field('defaultBeaterRate', 'Beaters’ usual day rate (£)', 'New beaters start on this.', { inputMode: 'numeric' })}
+            </div>
+
             {error && (
-              <div className="bg-red-50 dark:bg-red-900/20 p-4 rounded-lg">
-                <p className="text-red-800 dark:text-red-200">{error}</p>
-              </div>
+              <p role="alert" className="rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">{error}</p>
             )}
 
-            <Input
-              label="Syndicate Name"
-              name="name"
-              value={formData.name}
-              onChange={handleChange}
-              placeholder="e.g. Beatrice Pheasant Syndicate 2025-26"
-              required
-            />
-
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Season Start"
-                name="seasonStart"
-                type="date"
-                value={formData.seasonStart}
-                onChange={handleChange}
-                required
-              />
-              <Input
-                label="Season End"
-                name="seasonEnd"
-                type="date"
-                value={formData.seasonEnd}
-                onChange={handleChange}
-                required
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <Input
-                label="Annual Subscription (£)"
-                name="subscriptionAmount"
-                type="number"
-                value={formData.subscriptionAmount}
-                onChange={handleChange}
-                min={0}
-              />
-              <Input
-                label="Default Beater Rate (£)"
-                name="defaultBeaterRate"
-                type="number"
-                value={formData.defaultBeaterRate}
-                onChange={handleChange}
-                min={0}
-              />
-            </div>
-
-            <div className="flex gap-4">
-              <Button type="submit" disabled={loading}>
-                {loading ? 'Creating...' : 'Create Syndicate'}
-              </Button>
-              <Button type="button" variant="secondary" onClick={() => navigate(-1)}>
-                Cancel
-              </Button>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" isLoading={saving} disabled={saving}>Create the syndicate</Button>
+              {memberships.length > 0 && (
+                <Button type="button" variant="ghost" onClick={() => navigate('/dashboard')} disabled={saving}>Cancel</Button>
+              )}
             </div>
           </form>
         </Card>
+        )}
       </div>
     </DashboardLayout>
   )

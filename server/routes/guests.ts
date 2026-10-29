@@ -3,13 +3,13 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
 import {
+  GUN_ROLES,
   HttpError,
   handle,
   notFound,
   queryString,
   requireSyndicateAccess,
   syndicateOfGuest,
-  syndicateOfMember,
   syndicateOfShoot,
   userIdOf,
 } from '../access.js'
@@ -19,13 +19,20 @@ const optionalText = (max: number) => z.string().trim().max(max).optional()
 /** Day fee is held in pence, the unit Stripe charges in. £50.00 = 5000. */
 const DEFAULT_GUEST_DAY_FEE = 5000
 
+/** In pence, but the captain types pounds, so the limits are worded in pounds. */
+const dayFeePence = z
+  .number()
+  .int('Day fee must be whole pence.')
+  .min(0, 'Day fee can’t be less than £0.')
+  .max(100_000, 'Day fee must be £1,000 or less.')
+
 const createGuestSchema = z.object({
   shootId: z.string().min(1),
   invitedByMemberId: z.string().min(1),
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().email().max(254),
   phone: optionalText(30),
-  dayFee: z.number().int().min(0).max(100_000).default(DEFAULT_GUEST_DAY_FEE),
+  dayFee: dayFeePence.default(DEFAULT_GUEST_DAY_FEE),
 })
 
 const updateGuestSchema = z.object({
@@ -35,7 +42,7 @@ const updateGuestSchema = z.object({
   emergencyContactName: optionalText(100),
   emergencyContactPhone: optionalText(30),
   pegNumber: z.number().int().min(1).max(100).optional(),
-  dayFee: z.number().int().min(0).max(100_000).optional(),
+  dayFee: dayFeePence.optional(),
   notes: optionalText(2000),
 })
 
@@ -80,9 +87,13 @@ export function guestRoutes({ prisma }: Deps): Router {
 
   async function guestByToken(token: string) {
     if (!INVITE_TOKEN_PATTERN.test(token)) throw notFound('This invitation is invalid or has expired.')
-    const guest = await prisma.guestGun.findUnique({ where: { inviteToken: token }, select: { id: true, rsvpStatus: true } })
-    if (!guest) throw notFound('This invitation is invalid or has expired.')
-    return guest
+    const guest = await prisma.guestGun.findUnique({
+      where: { inviteToken: token },
+      select: { id: true, rsvpStatus: true, shootDay: { select: { syndicate: { select: { status: true } } } } },
+    })
+    // An archived syndicate is gone from the app, its guest links with it.
+    if (!guest || guest.shootDay.syndicate.status !== 'ACTIVE') throw notFound('This invitation is invalid or has expired.')
+    return { id: guest.id, rsvpStatus: guest.rsvpStatus }
   }
 
   // GET /api/guests/token/:token
@@ -175,9 +186,13 @@ export function guestRoutes({ prisma }: Deps): Router {
     const syndicateId = await syndicateOfShoot(prisma, data.shootId)
     const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
-    // The inviting member must belong to the same syndicate, and a non-captain may only invite as themselves.
-    if ((await syndicateOfMember(prisma, data.invitedByMemberId)) !== syndicateId) {
+    // The inviting member must be an active gun of the same syndicate, and a non-captain may only invite as themselves.
+    const inviter = await prisma.member.findUnique({ where: { id: data.invitedByMemberId }, select: { syndicateId: true, status: true, role: true } })
+    if (!inviter || inviter.syndicateId !== syndicateId) {
       throw new HttpError(400, 'Inviting member is not in this syndicate')
+    }
+    if (inviter.status !== 'ACTIVE' || !(GUN_ROLES as readonly string[]).includes(inviter.role)) {
+      throw new HttpError(400, 'A guest has to be the guest of an active gun.')
     }
     if (!access.isCaptain && access.memberId !== data.invitedByMemberId) throw notFound()
 

@@ -3,16 +3,17 @@
  *
  * 1. Every same-origin /api request carries the signed-in user's Clerk session
  *    token, so the server can tell who is asking. One wrapper covers every
- *    fetch in the app, including the offline sync queue.
- * 2. Signing out clears everything this browser holds for the account: the
- *    service worker caches and the offline queue (Standard §03 Layers 4 and 5).
+ *    fetch in the app.
+ * 2. Signing out clears everything this browser holds for the account: every
+ *    localStorage key the app writes (src/lib/storageKeys.ts) and the service
+ *    worker caches (Standard §03 Layers 4 and 5).
  */
+
+import { LOCAL_STORAGE_KEYS } from './storageKeys'
 
 interface ClerkLike {
   session?: { getToken: () => Promise<string | null> } | null
 }
-
-const OFFLINE_QUEUE_KEY = 'shootsync_offline_queue'
 
 async function currentToken(): Promise<string | null> {
   const clerk = (window as unknown as { Clerk?: ClerkLike }).Clerk
@@ -55,10 +56,12 @@ export function installApiAuth(): void {
 
 /** Remove every trace of the signed-in account from this browser. Never throws. */
 export async function clearLocalAccountData(): Promise<void> {
-  try {
-    localStorage.removeItem(OFFLINE_QUEUE_KEY)
-  } catch {
-    /* storage unavailable: nothing to clear */
+  for (const key of LOCAL_STORAGE_KEYS) {
+    try {
+      localStorage.removeItem(key)
+    } catch {
+      /* storage unavailable: nothing to clear */
+    }
   }
 
   try {

@@ -1,91 +1,93 @@
 /**
  * Subscribe Page - ShootSync
- * Plan selection and checkout
+ * Plan selection and checkout for the syndicate on show.
  */
 
-import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useState } from 'react'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
-import { useApi } from '../../hooks/useApi'
 import { useSubscription } from '../../hooks/useSubscription'
+import { useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
-import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { BILLING_TERMS, PLANS } from '../../config/plans'
 
-interface Syndicate {
-  id: string
-  name: string
-  stripeSubscriptionStatus?: string
-}
-
-
 export default function Subscribe() {
+  const { email } = useAuth()
+  const syndicate = useCaptainSyndicate()
+  const { memberships, select } = useSyndicates()
   const navigate = useNavigate()
-  const { user } = useAuth()
-  const syndicateApi = useApi<Syndicate>('syndicates')
-  
-  const [syndicate, setSyndicate] = useState<Syndicate | null>(null)
-  const [loading, setLoading] = useState(true)
+  const others = memberships.filter((m) => m.id !== syndicate.id)
   const [checkingOut, setCheckingOut] = useState<string | null>(null)
   const [checkoutError, setCheckoutError] = useState<string | null>(null)
+  const [openingBilling, setOpeningBilling] = useState(false)
 
-  const { isActive, startCheckout } = useSubscription(syndicate?.id || null)
+  const { startCheckout, openPortal } = useSubscription(syndicate.id)
 
-  useEffect(() => {
-    if (user?.id) {
-      loadSyndicate()
-    }
-  }, [user?.id])
-
-  useEffect(() => {
-    if (!loading && isActive) {
-      navigate('/dashboard')
-    }
-  }, [loading, isActive, navigate])
-
-  const loadSyndicate = async () => {
-    const syndicates = await syndicateApi.fetchAll({ captainClerkId: user?.id || '' })
-    if (syndicates.length > 0) {
-      setSyndicate(syndicates[0])
-    }
-    setLoading(false)
-  }
+  if (syndicate.subscription.isActive) return <Navigate to="/dashboard" replace />
 
   const handleSelectPlan = async (tier: 'STARTER' | 'STANDARD') => {
-    if (!syndicate || !user?.email) return
-    
+    if (!email) {
+      setCheckoutError('Your account has no email address. Add one in your profile (top right), then try again.')
+      return
+    }
     setCheckingOut(tier)
     setCheckoutError(null)
-    const failure = await startCheckout(tier, user.email)
+    const failure = await startCheckout(tier, email)
     if (failure) {
       setCheckoutError(failure)
       setCheckingOut(null)
     }
   }
 
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
-    )
+  const handleOpenBilling = async () => {
+    setOpeningBilling(true)
+    setCheckoutError(null)
+    const failure = await openPortal()
+    if (failure) {
+      setCheckoutError(failure)
+      setOpeningBilling(false)
+    }
   }
 
-  if (!syndicate) {
-    return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <Card>
-          <div className="p-8 text-center">
-            <h2 className="text-xl font-bold text-white mb-4">No Syndicate Found</h2>
-            <p className="text-slate-400 mb-6">Create a syndicate first to subscribe.</p>
-            <Button onClick={() => navigate('/syndicate/create')}>
-              Create Syndicate
-            </Button>
-          </div>
-        </Card>
+  // Someone with more than one syndicate is never stuck on this page for one of them.
+  const otherSyndicates = others.length > 0 && (
+    <nav aria-label="Your other syndicates" className="mt-8 text-center">
+      <p className="text-slate-300 text-sm mb-3">Not now? Go to another of your syndicates:</p>
+      <div className="flex flex-wrap justify-center gap-2">
+        {others.map((m) => (
+          <Button key={m.id} variant="secondary" size="sm" onClick={() => { select(m.id); navigate('/dashboard') }}>
+            {m.name}
+          </Button>
+        ))}
       </div>
+    </nav>
+  )
+
+  // A failed renewal is put right by updating the card, not by buying a second plan.
+  if (syndicate.subscription.status === 'PAST_DUE') {
+    return (
+      <>
+        <Helmet>
+          <title>Update your payment | ShootSync</title>
+        </Helmet>
+        <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
+          <Card className="max-w-md w-full">
+            <div className="p-8 text-center">
+              <h1 className="text-2xl font-bold text-white mb-3">Your last payment didn’t go through</h1>
+              <p className="text-slate-300 mb-6">
+                Update your card for {syndicate.name} and Stripe will take the payment again. Your plan and records are kept.
+              </p>
+              {checkoutError && <p role="alert" className="mb-4 text-red-200">{checkoutError}</p>}
+              <Button onClick={() => void handleOpenBilling()} isLoading={openingBilling} disabled={openingBilling} className="w-full">
+                Update payment details
+              </Button>
+              {otherSyndicates}
+            </div>
+          </Card>
+        </div>
+      </>
     )
   }
 
@@ -107,7 +109,7 @@ export default function Subscribe() {
             </div>
             <h1 className="text-3xl font-bold text-white mb-3">Choose Your Plan</h1>
             <p className="text-slate-400">
-              Subscribe to start managing <span className="text-green-500">{syndicate.name}</span>
+              Subscribe to start managing <span className="text-green-400">{syndicate.name}</span>
             </p>
           </div>
 
@@ -168,9 +170,10 @@ export default function Subscribe() {
           </div>
 
           {/* Footer */}
-          <p className="text-center text-slate-500 text-sm mt-8">
+          <p className="text-center text-slate-400 text-sm mt-8">
             No contract. Every plan has a {BILLING_TERMS.moneyBackDays}-day money-back guarantee.
           </p>
+          {otherSyndicates}
         </div>
       </div>
     </>

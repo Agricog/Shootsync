@@ -6,7 +6,6 @@ import { after, before, beforeEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import type Stripe from 'stripe'
-import { createApp } from '../server/app.js'
 import { PUBLIC_ROUTES } from '../server/auth.js'
 import {
   CAPTAIN_A,
@@ -21,40 +20,14 @@ import {
   seed,
   startTestServer,
   testConfig,
-  testVerifier,
+  concrete,
+  registeredRoutes,
   tokenFor,
   type StripeCalls,
   type TestServer,
 } from './helpers.js'
 
 type Seeded = Awaited<ReturnType<typeof seed>>
-
-/** Every route registered on the app, read from Express itself, so a new route can't be missed. */
-function registeredRoutes(prisma: PrismaClient, stripe: Stripe): Array<{ method: string; path: string }> {
-  const app = createApp({ prisma, stripe, config: testConfig, verifyToken: testVerifier })
-  const routes: Array<{ method: string; path: string }> = []
-
-  const walk = (stack: any[], prefix: string) => {
-    for (const layer of stack) {
-      if (layer.route) {
-        for (const method of Object.keys(layer.route.methods)) {
-          routes.push({ method: method.toUpperCase(), path: prefix + layer.route.path })
-        }
-      } else if (layer.name === 'router' && layer.handle?.stack) {
-        const source: string = layer.regexp.source
-        const mount = source.replace('^\\', '').replace('\\/?(?=\\/|$)', '').replace(/\\\//g, '/')
-        walk(layer.handle.stack, prefix + (mount === '^' ? '' : mount))
-      }
-    }
-  }
-  walk((app as any)._router.stack, '')
-  return routes.filter((r) => r.path.startsWith('/api/'))
-}
-
-/** Turn "/api/members/:id/status" into a concrete path the router will match. */
-function concrete(path: string): string {
-  return path.replace(/:[A-Za-z]+/g, 'cl0000000000000000000000')
-}
 
 describe('API', () => {
   let prisma: PrismaClient
@@ -234,12 +207,31 @@ describe('API', () => {
       assert.match(res.json.clerkUserId, /^pending_[0-9a-f-]{36}$/)
     })
 
-    it('by-clerk only answers about the signed-in user', async () => {
-      const other = await call(server, `/api/members/by-clerk/${CAPTAIN_B}`, { as: CAPTAIN_A })
-      assert.equal(other.status, 404)
-      const own = await call(server, `/api/members/by-clerk/${CAPTAIN_A}`, { as: CAPTAIN_A })
-      assert.equal(own.status, 200)
-      assert.equal('stripeCustomerId' in own.json.syndicate, false)
+    it('a member added by the captain is active straight away, as a gun', async () => {
+      const res = await call(server, '/api/members', {
+        method: 'POST', as: CAPTAIN_A,
+        body: { syndicateId: data.a.syndicate.id, email: 'n@example.com', name: 'New' },
+      })
+      assert.equal(res.status, 201)
+      assert.equal(res.json.status, 'ACTIVE')
+      assert.equal(res.json.role, 'GUN')
+    })
+
+    it('a member cannot be added as a beater: beaters are kept on the Beaters page', async () => {
+      const res = await call(server, '/api/members', {
+        method: 'POST', as: CAPTAIN_A,
+        body: { syndicateId: data.a.syndicate.id, email: 'b@example.com', name: 'Beater', role: 'BEATER' },
+      })
+      assert.equal(res.status, 400)
+      assert.equal(res.json.error, 'Role is not one of the allowed choices.')
+    })
+
+    it('the old membership lookup and self-accept routes are gone', async () => {
+      const byClerk = await call(server, `/api/members/by-clerk/${CAPTAIN_A}`, { as: CAPTAIN_A })
+      assert.equal(byClerk.status, 404)
+      assert.deepEqual(byClerk.json, { error: 'Not found' })
+      const accept = await call(server, `/api/members/${data.a.gun.id}/accept`, { method: 'POST', as: GUN_A })
+      assert.equal(accept.status, 404)
     })
   })
 
@@ -251,6 +243,29 @@ describe('API', () => {
       })
       assert.equal(res.status, 201)
       assert.equal(res.json.dayFee, 5000)
+    })
+
+    it('a guest is always an active gun’s guest', async () => {
+      const invite = (invitedByMemberId: string) => call(server, '/api/guests', {
+        method: 'POST', as: CAPTAIN_A, body: { shootId: data.a.shoot.id, invitedByMemberId, name: 'G', email: 'g@example.com' },
+      })
+      const beaterRole = await prisma.member.findFirstOrThrow({ where: { syndicateId: data.a.syndicate.id, role: 'BEATER' } })
+      const asBeater = await invite(beaterRole.id)
+      assert.equal(asBeater.status, 400)
+      assert.equal(asBeater.json.error, 'A guest has to be the guest of an active gun.')
+
+      await prisma.member.update({ where: { id: data.a.gun.id }, data: { status: 'INACTIVE' } })
+      assert.equal((await invite(data.a.gun.id)).status, 400)
+      assert.equal((await invite(data.a.captainMember.id)).status, 201)
+    })
+
+    it('a day fee over the limit is refused in pounds, the unit the captain typed', async () => {
+      const res = await call(server, '/api/guests', {
+        method: 'POST', as: CAPTAIN_A,
+        body: { shootId: data.a.shoot.id, invitedByMemberId: data.a.gun.id, name: 'G', email: 'g@example.com', dayFee: 150_000 },
+      })
+      assert.equal(res.status, 400)
+      assert.equal(res.json.error, 'Day fee must be £1,000 or less.')
     })
 
     it('the captain can set a guest day fee', async () => {

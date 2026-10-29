@@ -12,6 +12,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { ZodError } from 'zod'
+import { validationResponse } from './validation.js'
 
 export class HttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -37,7 +38,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return res.status(err.status).json({ error: err.message })
   }
   if (err instanceof ZodError) {
-    return res.status(400).json({ error: 'Validation failed', details: err.issues })
+    return res.status(400).json(validationResponse(err.issues))
   }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' })
@@ -67,11 +68,19 @@ export interface SyndicateAccess {
 }
 
 /** Member roles that count as a gun for 'member'-level access. Beaters have their own portal. */
-const GUN_ROLES = ['CAPTAIN', 'GUN', 'HYBRID'] as const
+export const GUN_ROLES = ['CAPTAIN', 'GUN', 'HYBRID'] as const
+
+/** Subscription states in which the syndicate is paid up. Everything else is lapsed or never started. */
+const LIVE_SUBSCRIPTION_STATES = new Set(['ACTIVE', 'TRIALING'])
+
+export function isLiveSubscription(status: string | null | undefined): boolean {
+  return status != null && LIVE_SUBSCRIPTION_STATES.has(status)
+}
 
 /**
  * Captain: the syndicate's captain only.
  * Member: the captain, or an ACTIVE gun (role CAPTAIN, GUN or HYBRID) whose Clerk ID matches the caller.
+ * An archived syndicate is gone from the app for everyone: same 404 as one that never existed.
  */
 export async function requireSyndicateAccess(
   prisma: PrismaClient,
@@ -83,9 +92,9 @@ export async function requireSyndicateAccess(
 
   const syndicate = await prisma.syndicate.findUnique({
     where: { id: syndicateId },
-    select: { id: true, captainClerkId: true },
+    select: { id: true, captainClerkId: true, status: true },
   })
-  if (!syndicate) throw notFound()
+  if (!syndicate || syndicate.status !== 'ACTIVE') throw notFound()
 
   const member = await prisma.member.findFirst({
     where: { syndicateId, clerkUserId: userId, status: 'ACTIVE', role: { in: [...GUN_ROLES] } },

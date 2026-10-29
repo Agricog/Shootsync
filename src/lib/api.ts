@@ -1,0 +1,70 @@
+/**
+ * Talking to the ShootSync API - one way, used by every page.
+ *
+ * Never throws. Every call comes back as either { ok: true, data } or { ok: false, error },
+ * where `error` is a sentence the captain can act on: the server's own words when it gave
+ * some ("Season end must be after season start"), otherwise a plain description of what
+ * went wrong. The session token is added by src/lib/session.ts.
+ */
+
+export type Result<T> = { ok: true; data: T; status: number } | { ok: false; error: string; status: number }
+
+export const OFFLINE_MESSAGE = 'Could not reach ShootSync. Check your signal and try again: nothing was saved.'
+
+/** The message to show for a failed response, from whatever JSON (or nothing) the server sent. */
+export function errorMessageFrom(status: number, body: unknown): string {
+  const data = body as { error?: unknown; details?: Array<{ message?: unknown }> } | null
+  if (data && typeof data.error === 'string' && data.error.trim()) return data.error
+  const detail = data?.details?.[0]?.message
+  if (typeof detail === 'string' && detail.trim()) return detail
+  if (status === 401) return 'Your session has ended. Sign in again to carry on.'
+  if (status === 404) return 'That could not be found. It may have been removed.'
+  if (status === 429) return 'Too many requests in a short time. Wait a minute and try again.'
+  if (status >= 500) return 'ShootSync had a problem saving that. Try again in a moment.'
+  return `Something went wrong (${status}). Try again.`
+}
+
+export interface RequestOptions {
+  method?: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
+  body?: unknown
+  signal?: AbortSignal
+}
+
+export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<Result<T>> {
+  const { method = 'GET', body, signal } = options
+  let response: Response
+  try {
+    response = await fetch(path, {
+      method,
+      signal,
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') return { ok: false, error: 'Cancelled.', status: 0 }
+    return { ok: false, error: OFFLINE_MESSAGE, status: 0 }
+  }
+
+  const text = await response.text().catch(() => '')
+  let json: unknown = null
+  if (text) {
+    try {
+      json = JSON.parse(text)
+    } catch {
+      json = null
+    }
+  }
+
+  if (!response.ok) return { ok: false, error: errorMessageFrom(response.status, json), status: response.status }
+  return { ok: true, data: json as T, status: response.status }
+}
+
+/** Builds "/api/x?a=1&b=2", leaving out empty values and encoding the rest. */
+export function apiPath(path: string, query: Record<string, string | number | boolean | null | undefined> = {}): string {
+  const params = new URLSearchParams()
+  for (const [key, value] of Object.entries(query)) {
+    if (value !== undefined && value !== null && value !== '') params.set(key, String(value))
+  }
+  const qs = params.toString()
+  return qs ? `${path}?${qs}` : path
+}

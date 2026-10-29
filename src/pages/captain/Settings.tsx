@@ -9,13 +9,13 @@
  */
 
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
-import { useAuth } from '../../hooks/useAuth'
 import { useSubscription } from '../../hooks/useSubscription'
+import { useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
+import { apiRequest } from '../../lib/api'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
-import Button from '../../components/common/Button'
+import Button, { ButtonLink } from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { PLANS } from '../../config/plans'
 import { settingsPayload, toForm, validateSettings, type SettingsForm as Form, type SyndicateSettings as Syndicate } from '../../utils/syndicateSettings'
@@ -32,7 +32,7 @@ function Field({ id, title, hint, error, children }: { id: string; title: string
         {title}
       </label>
       {children}
-      <p id={`${id}-note`} className={`mt-1 text-sm ${error ? 'text-red-400' : 'text-slate-500'}`}>
+      <p id={`${id}-note`} className={`mt-1 text-sm ${error ? 'text-red-400' : 'text-slate-400'}`}>
         {error ?? hint}
       </p>
     </div>
@@ -40,7 +40,8 @@ function Field({ id, title, hint, error, children }: { id: string; title: string
 }
 
 export default function Settings() {
-  const { user } = useAuth()
+  const current = useCaptainSyndicate()
+  const { reload } = useSyndicates()
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saved, setSaved] = useState<Syndicate | null>(null)
@@ -54,23 +55,24 @@ export default function Settings() {
   const [openingBilling, setOpeningBilling] = useState(false)
 
   useEffect(() => {
-    if (!user?.id) return
+    let stale = false
     ;(async () => {
       setLoading(true)
-      try {
-        const response = await fetch('/api/syndicates')
-        if (!response.ok) throw new Error(String(response.status))
-        const list: Syndicate[] = await response.json()
-        if (list.length > 0) {
-          setSaved(list[0])
-          setForm(toForm(list[0]))
-        }
-      } catch {
-        setLoadError('Could not load your settings. Check your connection and try again.')
+      setLoadError(null)
+      const result = await apiRequest<Syndicate>(`/api/syndicates/${encodeURIComponent(current.id)}`)
+      if (stale) return
+      if (result.ok) {
+        setSaved(result.data)
+        setForm(toForm(result.data))
+      } else {
+        setLoadError(`Could not load your settings. ${result.error}`)
       }
       setLoading(false)
     })()
-  }, [user?.id])
+    return () => {
+      stale = true
+    }
+  }, [current.id])
 
   const problems = useMemo(() => (form ? validateSettings(form) : {}), [form])
   const dirty = useMemo(() => (form && saved ? JSON.stringify(form) !== JSON.stringify(toForm(saved)) : false), [form, saved])
@@ -87,20 +89,19 @@ export default function Settings() {
     if (Object.keys(problems).length > 0) return
     setSaving(true)
     setMessage(null)
-    try {
-      const response = await fetch(`/api/syndicates/${encodeURIComponent(saved.id)}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsPayload(form, saved)),
-      })
-      const body = await response.json().catch(() => null)
-      if (!response.ok) throw new Error(body?.details?.[0]?.message || body?.error || `Something went wrong (${response.status})`)
-      setSaved(body)
-      setForm(toForm(body))
+    const result = await apiRequest<Syndicate>(`/api/syndicates/${encodeURIComponent(saved.id)}`, {
+      method: 'PATCH',
+      body: settingsPayload(form, saved),
+    })
+    if (result.ok) {
+      setSaved(result.data)
+      setForm(toForm(result.data))
       setShowErrors(false)
       setMessage({ kind: 'success', text: 'Settings saved.' })
-    } catch (err) {
-      setMessage({ kind: 'error', text: `Not saved: ${err instanceof Error ? err.message : 'please try again.'}` })
+      // The name and season show in the header and on the dashboard.
+      void reload(saved.id)
+    } else {
+      setMessage({ kind: 'error', text: `Not saved: ${result.error}` })
     }
     setSaving(false)
   }
@@ -142,14 +143,6 @@ export default function Settings() {
             <p role="alert" className="rounded-lg px-4 py-3 bg-red-900/40 text-red-200 border border-red-800">
               {loadError}
             </p>
-          )}
-
-          {!loading && !loadError && !saved && (
-            <Card>
-              <p className="text-slate-300">
-                You haven’t set up a syndicate yet. <Link to="/dashboard" className="text-green-400 underline">Create your syndicate</Link> first.
-              </p>
-            </Card>
           )}
 
           {form && saved && (
@@ -218,7 +211,7 @@ export default function Settings() {
                       </label>
                     ))}
                   </div>
-                  <p className="mt-3 text-sm text-slate-500">Both are always available on the peg draw page; this one is shown first.</p>
+                  <p className="mt-3 text-sm text-slate-400">Both are always available on the peg draw page; this one is shown first.</p>
                 </fieldset>
               </Card>
 
@@ -250,11 +243,17 @@ export default function Settings() {
           {saved && (
             <Card>
               <h2 className="text-lg font-semibold text-white mb-1">Plan and billing</h2>
-              {subscription.isActive ? (
+              {subscription.loading ? (
+                <p className="text-slate-300">Checking your plan…</p>
+              ) : subscription.error ? (
+                <p role="alert" className="text-red-300">Couldn’t check your plan just now. {subscription.error}</p>
+              ) : subscription.isActive ? (
                 <p className="text-slate-300">
                   {plan ? `${plan.name}, £${plan.monthlyPrice} a month.` : 'Your plan is active.'}
                   {renews && ` Paid up to ${renews}.`}
                 </p>
+              ) : subscription.status === 'PAST_DUE' ? (
+                <p className="text-amber-200">Your last payment didn’t go through. Update your card under Manage billing.</p>
               ) : (
                 <p className="text-slate-300">No active plan.</p>
               )}
@@ -263,14 +262,12 @@ export default function Settings() {
               </p>
               {billingError && <p role="alert" className="mt-3 text-red-300">{billingError}</p>}
               <div className="mt-4">
-                {subscription.status ? (
+                {subscription.loading || subscription.error ? null : subscription.status && subscription.status !== 'CANCELLED' ? (
                   <Button variant="secondary" onClick={openBilling} isLoading={openingBilling} disabled={openingBilling}>
                     Manage billing
                   </Button>
                 ) : (
-                  <Link to="/subscribe" className="inline-flex items-center px-4 py-2 rounded-lg bg-green-600 hover:bg-green-700 text-white font-medium">
-                    Choose a plan
-                  </Link>
+                  <ButtonLink to="/subscribe">Choose a plan</ButtonLink>
                 )}
               </div>
             </Card>

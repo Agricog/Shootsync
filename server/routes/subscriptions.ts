@@ -7,7 +7,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import type Stripe from 'stripe'
 import type { Deps } from '../deps.js'
-import { HttpError, handle, notFound, requireSyndicateAccess, userIdOf } from '../access.js'
+import { HttpError, handle, isLiveSubscription, notFound, requireSyndicateAccess, userIdOf } from '../access.js'
 
 const checkoutSchema = z.object({
   syndicateId: z.string().min(1),
@@ -127,7 +127,7 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
     if (!syndicate) throw notFound()
 
     res.json({
-      isActive: syndicate.stripeSubscriptionStatus === 'ACTIVE' || syndicate.stripeSubscriptionStatus === 'TRIALING',
+      isActive: isLiveSubscription(syndicate.stripeSubscriptionStatus),
       status: syndicate.stripeSubscriptionStatus,
       planTier: syndicate.planTier,
       currentPeriodEnd: syndicate.subscriptionCurrentPeriodEnd,

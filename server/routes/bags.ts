@@ -12,6 +12,7 @@ import {
   syndicateOfBag,
   syndicateOfShoot,
   userIdOf,
+  withoutCaptainOnlyFields,
 } from '../access.js'
 
 const count = z.number().int().min(0).max(100_000).optional()
@@ -116,14 +117,15 @@ export function bagRoutes({ prisma }: Deps): Router {
   router.get('/:id', handle(async (req, res) => {
     const userId = userIdOf(req)
     const syndicateId = await syndicateOfBag(prisma, req.params.id)
-    await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
+    const access = await requireSyndicateAccess(prisma, syndicateId, userId, 'member')
 
     const bag = await prisma.bagRecord.findUnique({
       where: { id: req.params.id },
       include: { shootDay: true },
     })
     if (!bag) throw notFound('Bag record not found')
-    res.json(bag)
+    // A gun sees the day, never the captain's private notes (same rule as the shoots list).
+    res.json(access.isCaptain ? bag : { ...bag, shootDay: withoutCaptainOnlyFields(bag.shootDay) })
   }))
 
   // POST /api/bags
