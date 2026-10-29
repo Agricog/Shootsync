@@ -42,7 +42,7 @@ const updateGuestSchema = z.object({
 const acceptGuestSchema = z.object({
   emergencyContactName: z.string().trim().min(1).max(100),
   emergencyContactPhone: z.string().trim().min(1).max(30),
-  waiverAccepted: z.literal(true, { errorMap: () => ({ message: 'Waiver must be accepted' }) }),
+  waiverAccepted: z.literal(true, { error: 'Waiver must be accepted' }),
 })
 
 export const INVITE_TOKEN_PATTERN = /^[a-f0-9]{64}$/

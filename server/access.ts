@@ -37,7 +37,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
     return res.status(err.status).json({ error: err.message })
   }
   if (err instanceof ZodError) {
-    return res.status(400).json({ error: 'Validation failed', details: err.errors })
+    return res.status(400).json({ error: 'Validation failed', details: err.issues })
   }
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' })
