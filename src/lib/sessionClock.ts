@@ -1,7 +1,7 @@
 /**
  * The session clock - ShootSync (Build Standard, Layer 2)
  *
- * When the signed-in user will be signed out: 15 minutes after signing in, or 10 minutes after
+ * When the signed-in user will be signed out: 12 hours after signing in, or 10 minutes after
  * they last did anything, whichever comes first. The server enforces the same limits
  * (server/sessionPolicy.ts; a test keeps the numbers equal); this is the browser's side, so the
  * user is warned a minute before and the sign-out happens on screen, not on their next save.
@@ -9,7 +9,7 @@
  */
 
 export const SESSION_CLOCK = {
-  absoluteMs: 15 * 60_000,
+  absoluteMs: 12 * 60 * 60_000,
   idleMs: 10 * 60_000,
   warnBeforeMs: 60_000,
   /** How often, at most, a busy user is reported to the server as still there. */
@@ -20,7 +20,7 @@ export type SessionEndReason = 'absolute' | 'idle'
 
 /** The sentence shown on the sign-in page afterwards. Same words as the server's. */
 export const SESSION_ENDED_TEXT: Record<SessionEndReason, string> = {
-  absolute: 'For security, ShootSync signs you out 15 minutes after you sign in. Sign in again to carry on.',
+  absolute: 'For security, ShootSync signs you out 12 hours after you sign in. Sign in again to carry on.',
   idle: 'You were signed out after 10 minutes without using ShootSync. Sign in again to carry on.',
 }
 

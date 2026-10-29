@@ -252,15 +252,15 @@ describe('validation messages', () => {
   })
 })
 
-describe('the session clock (15 minutes from sign-in, 10 idle)', () => {
+describe('the session clock (12 hours from sign-in, 10 minutes idle)', () => {
   const min = 60_000
   const signedIn = 1_000_000
 
   it('counts down to whichever limit comes first', () => {
     const fresh = sessionClock(signedIn, signedIn, signedIn)
     assert.deepEqual([fresh.reason, fresh.msLeft, fresh.warn, fresh.ended], ['idle', 10 * min, false, false])
-    // Busy for 12 minutes: the absolute limit is now the nearer one.
-    const busy = sessionClock(signedIn + 12 * min, signedIn, signedIn + 12 * min)
+    // Busy all day: 3 minutes before the 12 hours are up, the absolute limit is the nearer one.
+    const busy = sessionClock(signedIn + 717 * min, signedIn, signedIn + 717 * min)
     assert.deepEqual([busy.reason, busy.msLeft], ['absolute', 3 * min])
   })
 
@@ -270,7 +270,7 @@ describe('the session clock (15 minutes from sign-in, 10 idle)', () => {
     assert.deepEqual([warned.warn, warned.ended, warned.msLeft], [true, false, min])
     const ended = sessionClock(signedIn + 11 * min, signedIn, signedIn)
     assert.deepEqual([ended.ended, ended.msLeft, ended.reason], [true, 0, 'idle'])
-    const absolute = sessionClock(signedIn + 15 * min, signedIn, signedIn + 15 * min)
+    const absolute = sessionClock(signedIn + 720 * min, signedIn, signedIn + 720 * min)
     assert.deepEqual([absolute.ended, absolute.reason], [true, 'absolute'])
   })
 

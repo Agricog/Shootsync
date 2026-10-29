@@ -38,7 +38,7 @@ export default function SessionHygiene() {
         <p className="text-amber-100 text-sm flex-1">
           {warning.reason === 'idle'
             ? `You’ll be signed out in ${left} because nothing has happened for a while.`
-            : `For security you’ll be signed out in ${left}, 15 minutes after signing in. Save anything you’re working on now.`}
+            : `For security you’ll be signed out in ${left}, 12 hours after signing in. Save anything you’re working on now.`}
         </p>
         {warning.reason === 'idle' && (
           <button

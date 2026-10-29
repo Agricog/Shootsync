@@ -1,9 +1,14 @@
 /**
- * Session limits - ShootSync (Build Standard, Layer 2: 15 minutes absolute, 10 minutes idle)
+ * Session limits - ShootSync: 10 minutes idle, 12 hours absolute
+ *
+ * The owner's decision, 29 Oct 2026, by his mantra rather than the standard's 15 minutes absolute:
+ * the idle limit is what protects a phone or laptop left unattended, so it is strict and enforced
+ * here; the absolute limit means one sign-in lasts a working or shoot day and never overnight,
+ * without throwing a captain out mid-task every quarter of an hour.
  *
  * Enforced here, on the server, for every signed-in request, so no browser can get round them.
  *
- * Absolute: a session ends 15 minutes after it started, by two independent measures, either of
+ * Absolute: a session ends 12 hours after it started, by two independent measures, either of
  * which ends it:
  *   - the token: Clerk's `fva[0]` says how many whole minutes before the token was issued (`iat`)
  *     the user last proved who they are; adding the token's own age gives the time to the second;
@@ -23,7 +28,7 @@
 import type { PrismaClient } from '@prisma/client'
 
 export const SESSION_LIMITS = {
-  absoluteMinutes: 15,
+  absoluteMinutes: 12 * 60,
   idleMinutes: 10,
   /** How often, at most, the browser tells the server a busy user is still there. */
   pingEveryMinutes: 2,
@@ -39,7 +44,7 @@ export const SERVER_IDLE_MINUTES = SESSION_LIMITS.idleMinutes + SESSION_LIMITS.p
 export const KEEP_SESSION_ROWS_DAYS = 8
 
 export const SESSION_ENDED_MESSAGES = {
-  absolute: 'For security, ShootSync signs you out 15 minutes after you sign in. Sign in again to carry on.',
+  absolute: 'For security, ShootSync signs you out 12 hours after you sign in. Sign in again to carry on.',
   idle: 'You were signed out after 10 minutes without using ShootSync. Sign in again to carry on.',
 } as const
 

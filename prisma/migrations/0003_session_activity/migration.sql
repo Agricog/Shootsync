@@ -1,7 +1,7 @@
 -- 0003_session_activity
 --
 -- When each signed-in session first and last used ShootSync, so the server itself can end a
--- session 15 minutes after it started and one left idle (Build Standard, Layer 2). One small row
+-- session 12 hours after it started and one left idle for 10 minutes. One small row
 -- per session; rows for sessions older than Clerk could still be using are cleared as new
 -- sessions start. Additive only: the code running before this release never reads it.
 --

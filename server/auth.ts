@@ -9,7 +9,7 @@
  *
  * Header-only (no cookie auth) keeps state-changing routes immune to CSRF.
  *
- * Every signed-in request also passes the session limits (server/sessionPolicy.ts): 15 minutes
+ * Every signed-in request also passes the session limits (server/sessionPolicy.ts): 12 hours
  * from sign-in, 10 minutes idle. A refusal is 401 with `code: 'session_ended'` and a sentence,
  * and the browser signs the user out with that sentence.
  */

@@ -17,7 +17,7 @@ export type Result<T> = { ok: true; data: T; status: number } | { ok: false; err
 export const PLAN_CHANGED_EVENT = 'shootsync:plan-changed'
 
 /**
- * Sent on window when the server has ended the session (401 with code 'session_ended': 15 minutes
+ * Sent on window when the server has ended the session (401 with code 'session_ended': 12 hours
  * from sign-in, or 10 minutes idle). The event's detail is the server's sentence; the session
  * timer signs the user out and shows it on the sign-in page.
  */

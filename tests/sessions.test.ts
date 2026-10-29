@@ -1,5 +1,5 @@
 /**
- * Session limits, on the server (Build Standard, Layer 2): 15 minutes from sign-in, 10 minutes
+ * Session limits, on the server: 12 hours from sign-in, 10 minutes
  * idle (the server allows the browser's ping interval on top, so it never refuses someone the
  * browser still counts as active). The browser's clock runs on the same numbers.
  */
@@ -10,6 +10,9 @@ import type { PrismaClient } from '@prisma/client'
 import { CAPTAIN_A, CAPTAIN_B, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, tokenFor, type TestServer } from './helpers.js'
 import { KEEP_SESSION_ROWS_DAYS, SERVER_IDLE_MINUTES, SESSION_ENDED_MESSAGES, SESSION_LIMITS, absoluteLimitReached } from '../server/sessionPolicy.js'
 import { sessionFromClaims } from '../server/auth.js'
+
+/** The absolute limit, in minutes. */
+const LIMIT = SESSION_LIMITS.absoluteMinutes
 import { SESSION_CLOCK, SESSION_ENDED_TEXT } from '../src/lib/sessionClock.js'
 
 describe('reading a Clerk session token', () => {
@@ -19,8 +22,8 @@ describe('reading a Clerk session token', () => {
     assert.deepEqual(sessionFromClaims({ sub: 'user_x', sid: 'sess_x', fva: [3, -1], iat: now - 20 }, now), { userId: 'user_x', sessionId: 'sess_x', secondsSinceSignIn: 200 })
   })
 
-  it('counts the token’s own age, so a token issued at 14 minutes is refused once 15 have passed', () => {
-    const at = (age: number) => sessionFromClaims({ sub: 'user_x', sid: 'sess_x', fva: [14, -1], iat: now - age }, now)
+  it('counts the token’s own age, so a token issued a minute before the limit is refused once the limit has passed', () => {
+    const at = (age: number) => sessionFromClaims({ sub: 'user_x', sid: 'sess_x', fva: [LIMIT - 1, -1], iat: now - age }, now)
     assert.equal(absoluteLimitReached(at(59)), false)
     assert.equal(absoluteLimitReached(at(60)), true)
   })
@@ -40,13 +43,13 @@ describe('reading a Clerk session token', () => {
 })
 
 describe('the browser and the server keep the same limits', () => {
-  it('15 minutes absolute, 10 idle, the same sentences, and the server allows one ping gap more', () => {
+  it('12 hours absolute, 10 minutes idle, the same sentences, and the server allows one ping gap more', () => {
     assert.equal(SESSION_CLOCK.absoluteMs, SESSION_LIMITS.absoluteMinutes * 60_000)
     assert.equal(SESSION_CLOCK.idleMs, SESSION_LIMITS.idleMinutes * 60_000)
     assert.equal(SESSION_CLOCK.pingEveryMs, SESSION_LIMITS.pingEveryMinutes * 60_000)
     assert.equal(SERVER_IDLE_MINUTES, SESSION_LIMITS.idleMinutes + SESSION_LIMITS.pingEveryMinutes)
     assert.deepEqual(SESSION_ENDED_TEXT, SESSION_ENDED_MESSAGES)
-    assert.deepEqual([SESSION_LIMITS.absoluteMinutes, SESSION_LIMITS.idleMinutes], [15, 10])
+    assert.deepEqual([SESSION_LIMITS.absoluteMinutes, SESSION_LIMITS.idleMinutes], [12 * 60, 10])
     // A refused session's row must outlive anything Clerk could still issue tokens for (7 days by
     // default), or the session could come back looking new.
     assert.ok(KEEP_SESSION_ROWS_DAYS > 7)
@@ -78,24 +81,24 @@ describe('session limits on the server', () => {
   const quietFor = (minutes: number, user = CAPTAIN_A) =>
     prisma.$executeRaw`UPDATE "session_activity" SET "last_seen_at" = (now() AT TIME ZONE 'UTC') - make_interval(mins => ${minutes}::int) WHERE "session_id" = ${`sess_${user}`}`
 
-  it('up to 14 minutes after signing in, requests are answered', async () => {
+  it('up to a minute before the limit, requests are answered', async () => {
     assert.equal((await asMinutes(0)).status, 200)
-    assert.equal((await asMinutes(14)).status, 200)
+    assert.equal((await asMinutes(LIMIT - 1)).status, 200)
   })
 
-  it('from 15 minutes, every request is refused with the reason, and the browser is told to sign out', async () => {
-    for (const minutes of [15, 60]) {
+  it('from the limit on, every request is refused with the reason, and the browser is told to sign out', async () => {
+    for (const minutes of [LIMIT, LIMIT * 2]) {
       const res = await asMinutes(minutes)
       assert.equal(res.status, 401)
       assert.deepEqual(res.json, { error: SESSION_ENDED_MESSAGES.absolute, code: 'session_ended', reason: 'absolute' })
     }
   })
 
-  it('15 minutes after the server first saw the session it ends, even if the token says the user just verified again', async () => {
+  it('the limit after the server first saw the session, it ends, even if the token says the user just verified again', async () => {
     assert.equal((await asMinutes(0)).status, 200)
-    await startedAgo(14)
+    await startedAgo(LIMIT - 1)
     assert.equal((await asMinutes(0)).status, 200)
-    await startedAgo(15)
+    await startedAgo(LIMIT)
     const res = await asMinutes(0)
     assert.equal(res.status, 401)
     assert.equal(res.json.reason, 'absolute')
@@ -104,7 +107,7 @@ describe('session limits on the server', () => {
   it('a token without a sign-in age still gets the absolute limit, from the server’s record', async () => {
     const plain = () => call(server, '/api/me', { rawToken: tokenFor(CAPTAIN_A, 'nofva') })
     assert.equal((await plain()).status, 200)
-    await startedAgo(15)
+    await startedAgo(LIMIT)
     assert.equal((await plain()).json.reason, 'absolute')
   })
 
@@ -136,7 +139,7 @@ describe('session limits on the server', () => {
 
   it('the ping needs a signed-in session, and is refused like anything else once it has ended', async () => {
     assert.equal((await call(server, '/api/session/ping', { method: 'POST' })).status, 401)
-    assert.equal((await call(server, '/api/session/ping', { method: 'POST', rawToken: tokenFor(CAPTAIN_A, 15) })).status, 401)
+    assert.equal((await call(server, '/api/session/ping', { method: 'POST', rawToken: tokenFor(CAPTAIN_A, LIMIT) })).status, 401)
   })
 
   it("one user's idle session doesn't end another's", async () => {

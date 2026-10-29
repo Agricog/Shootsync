@@ -1,5 +1,5 @@
 /**
- * Session timeout - ShootSync (Build Standard, Layer 2: 15 minutes absolute, 10 minutes idle)
+ * Session timeout - ShootSync: 10 minutes idle, 12 hours absolute (server/sessionPolicy.ts says why)
  *
  * Mounted once for the whole app (SessionHygiene), so moving between pages never restarts the
  * clock. It measures from when the user signed in (Clerk's session), and from their last
