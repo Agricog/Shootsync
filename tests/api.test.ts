@@ -480,7 +480,7 @@ describe('API', () => {
       id: 'evt_test_guest',
       object: 'event',
       type: 'checkout.session.completed',
-      data: { object: { id: 'cs_test_x', object: 'checkout.session', mode: 'payment', payment_status: 'paid', payment_intent: 'pi_test_1', metadata: { type: 'guest_day_fee', guestId } } },
+      data: { object: { id: 'cs_test_x', object: 'checkout.session', mode: 'payment', payment_status: 'paid', payment_intent: 'pi_test_1', amount_total: 5000, currency: 'gbp', metadata: { type: 'guest_day_fee', guestId } } },
     })
 
     it('rejects an unsigned or wrongly signed event and changes nothing', async () => {

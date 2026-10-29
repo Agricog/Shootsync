@@ -53,6 +53,35 @@ const acceptGuestSchema = z.object({
 
 export const INVITE_TOKEN_PATTERN = /^[a-f0-9]{64}$/
 
+/** A shoot day's date as "YYYY-MM-DD". Shoot dates are stored as midnight UTC of the day chosen. */
+export const shootDateKey = (date: Date): string => date.toISOString().slice(0, 10)
+
+/** "YYYY-MM-DD" plus a number of days. */
+function addDays(day: string, days: number): string {
+  return new Date(Date.parse(`${day}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10)
+}
+
+/**
+ * How long after the shoot day a guest's link still opens (read-only, showing the day is over).
+ * After that it is treated as expired: the guest's details are no longer reachable from an old email.
+ */
+export const GUEST_LINK_DAYS_AFTER_SHOOT = 30
+
+/**
+ * Why a guest can no longer accept, decline or pay for a day, or null while they still can.
+ * Open means the day is still scheduled and hasn't passed: a guest can still pay on the morning.
+ */
+export function guestDayClosed(shoot: { status: string; date: Date }, today: string): string | null {
+  if (shoot.status === 'CANCELLED') return 'This shoot day has been cancelled, so the invitation is closed. Please contact the person who invited you.'
+  if (shoot.status === 'COMPLETED' || shootDateKey(shoot.date) < today) return 'This shoot day has already taken place, so the invitation is closed.'
+  return null
+}
+
+/** Whether a guest link has expired: some time after its shoot day. */
+export function guestLinkExpired(shootDate: Date, today: string): boolean {
+  return today > addDays(shootDateKey(shootDate), GUEST_LINK_DAYS_AFTER_SHOOT)
+}
+
 /** What a guest sees about their own invite. No other guest, member or payment data. */
 const guestInviteSelect = {
   name: true,
@@ -79,7 +108,7 @@ const guestListInclude = {
   shootDay: { select: { date: true, locationName: true } },
 } as const
 
-export function guestRoutes({ prisma }: Deps): Router {
+export function guestRoutes({ prisma, today }: Deps): Router {
   const router = Router()
 
   // ---- Public: the guest's own invite, authorised by the 64-hex token in the link ----
@@ -88,24 +117,29 @@ export function guestRoutes({ prisma }: Deps): Router {
     if (!INVITE_TOKEN_PATTERN.test(token)) throw notFound('This invitation is invalid or has expired.')
     const guest = await prisma.guestGun.findUnique({
       where: { inviteToken: token },
-      select: { id: true, rsvpStatus: true, shootDay: { select: { syndicate: { select: { status: true } } } } },
+      select: { id: true, rsvpStatus: true, shootDay: { select: { status: true, date: true, syndicate: { select: { status: true } } } } },
     })
-    // An archived syndicate is gone from the app, its guest links with it.
-    if (!guest || guest.shootDay.syndicate.status !== 'ACTIVE') throw notFound('This invitation is invalid or has expired.')
-    return { id: guest.id, rsvpStatus: guest.rsvpStatus }
+    // An archived syndicate is gone from the app, its guest links with it; and every link
+    // expires a while after its day.
+    if (!guest || guest.shootDay.syndicate.status !== 'ACTIVE' || guestLinkExpired(guest.shootDay.date, today())) {
+      throw notFound('This invitation is invalid or has expired.')
+    }
+    return { id: guest.id, rsvpStatus: guest.rsvpStatus, closed: guestDayClosed(guest.shootDay, today()) }
   }
 
   // GET /api/guests/token/:token
   router.get('/token/:token', handle(async (req, res) => {
-    const { id } = await guestByToken(req.params.token)
+    const { id, closed } = await guestByToken(req.params.token)
     const guest = await prisma.guestGun.findUnique({ where: { id }, select: guestInviteSelect })
     res.set('Cache-Control', 'no-store')
-    res.json(guest)
+    // closed: why nothing more can be done with this invitation (the page shows it), or null.
+    res.json({ ...guest, closed })
   }))
 
   // POST /api/guests/token/:token/accept - RSVP yes and sign the waiver
   router.post('/token/:token/accept', handle(async (req, res) => {
     const guest = await guestByToken(req.params.token)
+    if (guest.closed) throw new HttpError(409, guest.closed)
     if (guest.rsvpStatus === 'DECLINED') throw new HttpError(409, 'This invitation was declined.')
     const data = acceptGuestSchema.parse(req.body)
 
@@ -126,6 +160,7 @@ export function guestRoutes({ prisma }: Deps): Router {
   // POST /api/guests/token/:token/decline
   router.post('/token/:token/decline', handle(async (req, res) => {
     const guest = await guestByToken(req.params.token)
+    if (guest.closed) throw new HttpError(409, guest.closed)
     const updated = await prisma.guestGun.update({
       where: { id: guest.id },
       data: { rsvpStatus: 'DECLINED' },
@@ -192,6 +227,11 @@ export function guestRoutes({ prisma }: Deps): Router {
     }
     if (!access.isCaptain && access.memberId !== data.invitedByMemberId) throw notFound()
 
+    const shoot = await prisma.shootDay.findUniqueOrThrow({ where: { id: data.shootId }, select: { status: true, date: true } })
+    if (guestDayClosed(shoot, today())) {
+      throw new HttpError(409, 'Guests can only be invited to a day that is still scheduled and hasn’t happened yet.')
+    }
+
     const guest = await prisma.guestGun.create({
       data: {
         shootId: data.shootId,
@@ -217,6 +257,19 @@ export function guestRoutes({ prisma }: Deps): Router {
     await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const data = updateGuestSchema.parse(req.body)
 
+    // The fee is fixed once the guest has accepted the invitation: that is the fee they agreed to
+    // and the one their card page charges. The condition is part of the write, so an acceptance
+    // arriving at the same moment can't slip between a check and the change.
+    if (data.dayFee !== undefined) {
+      const changed = await prisma.guestGun.updateMany({
+        where: { id: req.params.id, OR: [{ dayFee: data.dayFee }, { waiverAccepted: false, paymentStatus: 'PENDING' }] },
+        data,
+      })
+      if (changed.count === 0) {
+        throw new HttpError(409, 'This guest has already accepted the invitation at its day fee, so the fee can’t change now. Remove them and invite them again if it must.')
+      }
+      return res.json(await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id } }))
+    }
     const guest = await prisma.guestGun.update({ where: { id: req.params.id }, data })
     res.json(guest)
   }))

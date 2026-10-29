@@ -13,7 +13,7 @@ import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatCurrency } from '../../config/stripe'
 import { formatLongDate, formatTime } from '../../utils/dateHelpers'
 
-type Step = 'loading' | 'details' | 'waiver' | 'payment' | 'confirmed' | 'declined' | 'error'
+type Step = 'loading' | 'details' | 'waiver' | 'payment' | 'confirmed' | 'declined' | 'closed' | 'error'
 
 interface GuestInvite {
   name: string
@@ -22,6 +22,8 @@ interface GuestInvite {
   rsvpStatus: string
   paymentStatus: string
   waiverAccepted: boolean
+  /** Why nothing more can be done with this invitation (the day was cancelled or has passed), or null. */
+  closed: string | null
   invitedByMember?: {
     name: string
   }
@@ -102,7 +104,11 @@ export default function GuestAccept() {
       setInvite(data)
 
       // Determine initial step based on current status
-      if (data.rsvpStatus === 'CONFIRMED' && data.dayFee > 0 && data.paymentStatus !== 'PAID') {
+      if (data.paymentStatus === 'PAID') {
+        setStep('confirmed')
+      } else if (data.closed) {
+        setStep('closed')
+      } else if (data.rsvpStatus === 'CONFIRMED' && data.dayFee > 0) {
         // Accepted earlier but did not finish paying: take them straight to payment.
         setStep('payment')
       } else if (data.rsvpStatus === 'CONFIRMED') {
@@ -266,6 +272,21 @@ export default function GuestAccept() {
                 </div>
                 <h2 className="text-xl font-bold text-white mb-2">Invitation Error</h2>
                 <p className="text-slate-400">{error}</p>
+              </div>
+            </Card>
+          )}
+
+          {/* The day was cancelled or has passed */}
+          {step === 'closed' && invite && (
+            <Card>
+              <div className="text-center py-8">
+                <h2 className="text-xl font-bold text-white mb-2">Invitation closed</h2>
+                <p className="text-slate-300">{invite.closed}</p>
+                {invite.shootDay && (
+                  <p className="text-slate-400 text-sm mt-3">
+                    {invite.shootDay.locationName}, {formatLongDate(invite.shootDay.date)}
+                  </p>
+                )}
               </div>
             </Card>
           )}

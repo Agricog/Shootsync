@@ -7,4 +7,6 @@ export interface Deps {
   prisma: PrismaClient
   stripe: Stripe
   config: AppConfig
+  /** Today's UK date, "YYYY-MM-DD" (server/app.ts londonToday). Tests fix it, so dates in fixtures never go stale. */
+  today: () => string
 }

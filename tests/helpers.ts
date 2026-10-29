@@ -129,8 +129,14 @@ export interface TestServer {
   close: () => Promise<void>
 }
 
-export async function startTestServer(prisma: PrismaClient, stripe: Stripe, verifyToken: TokenVerifier = testVerifier): Promise<TestServer> {
-  const app = createApp({ prisma, stripe, config: testConfig, verifyToken })
+/**
+ * The date the test server believes it is: before the seeded shoot days (14 Nov 2026), so a
+ * guest can still accept and pay whenever the tests run. Tests about dates pass their own.
+ */
+export const TEST_TODAY = '2026-11-01'
+
+export async function startTestServer(prisma: PrismaClient, stripe: Stripe, verifyToken: TokenVerifier = testVerifier, today: () => string = () => TEST_TODAY): Promise<TestServer> {
+  const app = createApp({ prisma, stripe, config: testConfig, verifyToken, today })
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s))
   })

@@ -26,7 +26,7 @@ import { subscriptionRoutes } from './routes/subscriptions.js'
 import { meRoutes } from './routes/me.js'
 import { stripeWebhookHandler } from './routes/stripeWebhook.js'
 
-export interface AppOptions extends Deps {
+export interface AppOptions extends Omit<Deps, 'today'> {
   verifyToken: TokenVerifier
   /** Built frontend to serve (production). Omitted in tests. */
   staticDir?: string
@@ -86,7 +86,8 @@ export function currentCopy(copies: PrerenderedCopy[], today: string): Prerender
 }
 
 export function createApp(options: AppOptions) {
-  const { verifyToken, staticDir, today = londonToday, ...deps } = options
+  const { verifyToken, staticDir, today = londonToday, ...rest } = options
+  const deps: Deps = { ...rest, today }
   const app = express()
 
   // Railway terminates TLS in front of the app; trust its one proxy hop so req.ip is the client.

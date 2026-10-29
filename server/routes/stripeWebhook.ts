@@ -109,6 +109,12 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
 
         if (session.metadata?.type === 'guest_day_fee' && session.metadata.guestId) {
           if (session.payment_status !== 'paid') return
+          // The money has been taken, so it is always recorded (a guest marked unpaid could pay
+          // twice). But the amount must be the guest's fee, in pounds: anything else is said loudly.
+          const owed = await prisma.guestGun.findUnique({ where: { id: session.metadata.guestId }, select: { dayFee: true } })
+          if (owed && (session.amount_total !== owed.dayFee || session.currency !== 'gbp')) {
+            console.error(`[stripe] guest ${session.metadata.guestId} paid ${session.amount_total} ${session.currency} but the day fee is ${owed.dayFee} gbp (session ${session.id}): check it in Stripe and refund or collect the difference`)
+          }
           const recorded = await prisma.guestGun.updateMany({
             where: { id: session.metadata.guestId },
             data: {

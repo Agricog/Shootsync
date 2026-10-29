@@ -5,7 +5,7 @@
  */
 import { readFileSync } from 'node:fs'
 
-const MIN_TESTS = 645
+const MIN_TESTS = 666
 const report = readFileSync(process.argv[2] ?? 'test-results.tap', 'utf8')
 
 const count = (name) => {

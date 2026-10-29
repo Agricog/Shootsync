@@ -9,7 +9,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
 import { HttpError, handle, isLiveSubscription, notFound } from '../access.js'
-import { INVITE_TOKEN_PATTERN } from './guests.js'
+import { INVITE_TOKEN_PATTERN, guestDayClosed } from './guests.js'
 
 const checkoutSchema = z.object({
   token: z.string().regex(INVITE_TOKEN_PATTERN),
@@ -17,7 +17,7 @@ const checkoutSchema = z.object({
 
 const SESSION_ID_PATTERN = /^cs_[A-Za-z0-9_]{10,200}$/
 
-export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
+export function stripeRoutes({ prisma, stripe, config, today }: Deps): Router {
   const router = Router()
 
   // POST /api/stripe/create-checkout-session { token }
@@ -28,7 +28,7 @@ export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
     const guest = await prisma.guestGun.findUnique({
       where: { inviteToken: parsed.data.token },
       include: {
-        shootDay: { select: { date: true, locationName: true, syndicate: { select: { name: true, status: true, stripeSubscriptionStatus: true } } } },
+        shootDay: { select: { date: true, status: true, locationName: true, syndicate: { select: { name: true, status: true, stripeSubscriptionStatus: true } } } },
       },
     })
     // An archived syndicate takes no more payments.
@@ -38,6 +38,8 @@ export function stripeRoutes({ prisma, stripe, config }: Deps): Router {
       throw new HttpError(409, 'This syndicate can’t take payments online at the moment. Please ask the person who invited you how to pay.')
     }
     if (guest.paymentStatus === 'PAID') throw new HttpError(409, 'Already paid')
+    const closed = guestDayClosed(guest.shootDay, today())
+    if (closed) throw new HttpError(409, closed)
     if (guest.rsvpStatus !== 'CONFIRMED' || !guest.waiverAccepted) {
       throw new HttpError(409, 'Please accept the invitation and waiver first')
     }
