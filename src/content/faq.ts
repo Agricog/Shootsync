@@ -51,11 +51,11 @@ export const FAQS: Faq[] = [
   {
     question: 'Do my guns need to sign up?',
     answer:
-      "No. As captain you keep the member list, with each gun's role and contact details. Your guns don't need an account to be on it.",
+      "No. As captain you keep the member list, with each gun's contact details. Your guns don't need an account to be on it.",
   },
   {
     question: 'How much does ShootSync cost?',
-    answer: `${starter.name} is £${starter.monthlyPrice} a month for up to 10 guns. ${standard.name} is £${standard.monthlyPrice} a month for up to 20 guns, unlimited beaters and priority support. Both are billed monthly with no contract. For larger estates or several shoots, get in touch.`,
+    answer: `${starter.name} is £${starter.monthlyPrice} a month for up to 10 guns. ${standard.name} is £${standard.monthlyPrice} a month for up to 20 guns, unlimited beaters and priority support (a reply within one working day). Both are billed monthly with no contract. For larger estates or several shoots, get in touch.`,
   },
   {
     question: 'Is there a free trial?',

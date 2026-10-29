@@ -5,6 +5,7 @@
 
 import { Component, type ReactNode } from 'react'
 import { captureError } from '../../utils/errorTracking'
+import { SITE } from '../../config/site'
 import Button from './Button'
 
 interface ErrorBoundaryProps {
@@ -17,6 +18,8 @@ interface ErrorBoundaryState {
   hasError: boolean
   error: Error | null
   errorInfo: string | null
+  /** A short reference the captain can quote, matched to the error report. */
+  reference: string | null
 }
 
 export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
@@ -26,6 +29,7 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
       hasError: false,
       error: null,
       errorInfo: null,
+      reference: null,
     }
     this.handleReset = this.handleReset.bind(this)
   }
@@ -35,12 +39,12 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo): void {
-    captureError(error, 'ErrorBoundary')
-    this.setState({ errorInfo: errorInfo.componentStack || null })
+    const reference = captureError(error, 'ErrorBoundary')
+    this.setState({ errorInfo: errorInfo.componentStack || null, reference })
   }
 
   handleReset(): void {
-    this.setState({ hasError: false, error: null, errorInfo: null })
+    this.setState({ hasError: false, error: null, errorInfo: null, reference: null })
     if (this.props.onReset) {
       this.props.onReset()
     }
@@ -72,12 +76,19 @@ export default class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBo
               </svg>
             </div>
             <h2 className="text-xl font-semibold text-white mb-2">Something went wrong</h2>
-            <p className="text-slate-400 mb-6">We have encountered an unexpected error. Our team has been notified.</p>
+            <p className="text-slate-300 mb-2">
+              This page hit a problem it couldn’t recover from. Nothing you had already saved is affected.
+            </p>
+            <p className="text-slate-400 text-sm mb-6">
+              Try again or reload. If it keeps happening, email{' '}
+              <a href={`mailto:${SITE.email}?subject=ShootSync%20problem%20${this.state.reference ?? ''}`} className="text-green-400 underline underline-offset-2">{SITE.email}</a>
+              {this.state.reference && <> quoting reference <span className="font-mono text-slate-200">{this.state.reference}</span></>}.
+            </p>
             <div className="flex items-center justify-center gap-3">
               <Button variant="secondary" onClick={() => window.location.reload()}>
-                Refresh Page
+                Reload the page
               </Button>
-              <Button onClick={this.handleReset}>Try Again</Button>
+              <Button onClick={this.handleReset}>Try again</Button>
             </div>
           </div>
         </div>
@@ -95,8 +106,8 @@ interface ErrorFallbackProps {
 }
 
 export function ErrorFallback({
-  title = 'Error loading content',
-  message = 'Something went wrong. Please try again.',
+  title = 'This couldn’t be loaded',
+  message = 'Something went wrong. Try again in a moment.',
   onRetry,
 }: ErrorFallbackProps) {
   return (

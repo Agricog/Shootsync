@@ -21,7 +21,7 @@ export class HttpError extends Error {
   }
 }
 
-export const notFound = (what = 'Not found') => new HttpError(404, what)
+export const notFound = (what = 'That could not be found. It may have been removed.') => new HttpError(404, what)
 
 /** Wraps an async handler so thrown errors reach one place and get a uniform response. */
 export function handle(
@@ -40,15 +40,16 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof ZodError) {
     return res.status(400).json(validationResponse(err.issues))
   }
+  // Every message is a sentence someone can act on: never a code or a database term.
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    if (err.code === 'P2025') return res.status(404).json({ error: 'Not found' })
-    if (err.code === 'P2002') return res.status(409).json({ error: 'Already exists' })
+    if (err.code === 'P2025') return res.status(404).json({ error: 'That could not be found. It may have been removed.' })
+    if (err.code === 'P2002') return res.status(409).json({ error: 'That is already on the list.' })
   }
   if (err instanceof SyntaxError && 'body' in (err as object)) {
-    return res.status(400).json({ error: 'Invalid JSON' })
+    return res.status(400).json({ error: 'That request could not be read. Reload the page and try again.' })
   }
   console.error(`[api] ${req.method} ${req.path} failed:`, err)
-  return res.status(500).json({ error: 'Internal server error' })
+  return res.status(500).json({ error: 'ShootSync had a problem with that. Try again in a moment.' })
 }
 
 /** The signed-in user. The auth gate guarantees this on protected routes. */

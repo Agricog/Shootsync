@@ -79,9 +79,10 @@ describe('rate limit', () => {
 describe('service worker', () => {
   const source = readFileSync(fileURLToPath(new URL('../public/sw.js', import.meta.url)), 'utf8')
 
-  function loadWorker() {
+  function loadWorker(pages: Record<string, string> = {}) {
     const listeners: Record<string, (event: any) => void> = {}
     const deleted: string[] = []
+    const stored: Record<string, string> = {}
     const self = {
       location: { origin: 'https://shootsync.co.uk' },
       addEventListener: (type: string, fn: (event: any) => void) => {
@@ -98,10 +99,17 @@ describe('service worker', () => {
         return true
       },
       match: async () => undefined,
-      open: async () => ({ put: async () => undefined, addAll: async () => undefined }),
+      open: async () => ({
+        put: async (key: string | { url: string }, response: Response) => { stored[typeof key === 'string' ? key : key.url] = await response.text() },
+        addAll: async () => undefined,
+      }),
     }
-    vm.runInNewContext(source, { self, caches, fetch: async () => new Response('ok'), URL, Response, console, clients: {} })
-    return { listeners, deleted }
+    const fetch = async (input: string | { url: string }) => {
+      const url = new URL(typeof input === 'string' ? input : input.url, 'https://shootsync.co.uk')
+      return new Response(pages[url.pathname] ?? 'ok')
+    }
+    vm.runInNewContext(source, { self, caches, fetch, URL, Response, console, clients: {} })
+    return { listeners, deleted, stored }
   }
 
   function fetchEvent(url: string, mode = 'cors', method = 'GET') {
@@ -129,6 +137,28 @@ describe('service worker', () => {
     const asset = fetchEvent('https://shootsync.co.uk/assets/index-abc123.js')
     listeners.fetch(asset.event)
     assert.equal(asset.responded(), true)
+  })
+
+  it('keeps only the app shell as the offline fallback, never a prerendered public page', async () => {
+    const shell = '<!-- seo:start --><div id="root"></div>'
+    const guide = '<!-- seo:start (prerendered from /guides/peg-draw-explained) --><div id="root">Guide</div>'
+    const { listeners, stored } = loadWorker({ '/dashboard': shell, '/guides/peg-draw-explained': guide, '/': guide })
+    // Install fetches the shell from an app path and stores it as '/'.
+    let installed: Promise<unknown> = Promise.resolve()
+    listeners.install({ waitUntil: (p: Promise<unknown>) => { installed = p } })
+    await installed
+    assert.equal(stored['/'], shell)
+    // Reading a guide must not replace it.
+    const page = fetchEvent('https://shootsync.co.uk/guides/peg-draw-explained', 'navigate')
+    listeners.fetch(page.event)
+    await new Promise((r) => setTimeout(r, 20))
+    assert.equal(stored['/'], shell)
+    // Opening an app page refreshes it.
+    const app = fetchEvent('https://shootsync.co.uk/shoots', 'navigate')
+    const { listeners: l2, stored: s2 } = loadWorker({ '/shoots': shell + '<!-- v2 -->' })
+    l2.fetch(app.event)
+    await new Promise((r) => setTimeout(r, 20))
+    assert.equal(s2['/'], shell + '<!-- v2 -->')
   })
 
   it('leaves other sites and non-GET requests alone', () => {

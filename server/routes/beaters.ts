@@ -216,7 +216,7 @@ export function beaterRoutes({ prisma }: Deps): Router {
         bookings: { orderBy: { shootDay: { date: 'desc' } }, take: 10, include: { shootDay: true } },
       },
     })
-    if (!beater) throw notFound('Beater not found')
+    if (!beater) throw notFound('That beater could not be found. It may have been removed.')
 
     const [owed, paid] = await Promise.all([
       prisma.beaterPayment.aggregate({ where: { beaterId: beater.id, status: 'PENDING' }, _sum: { amount: true } }),

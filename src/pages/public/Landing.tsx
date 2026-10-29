@@ -63,7 +63,7 @@ const FEATURES = [
     anchor: 'members',
     linkLabel: 'The member list',
     title: 'Your members in one list',
-    text: 'Every gun in the syndicate with their role and contact details, kept by the captain, without anyone needing an account.',
+    text: 'Every gun in the syndicate with their contact details, kept by the captain, without anyone needing an account.',
   },
 ] as const
 

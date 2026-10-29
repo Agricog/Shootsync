@@ -113,9 +113,9 @@ const SECTIONS: Section[] = [
     icon: Users,
     heading: 'Your members in one list',
     intro:
-      'The captain keeps the syndicate’s member list: who is in, their role and how to reach them.',
+      'The captain keeps the syndicate’s member list: who is in and how to reach them.',
     points: [
-      'Each gun’s name, email, phone and role',
+      'Each gun’s name, email and phone',
       'Active, pending and inactive members, so last season’s guns stay on record',
       'Your guns don’t need an account to be on the list',
     ],

@@ -222,7 +222,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
         },
       },
     })
-    if (!guest) throw notFound('Guest not found')
+    if (!guest) throw notFound('That guest could not be found. It may have been removed.')
     res.json(guest)
   }))
 

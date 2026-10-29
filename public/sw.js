@@ -4,6 +4,8 @@
  *
  * Rules:
  * - NEVER cache /api/ requests (live data must always come from the server)
+ * - Nothing is saved for later: with no signal the app shows the offline page and says so.
+ *   (An offline game book is planned; it will live in IndexedDB, not here.)
  * - Page navigations: network first, cached shell / offline page as fallback
  * - Hashed build assets (/assets/*): cache first (filenames change on every deploy)
  * - Everything else: network first, cache as fallback
@@ -12,19 +14,21 @@
  * so old caches are deleted on activate.
  */
 
-const CACHE_NAME = 'shootsync-v3';
+const CACHE_NAME = 'shootsync-v4';
 const OFFLINE_URL = '/offline.html';
 
-const PRECACHE_ASSETS = [
-  '/',
-  '/offline.html',
-  '/manifest.json',
-];
+// The app shell is fetched from an app path, never from '/', which is a prerendered public page.
+const APP_SHELL_URL = '/dashboard';
+const PRECACHE_ASSETS = ['/offline.html', '/manifest.json'];
 
-// Install - precache essential assets
+// Install - precache the offline page and the app shell (stored as '/')
 self.addEventListener('install', (event) => {
   event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE_ASSETS))
+    caches.open(CACHE_NAME).then(async (cache) => {
+      await cache.addAll(PRECACHE_ASSETS);
+      const shell = await fetch(APP_SHELL_URL).catch(() => null);
+      if (shell && shell.ok) await cache.put('/', shell);
+    })
   );
   self.skipWaiting();
 });
@@ -57,14 +61,22 @@ self.addEventListener('fetch', (event) => {
   // Never touch API calls - always go straight to the network
   if (url.pathname.startsWith('/api/')) return;
 
-  // Page navigations - network first, fall back to cached app shell, then offline page
+  // Page navigations - network first, fall back to the cached app shell, then the offline page.
+  // Only the app shell is kept as '/': a prerendered public page (marked by the prerender
+  // script) is never stored in its place, or the home page could show the last guide read.
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
         .then((response) => {
           if (response.ok) {
-            const copy = response.clone();
-            caches.open(CACHE_NAME).then((cache) => cache.put('/', copy));
+            // Decide from one copy, store another untouched: the page itself is not delayed.
+            const toRead = response.clone();
+            const toStore = response.clone();
+            toRead.text().then(async (text) => {
+              if (text.includes('prerendered from')) return;
+              const cache = await caches.open(CACHE_NAME);
+              await cache.put('/', toStore);
+            }).catch(() => undefined);
           }
           return response;
         })
@@ -122,41 +134,5 @@ self.addEventListener('message', (event) => {
         )
       )
     );
-  }
-});
-
-// Background sync for offline bag records
-self.addEventListener('sync', (event) => {
-  if (event.tag === 'sync-bags') {
-    event.waitUntil(syncOfflineBags());
-  }
-});
-
-async function syncOfflineBags() {
-  // Placeholder - IndexedDB queue to be implemented
-  console.log('[SW] Syncing offline bag records');
-}
-
-// Push notifications (future feature)
-self.addEventListener('push', (event) => {
-  if (!event.data) return;
-
-  const data = event.data.json();
-
-  event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/icon-192.png',
-      badge: '/icon-192.png',
-      data: data.url,
-    })
-  );
-});
-
-self.addEventListener('notificationclick', (event) => {
-  event.notification.close();
-
-  if (event.notification.data) {
-    event.waitUntil(clients.openWindow(event.notification.data));
   }
 });

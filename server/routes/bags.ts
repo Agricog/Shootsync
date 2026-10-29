@@ -119,7 +119,7 @@ export function bagRoutes({ prisma }: Deps): Router {
       where: { id: req.params.id },
       include: { shootDay: true },
     })
-    if (!bag) throw notFound('Bag record not found')
+    if (!bag) throw notFound('That bag record could not be found. It may have been removed.')
     // A gun sees the day, never the captain's private notes (same rule as the shoots list).
     res.json(access.isCaptain ? bag : { ...bag, shootDay: withoutCaptainOnlyFields(bag.shootDay) })
   }))

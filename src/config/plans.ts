@@ -41,7 +41,7 @@ export const PLANS: readonly Plan[] = [
     name: 'Standard',
     monthlyPrice: 79,
     summary: 'For established syndicates with a bigger team.',
-    features: ['Up to 20 guns', 'Unlimited beaters', 'Everything in Starter', 'Priority support'],
+    features: ['Up to 20 guns', 'Unlimited beaters', 'Everything in Starter', 'Priority support: a reply within one working day'],
     popular: true,
   },
 ] as const

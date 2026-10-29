@@ -1,77 +1,34 @@
 /**
- * Error Tracking - ShootSync
- * Sentry integration placeholder (configure when Sentry added)
+ * Error reporting in the browser - ShootSync
+ *
+ * Every unexpected error gets a short reference the captain can quote. For now the report goes
+ * to the browser console only; batch 9c sends it to Sentry as well, with personal data stripped.
+ * Nothing here is ever described to the user as "notified" until that is true.
  */
 
-interface ErrorContext {
-  component?: string
-  action?: string
-  userId?: string
-  syndicateId?: string
-  extra?: Record<string, unknown>
-}
-
-export const captureError = (
-  error: unknown,
-  context: string,
-  extra?: ErrorContext
-): void => {
-  const errorMessage = error instanceof Error ? error.message : String(error)
-  const errorStack = error instanceof Error ? error.stack : undefined
-
-  console.error(`[ShootSync Error] ${context}:`, {
-    message: errorMessage,
-    stack: errorStack,
-    ...extra,
-    timestamp: new Date().toISOString()
-  })
-
-  // TODO: Replace with Sentry when configured
-  // Sentry.captureException(error, {
-  //   tags: { context, ...extra },
-  // })
-}
-
-export const captureMessage = (
-  message: string,
-  level: 'info' | 'warning' | 'error' = 'info',
-  context?: ErrorContext
-): void => {
-  const logMethod = level === 'error' ? console.error : level === 'warning' ? console.warn : console.log
-  
-  logMethod(`[ShootSync ${level.toUpperCase()}] ${message}`, {
-    ...context,
-    timestamp: new Date().toISOString()
-  })
-
-  // TODO: Replace with Sentry when configured
-  // Sentry.captureMessage(message, level)
-}
-
-export const setUserContext = (
-  userId: string,
-  email?: string,
-  role?: string
-): void => {
-  console.log('[ShootSync] User context set:', { userId, email, role })
-
-  // TODO: Replace with Sentry when configured
-  // Sentry.setUser({ id: userId, email, role })
-}
-
-export const clearUserContext = (): void => {
-  console.log('[ShootSync] User context cleared')
-
-  // TODO: Replace with Sentry when configured
-  // Sentry.setUser(null)
-}
-
-export const trackPerformance = (
-  name: string,
-  duration: number,
-  context?: Record<string, unknown>
-): void => {
-  if (duration > 1000) {
-    console.warn(`[ShootSync Performance] Slow operation: ${name} took ${duration}ms`, context)
+/** A short, readable reference: "SS-7K3M9Q". Unique enough to match an email to a report. */
+export function errorReference(): string {
+  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  let out = 'SS-'
+  const bytes = new Uint8Array(6)
+  try {
+    crypto.getRandomValues(bytes)
+  } catch {
+    for (let i = 0; i < bytes.length; i++) bytes[i] = Math.floor(Math.random() * 256)
   }
+  for (const b of bytes) out += alphabet[b % alphabet.length]
+  return out
+}
+
+/** Records an unexpected error and returns its reference. Never throws. */
+export function captureError(error: unknown, context: string): string {
+  const reference = errorReference()
+  try {
+    const message = error instanceof Error ? error.message : String(error)
+    const stack = error instanceof Error ? error.stack : undefined
+    console.error(`[ShootSync ${reference}] ${context}: ${message}`, stack ?? '')
+  } catch {
+    /* the console itself failed: nothing more to do */
+  }
+  return reference
 }

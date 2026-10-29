@@ -185,8 +185,10 @@ export default function Finances() {
 
           {owedCount > 0 && (
             <p className="text-sm text-slate-400">
-              Upload the export to your bank as it is. Opening and re-saving it in Excel can strip leading zeros
-              from account numbers.
+              The export lists each beater, what they’re owed and their bank details, one row each, ready for
+              your bank’s bulk payment page or to pay one by one. Banks differ in the file they accept, so check
+              yours before uploading it as it is. Opening and re-saving it in Excel can strip leading zeros from
+              account numbers.
               {owedWithoutBank.length > 0 &&
                 ` ${owedWithoutBank.map((b) => b.name).join(', ')} ${owedWithoutBank.length === 1 ? 'has' : 'have'} no bank details yet, so ${owedWithoutBank.length === 1 ? 'is' : 'are'} exported without them.`}
             </p>

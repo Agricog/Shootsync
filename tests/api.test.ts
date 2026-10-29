@@ -111,7 +111,6 @@ describe('API', () => {
           'POST ^\\/subscriptions\\/webhook$',
           'GET ^\\/guests\\/token\\/[a-f0-9]{64}$',
           'POST ^\\/guests\\/token\\/[a-f0-9]{64}\\/(accept|decline)$',
-          'GET ^\\/stripe\\/session\\/cs_[A-Za-z0-9_]{10,200}$',
         ]
       )
     })
@@ -126,7 +125,7 @@ describe('API', () => {
     it('unknown API paths return JSON 404, not the web page', async () => {
       const res = await call(server, '/api/nothing-here', { as: CAPTAIN_A })
       assert.equal(res.status, 404)
-      assert.deepEqual(res.json, { error: 'Not found' })
+      assert.deepEqual(res.json, { error: 'That could not be found. It may have been removed.' })
     })
 
     it('API responses are never cached', async () => {
@@ -231,7 +230,7 @@ describe('API', () => {
     it('the old membership lookup and self-accept routes are gone', async () => {
       const byClerk = await call(server, `/api/members/by-clerk/${CAPTAIN_A}`, { as: CAPTAIN_A })
       assert.equal(byClerk.status, 404)
-      assert.deepEqual(byClerk.json, { error: 'Not found' })
+      assert.deepEqual(byClerk.json, { error: 'That could not be found. It may have been removed.' })
       const accept = await call(server, `/api/members/${data.a.gun.id}/accept`, { method: 'POST', as: GUN_A })
       assert.equal(accept.status, 404)
     })
@@ -354,9 +353,9 @@ describe('API', () => {
       assert.equal(stripeCalls.checkoutCreates.length, 0)
     })
 
-    it('the payment confirmation page only reveals ShootSync guest payments', async () => {
-      assert.equal((await call(server, '/api/stripe/session/cs_test_guestpaymentabcdef')).status, 200)
-      assert.equal((await call(server, '/api/stripe/session/cs_test_othersessionabcdef')).status, 404)
+    it('the old card-payment pages are gone: not public, and not there for a signed-in user either', async () => {
+      assert.equal((await call(server, '/api/stripe/session/cs_test_guestpaymentabcdef')).status, 401)
+      assert.equal((await call(server, '/api/stripe/session/cs_test_guestpaymentabcdef', { as: CAPTAIN_A })).status, 404)
     })
   })
 

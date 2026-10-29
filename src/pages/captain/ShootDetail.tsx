@@ -470,7 +470,7 @@ export default function ShootDetail() {
             <div className="mb-6 p-4 bg-slate-800 rounded-lg">
               <h3 className="text-white font-medium mb-1">Add a guest</h3>
               <p className="text-sm text-slate-300 mb-4">
-                You’ll get an invite link to send them. On it they confirm, sign the waiver and pay any day fee.
+                You’ll get an invite link to send them. On it they confirm and sign the waiver. Any day fee is paid to you directly, and you mark it paid here.
               </p>
               <form onSubmit={handleInviteGuest} className="space-y-4">
                 <div>

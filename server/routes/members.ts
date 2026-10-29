@@ -74,7 +74,7 @@ export function memberRoutes({ prisma }: Deps): Router {
         memberPayments: { orderBy: { createdAt: 'desc' }, take: 10 },
       },
     })
-    if (!member) throw notFound('Member not found')
+    if (!member) throw notFound('That member could not be found. It may have been removed.')
     res.json(member)
   }))
 

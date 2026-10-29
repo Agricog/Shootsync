@@ -157,7 +157,7 @@ export function createApp(options: AppOptions) {
 
   // Unknown API paths get JSON, never the SPA's index.html.
   app.use('/api', (_req, res) => {
-    res.status(404).json({ error: 'Not found' })
+    res.status(404).json({ error: 'That could not be found. It may have been removed.' })
   })
 
   if (staticDir) {

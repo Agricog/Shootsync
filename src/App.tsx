@@ -43,7 +43,6 @@ import SubscriptionSuccess from './pages/captain/SubscriptionSuccess'
 
 // Guest pages
 import GuestAccept from './pages/guest/GuestAccept'
-import PaymentSuccess from './pages/guest/PaymentSuccess'
 
 // Auth components
 import ProtectedRoute from './components/auth/ProtectedRoute'
@@ -204,7 +203,6 @@ export default function App() {
               {/* Guest routes */}
               <Route path="/guest/accept/:token" element={<GuestAccept />} />
               <Route path="/guest/accept" element={<GuestAccept />} />
-              <Route path="/guest/payment-success" element={<PaymentSuccess />} />
 
               {/* Subscription routes */}
               <Route

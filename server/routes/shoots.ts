@@ -134,7 +134,7 @@ export function shootRoutes({ prisma }: Deps): Router {
         bagRecords: { orderBy: { driveNumber: 'asc' } },
       },
     })
-    if (!shoot) throw notFound('Shoot not found')
+    if (!shoot) throw notFound('That shoot day could not be found. It may have been removed.')
 
     const bagTotals = shoot.bagRecords.reduce(
       (acc, bag) => ({
@@ -183,7 +183,7 @@ export function shootRoutes({ prisma }: Deps): Router {
     const shoot = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
       const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true, date: true } })
-      if (!current) throw notFound('Shoot not found')
+      if (!current) throw notFound('That shoot day could not be found. It may have been removed.')
       if (data.date && data.date.getTime() !== current.date.getTime()) {
         const payments = await tx.beaterPayment.count({ where: { shootId: req.params.id } })
         if (current.status !== 'SCHEDULED' || payments > 0) {
@@ -205,7 +205,7 @@ export function shootRoutes({ prisma }: Deps): Router {
     const shoot = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
       const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
-      if (!current) throw notFound('Shoot not found')
+      if (!current) throw notFound('That shoot day could not be found. It may have been removed.')
       if (current.status === 'CANCELLED') throw new HttpError(400, 'A cancelled shoot day cannot be completed')
       const updated = await tx.shootDay.update({ where: { id: req.params.id }, data: { status: 'COMPLETED' } })
       await syncBeaterPayments(tx, req.params.id)
@@ -246,7 +246,7 @@ export function shootRoutes({ prisma }: Deps): Router {
   /** Read inside the locked transaction, so a booking removed a moment ago is a clean 404. */
   const bookingOnShoot = async (tx: Prisma.TransactionClient, shootId: string, bookingId: string) => {
     const booking = await tx.beaterBooking.findUnique({ where: { id: bookingId }, select: { id: true, shootId: true, beaterId: true } })
-    if (!booking || booking.shootId !== shootId) throw notFound('Booking not found')
+    if (!booking || booking.shootId !== shootId) throw notFound('That booking could not be found. It may have been removed.')
     return booking
   }
 
@@ -330,7 +330,7 @@ export function shootRoutes({ prisma }: Deps): Router {
       where: { id: shootId },
       select: { id: true, date: true, createdAt: true, locationName: true, status: true, syndicateId: true, syndicate: { select: { seasonStart: true } } },
     })
-    if (!shoot) throw notFound('Shoot not found')
+    if (!shoot) throw notFound('That shoot day could not be found. It may have been removed.')
     return shoot
   }
 
@@ -472,7 +472,7 @@ export function shootRoutes({ prisma }: Deps): Router {
     await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
       const shoot = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
-      if (!shoot) throw notFound('Shoot not found')
+      if (!shoot) throw notFound('That shoot day could not be found. It may have been removed.')
       if (shoot.status === 'COMPLETED') throw new HttpError(400, 'Cannot delete completed shoots')
       const paid = await tx.beaterPayment.count({ where: { shootId: req.params.id, status: 'PAID' } })
       if (paid > 0) throw new HttpError(409, 'Beaters have been paid for this day, so it cannot be deleted')

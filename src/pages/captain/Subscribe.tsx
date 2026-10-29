@@ -9,6 +9,7 @@ import { Helmet } from 'react-helmet-async'
 import { useAuth } from '../../hooks/useAuth'
 import { useSubscription } from '../../hooks/useSubscription'
 import { useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
+import Navigation from '../../components/layout/Navigation'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import { BILLING_TERMS, PLANS } from '../../config/plans'
@@ -85,7 +86,9 @@ export default function Subscribe() {
         <Helmet>
           <title>Update your payment | ShootSync</title>
         </Helmet>
-        <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
+        <div className="min-h-screen bg-slate-900 flex flex-col">
+          <Navigation />
+          <div className="flex-1 flex items-center justify-center px-4 py-12">
           <Card className="max-w-md w-full">
             <div className="p-8 text-center">
               <h1 className="text-2xl font-bold text-white mb-3">
@@ -106,6 +109,7 @@ export default function Subscribe() {
               {otherSyndicates}
             </div>
           </Card>
+          </div>
         </div>
       </>
     )
@@ -114,22 +118,16 @@ export default function Subscribe() {
   return (
     <>
       <Helmet>
-        <title>Choose Your Plan | ShootSync</title>
+        <title>Choose a plan | ShootSync</title>
       </Helmet>
 
-      <div className="min-h-screen bg-slate-900 py-12 px-4">
-        <div className="max-w-4xl mx-auto">
-          {/* Header */}
+      <div className="min-h-screen bg-slate-900 flex flex-col">
+        <Navigation />
+        <div className="max-w-4xl mx-auto px-4 py-12 w-full">
           <div className="text-center mb-12">
-            <div className="flex items-center justify-center gap-2 mb-6">
-              <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold">SS</span>
-              </div>
-              <span className="text-white font-semibold text-xl">ShootSync</span>
-            </div>
-            <h1 className="text-3xl font-bold text-white mb-3">Choose Your Plan</h1>
-            <p className="text-slate-400">
-              Subscribe to start managing <span className="text-green-400">{syndicate.name}</span>
+            <h1 className="text-3xl font-bold text-white mb-3">Choose a plan</h1>
+            <p className="text-slate-300">
+              Everything in <span className="text-green-400">{syndicate.name}</span> is ready: a plan opens it up.
             </p>
           </div>
 
@@ -153,7 +151,7 @@ export default function Subscribe() {
                 {plan.popular && (
                   <div className="absolute -top-3 left-1/2 -translate-x-1/2">
                     <span className="bg-green-500 text-white text-xs font-bold px-3 py-1 rounded-full">
-                      MOST POPULAR
+                      Most popular
                     </span>
                   </div>
                 )}
@@ -162,7 +160,7 @@ export default function Subscribe() {
                   <h3 className="text-xl font-bold text-white mb-2">{plan.name}</h3>
                   <div className="flex items-baseline justify-center gap-1">
                     <span className="text-4xl font-bold text-white">£{plan.monthlyPrice}</span>
-                    <span className="text-slate-400">/month</span>
+                    <span className="text-slate-300">a month</span>
                   </div>
                 </div>
 
@@ -183,14 +181,14 @@ export default function Subscribe() {
                   variant={plan.popular ? 'primary' : 'secondary'}
                   className="w-full"
                 >
-                  {checkingOut === plan.tier ? 'Redirecting...' : `Choose ${plan.name}`}
+                  {checkingOut === plan.tier ? 'Taking you to the card page…' : `Choose ${plan.name}`}
                 </Button>
               </div>
             ))}
           </div>
 
           {/* Footer */}
-          <p className="text-center text-slate-400 text-sm mt-8">
+          <p className="text-center text-slate-300 text-sm mt-8">
             No contract. Every plan has a {BILLING_TERMS.moneyBackDays}-day money-back guarantee.
           </p>
           {backToSyndicate}

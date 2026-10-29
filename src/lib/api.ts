@@ -34,7 +34,7 @@ export function errorMessageFrom(status: number, body: unknown): string {
   if (status === 401) return 'Your session has ended. Sign in again to carry on.'
   if (status === 404) return 'That could not be found. It may have been removed.'
   if (status === 429) return 'Too many requests in a short time. Wait a minute and try again.'
-  if (status >= 500) return 'ShootSync had a problem saving that. Try again in a moment.'
+  if (status >= 500) return 'ShootSync had a problem with that. Try again in a moment.'
   return `Something went wrong (${status}). Try again.`
 }
 

@@ -60,7 +60,7 @@ export default function Privacy() {
               <ul>
                 <li><strong>Captain’s account:</strong> name, email address and sign-in details.</li>
                 <li><strong>Syndicate details:</strong> syndicate name, season dates, subscription amount and beaters’ day rate.</li>
-                <li><strong>Members:</strong> name, email, phone, role and status, and, if the captain enters them, BASC number, insurance expiry date and emergency contact.</li>
+                <li><strong>Members:</strong> name, email, phone and whether they are active.</li>
                 <li><strong>Beaters:</strong> name, contact details, day rate and, if the captain enters them, bank name, sort code and account number, used to pay them.</li>
                 <li><strong>Shoot days:</strong> dates, locations, peg allocations, attendance and bag records.</li>
                 <li><strong>Guest guns:</strong> name, email, phone, emergency contact, acceptance of the guest waiver, and whether the day fee has been paid.</li>
