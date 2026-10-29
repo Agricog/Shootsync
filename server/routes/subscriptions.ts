@@ -40,7 +40,7 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
     if (syndicate.stripeSubscriptionStatus === 'ACTIVE' || syndicate.stripeSubscriptionStatus === 'TRIALING') {
       throw new HttpError(409, 'This syndicate already has an active subscription')
     }
-    if (syndicate.stripeSubscriptionStatus === 'PAST_DUE') {
+    if (syndicate.stripeSubscriptionStatus === 'PAST_DUE' || syndicate.stripeSubscriptionStatus === 'UNPAID') {
       throw new HttpError(409, 'Your last payment did not go through. Update your card in Settings, Manage billing.')
     }
     // Our record can lag Stripe by a few seconds: ask Stripe too, so a plan is never bought twice.

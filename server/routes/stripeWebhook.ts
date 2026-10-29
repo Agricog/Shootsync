@@ -26,7 +26,7 @@ const STATUS_MAP: Record<Stripe.Subscription.Status, StripeSubscriptionStatus> =
   active: 'ACTIVE',
   trialing: 'TRIALING',
   past_due: 'PAST_DUE',
-  unpaid: 'PAST_DUE',
+  unpaid: 'UNPAID',
   canceled: 'CANCELLED',
   incomplete: 'INCOMPLETE',
   incomplete_expired: 'CANCELLED',
@@ -34,7 +34,8 @@ const STATUS_MAP: Record<Stripe.Subscription.Status, StripeSubscriptionStatus> =
 }
 
 const PLAN_TIERS = new Set(['STARTER', 'STANDARD'])
-const LIVE: Array<StripeSubscriptionStatus> = ['ACTIVE', 'TRIALING', 'PAST_DUE']
+/** A subscription that still exists in Stripe (not ended), so a second one would be a double charge. */
+const LIVE: Array<StripeSubscriptionStatus> = ['ACTIVE', 'TRIALING', 'PAST_DUE', 'UNPAID']
 
 export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
   /**

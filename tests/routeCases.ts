@@ -84,7 +84,7 @@ export const CASES: Case[] = [
   { name: 'remove guest', method: 'DELETE', path: (x) => `/api/guests/${x.guest.id}`, level: 'captain' },
   // Subscriptions
   { name: 'start plan checkout', method: 'POST', path: () => '/api/subscriptions/create-checkout', body: (x) => ({ syndicateId: x.syndicate.id, planTier: 'STANDARD', email: 'a@example.com' }), level: 'captain', prepare: planEnded, allowLapsed: [null, 'CANCELLED'] },
-  { name: 'open billing portal', method: 'POST', path: () => '/api/subscriptions/portal', body: (x) => ({ syndicateId: x.syndicate.id }), level: 'captain', allowLapsed: [null, 'PAST_DUE', 'INCOMPLETE', 'CANCELLED'] },
+  { name: 'open billing portal', method: 'POST', path: () => '/api/subscriptions/portal', body: (x) => ({ syndicateId: x.syndicate.id }), level: 'captain', allowLapsed: [null, 'INCOMPLETE', 'UNPAID', 'CANCELLED'] },
   { name: 'subscription status', method: 'GET', path: (x) => `/api/subscriptions/status/${x.syndicate.id}`, level: 'member' },
 ]
 

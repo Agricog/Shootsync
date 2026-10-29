@@ -15,7 +15,7 @@
 import type { PrismaClient } from '@prisma/client'
 
 /** The newest migration this code needs. tests/migrations.test.ts keeps it equal to the newest file. */
-export const REQUIRED_MIGRATION = '0001_baseline'
+export const REQUIRED_MIGRATION = '0002_unpaid_status'
 
 export type SchemaProblem = 'not-recorded' | 'no-table' | 'no-permission' | 'unreachable'
 export type SchemaState = { ready: true } | { ready: false; problem: SchemaProblem; reason: string }
@@ -32,7 +32,7 @@ export async function checkSchema(prisma: PrismaClient): Promise<SchemaState> {
   try {
     const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT "id" FROM "schema_migrations" WHERE "id" = ${REQUIRED_MIGRATION}`
     if (rows.length === 1) return { ready: true }
-    return { ready: false, problem: 'not-recorded', reason: `migration ${REQUIRED_MIGRATION} has not been applied to this database` }
+    return { ready: false, problem: 'not-recorded', reason: `migration ${REQUIRED_MIGRATION} has not been applied to this database. Run prisma/migrations/${REQUIRED_MIGRATION}/migration.sql in the Neon SQL editor` }
   } catch (err) {
     switch (sqlStateOf(err)) {
       case '42P01': // undefined_table
@@ -75,7 +75,7 @@ export async function requireSchema(prisma: PrismaClient, options: RequireSchema
     state = await checkSchema(prisma)
   }
   if (!state.ready) {
-    log(`[boot] Refusing to start: ${state.reason}. See prisma/production for the step to run in the Neon SQL editor, check its receipt, then redeploy.`)
+    log(`[boot] Refusing to start: ${state.reason}. Check its receipt, then redeploy.`)
     exit(1)
   }
 }

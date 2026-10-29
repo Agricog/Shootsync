@@ -17,7 +17,7 @@ import { LAPSED_CAPTAIN_MESSAGE } from '../server/access.js'
 
 type Seeded = Awaited<ReturnType<typeof seed>>
 
-const UNPAID = [null, 'PAST_DUE', 'INCOMPLETE', 'CANCELLED'] as const
+const UNPAID = [null, 'INCOMPLETE', 'UNPAID', 'CANCELLED'] as const
 
 describe('a syndicate without a paid-up plan is read-only', () => {
   let prisma: PrismaClient
@@ -87,6 +87,12 @@ describe('a syndicate without a paid-up plan is read-only', () => {
     await lapse('CANCELLED')
     const res = await call(server, `/api/shoots/${data.a.shoot.id}`, { method: 'PATCH', as: CAPTAIN_B, body: { locationName: 'X' } })
     assert.equal(res.status, 404)
+  })
+
+  it('a failed payment Stripe is still retrying (past due) leaves everything working: Saturday’s shoot goes ahead', async () => {
+    await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionStatus: 'PAST_DUE' } })
+    assert.equal((await call(server, `/api/shoots/${data.a.shoot.id}`, { method: 'PATCH', as: CAPTAIN_A, body: { locationName: 'Moved' } })).status, 200)
+    assert.equal((await call(server, '/api/bags', { method: 'POST', as: GUN_A, body: { shootId: data.a.shoot.id, driveNumber: 2, pheasant: 7 } })).status, 201)
   })
 
   it('a trial counts as paid up', async () => {

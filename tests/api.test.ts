@@ -407,8 +407,12 @@ describe('API', () => {
     })
 
     it('sends a captain whose payment failed to update their card, not to buy a second plan', async () => {
-      await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionStatus: 'PAST_DUE' } })
-      assert.equal((await startCheckout()).status, 409)
+      for (const status of ['PAST_DUE', 'UNPAID'] as const) {
+        await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionStatus: status } })
+        const res = await startCheckout()
+        assert.equal(res.status, 409, status)
+        assert.match(res.json.error, /Update your card/, status)
+      }
       assert.equal(stripeCalls.checkoutCreates.length, 0)
     })
 
@@ -580,6 +584,13 @@ describe('API', () => {
       assert.equal(row?.stripeSubscriptionStatus, 'PAST_DUE')
       assert.equal(row?.subscriptionCurrentPeriodEnd?.getTime(), 1_800_000_000_000)
       assert.equal(row?.stripePriceId, 'price_standard_test')
+    })
+
+    it("records Stripe's 'unpaid' (retries over) as UNPAID, apart from 'past_due' (still retrying)", async () => {
+      stripeSub('sub_unpaid', 'unpaid')
+      const { body, signature } = signed(cloverEvent('customer.subscription.updated', 'sub_unpaid', 'unpaid'))
+      assert.equal(await post('/api/stripe/webhook', body, signature), 200)
+      assert.equal((await syndicateA())?.stripeSubscriptionStatus, 'UNPAID')
     })
 
     it('reads the renewal date from the items when the subscription has none, and never saves an invalid date', async () => {

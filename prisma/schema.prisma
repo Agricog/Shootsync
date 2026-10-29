@@ -375,6 +375,8 @@ enum StripeSubscriptionStatus {
   CANCELLED
   INCOMPLETE
   TRIALING
+  /// Stripe stopped retrying a failed payment (migration 0002).
+  UNPAID
 }
 
 enum PlanTier {

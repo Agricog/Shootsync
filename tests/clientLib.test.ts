@@ -7,7 +7,7 @@
 import { afterEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { OFFLINE_MESSAGE, PLAN_CHANGED_EVENT, apiPath, apiRequest, errorMessageFrom } from '../src/lib/api.js'
-import { chooseSyndicate, parseMemberships, readOnlyReason, type Membership } from '../src/lib/membership.js'
+import { chooseSyndicate, parseMemberships, planNotice, type Membership } from '../src/lib/membership.js'
 import { nextShootFrom } from '../src/lib/shootDays.js'
 import { newSyndicateForm, newSyndicatePayload, suggestedSeason, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyShootDraft, newShootPayload, validateShoot } from '../src/utils/shootForm.js'
@@ -124,22 +124,44 @@ describe('which syndicate is on show', () => {
   })
 })
 
-describe('why a syndicate is read-only', () => {
+describe('what the captain is told about the plan', () => {
   const s = (status: string | null): Membership => ({
     id: 'a', name: 'Beatrice', role: 'CAPTAIN', memberId: null, seasonStart: '', seasonEnd: '',
     defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
-    subscription: { status, planTier: null, isActive: false, currentPeriodEnd: null },
+    subscription: { status, planTier: null, isActive: ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(status ?? ''), currentPeriodEnd: null },
   })
 
-  it('names the syndicate, the reason and the one thing to do', () => {
-    assert.deepEqual(readOnlyReason(s(null)).action, 'Choose a plan')
-    assert.match(readOnlyReason(s(null)).text, /^Choose a plan to start using Beatrice\./)
-    assert.deepEqual(readOnlyReason(s('PAST_DUE')).action, 'Update payment')
-    assert.match(readOnlyReason(s('PAST_DUE')).text, /didn’t go through/)
-    assert.deepEqual(readOnlyReason(s('INCOMPLETE')).action, 'Update payment')
-    assert.match(readOnlyReason(s('INCOMPLETE')).text, /first payment/)
-    for (const status of ['CANCELLED']) {
-      assert.match(readOnlyReason(s(status)).text, /still here to view and export/)
+  it('nothing while the plan is in good standing', () => {
+    assert.equal(planNotice(s('ACTIVE')), null)
+    assert.equal(planNotice(s('TRIALING')), null)
+  })
+
+  it('a failed payment Stripe is still retrying is a warning, not read-only', () => {
+    const notice = planNotice(s('PAST_DUE'))
+    assert.equal(notice?.tone, 'warning')
+    assert.equal(notice?.action, 'Update payment')
+    assert.match(notice?.text ?? '', /Beatrice didn’t go through\. Everything still works/)
+  })
+
+  it('every other state is read-only, names the syndicate and gives the one thing to do', () => {
+    const expected: Array<[string | null, string, RegExp]> = [
+      [null, 'Choose a plan', /^Choose a plan to start using Beatrice\./],
+      ['UNPAID', 'Update payment', /Stripe has stopped trying/],
+      ['INCOMPLETE', 'Update payment', /first payment for Beatrice/],
+      ['CANCELLED', 'Choose a plan', /still here to view and export/],
+    ]
+    for (const [status, action, text] of expected) {
+      const notice = planNotice(s(status))
+      assert.equal(notice?.tone, 'read-only', String(status))
+      assert.equal(notice?.action, action, String(status))
+      assert.match(notice?.text ?? '', text, String(status))
+    }
+  })
+
+  it('read-only exactly when the server refuses changes', () => {
+    for (const status of [null, 'ACTIVE', 'TRIALING', 'PAST_DUE', 'UNPAID', 'INCOMPLETE', 'CANCELLED']) {
+      const syndicate = s(status)
+      assert.equal(planNotice(syndicate)?.tone === 'read-only', !syndicate.subscription.isActive, String(status))
     }
   })
 })

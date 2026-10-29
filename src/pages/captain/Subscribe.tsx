@@ -25,7 +25,11 @@ export default function Subscribe() {
 
   const { startCheckout, openPortal } = useSubscription(syndicate.id)
 
-  if (syndicate.subscription.isActive) return <Navigate to="/dashboard" replace />
+  // A plan in good standing has nothing to do here; one with a failed payment does, even
+  // though it still works while Stripe retries.
+  const status = syndicate.subscription.status
+  const paymentFailed = status === 'PAST_DUE' || status === 'UNPAID' || status === 'INCOMPLETE'
+  if (syndicate.subscription.isActive && !paymentFailed) return <Navigate to="/dashboard" replace />
 
   const handleSelectPlan = async (tier: 'STARTER' | 'STANDARD') => {
     if (!email) {
@@ -75,8 +79,7 @@ export default function Subscribe() {
   )
 
   // A failed payment is put right by updating the card, not by buying a second plan.
-  const status = syndicate.subscription.status
-  if (status === 'PAST_DUE' || status === 'INCOMPLETE') {
+  if (paymentFailed) {
     return (
       <>
         <Helmet>
@@ -86,10 +89,14 @@ export default function Subscribe() {
           <Card className="max-w-md w-full">
             <div className="p-8 text-center">
               <h1 className="text-2xl font-bold text-white mb-3">
-                {status === 'INCOMPLETE' ? 'Your first payment hasn’t gone through' : 'Your last payment didn’t go through'}
+                {status === 'INCOMPLETE' ? 'Your first payment hasn’t gone through' : status === 'UNPAID' ? 'Your payments haven’t gone through' : 'Your last payment didn’t go through'}
               </h1>
               <p className="text-slate-300 mb-6">
-                Update your card for {syndicate.name} and Stripe will take the payment again. Your plan and records are kept.
+                {status === 'PAST_DUE'
+                  ? `Everything in ${syndicate.name} still works while Stripe tries your card again. Update your card and Stripe will take the payment.`
+                  : status === 'UNPAID'
+                    ? `${syndicate.name} is read-only until it’s paid. Update your card, then pay the open invoice on the same page. Your plan and records are kept.`
+                    : `Update your card for ${syndicate.name} and pay the first invoice on the same page. Your plan and records are kept.`}
               </p>
               {checkoutError && <p role="alert" className="mb-4 text-red-200">{checkoutError}</p>}
               <Button onClick={() => void handleOpenBilling()} isLoading={openingBilling} disabled={openingBilling} className="w-full">

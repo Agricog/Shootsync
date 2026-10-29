@@ -70,8 +70,13 @@ export interface SyndicateAccess {
 /** Member roles that count as a gun for 'member'-level access. Beaters have their own portal. */
 export const GUN_ROLES = ['CAPTAIN', 'GUN', 'HYBRID'] as const
 
-/** Subscription states in which the syndicate is paid up. Everything else is lapsed or never started. */
-const LIVE_SUBSCRIPTION_STATES = new Set(['ACTIVE', 'TRIALING'])
+/**
+ * Subscription states in which the syndicate can be used in full. PAST_DUE is included: while
+ * Stripe retries a failed card the captain is warned but nothing stops (the owner's decision,
+ * 29 Oct 2026: a card failing on Friday must not stop Saturday's shoot). Once Stripe gives up the
+ * plan is UNPAID or CANCELLED, and the syndicate is read-only.
+ */
+const LIVE_SUBSCRIPTION_STATES = new Set(['ACTIVE', 'TRIALING', 'PAST_DUE'])
 
 export function isLiveSubscription(status: string | null | undefined): boolean {
   return status != null && LIVE_SUBSCRIPTION_STATES.has(status)

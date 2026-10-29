@@ -248,13 +248,15 @@ export default function Settings() {
                 <p className="text-slate-300">Checking your plan…</p>
               ) : subscription.error ? (
                 <p role="alert" className="text-red-300">Couldn’t check your plan just now. {subscription.error}</p>
+              ) : subscription.status === 'PAST_DUE' ? (
+                <p className="text-amber-200">Your last payment didn’t go through. Everything still works while Stripe tries your card again: update it under Manage billing.</p>
+              ) : subscription.status === 'UNPAID' ? (
+                <p className="text-amber-200">Payments have failed and Stripe has stopped trying, so the syndicate is read-only. Update your card and pay the open invoice under Manage billing.</p>
               ) : subscription.isActive ? (
                 <p className="text-slate-300">
                   {plan ? `${plan.name}, £${plan.monthlyPrice} a month.` : 'Your plan is active.'}
                   {renews && ` Paid up to ${renews}.`}
                 </p>
-              ) : subscription.status === 'PAST_DUE' ? (
-                <p className="text-amber-200">Your last payment didn’t go through. Update your card under Manage billing.</p>
               ) : subscription.status === 'INCOMPLETE' ? (
                 <p className="text-amber-200">Your first payment hasn’t gone through yet. Finish paying under Manage billing.</p>
               ) : (

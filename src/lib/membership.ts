@@ -52,18 +52,32 @@ export function parseMemberships(body: unknown): Membership[] | null {
   return valid.length === list.length ? valid : null
 }
 
-/** Why a captain's syndicate is read-only, and the one thing to do about it. */
-export function readOnlyReason(syndicate: Membership): { text: string; action: string } {
-  switch (syndicate.subscription.status) {
-    case null:
-      return { text: `Choose a plan to start using ${syndicate.name}. Until then you can look around, but nothing can be saved.`, action: 'Choose a plan' }
+export interface PlanNotice {
+  /** 'warning': everything still works, but something needs doing. 'read-only': changes are refused. */
+  tone: 'warning' | 'read-only'
+  text: string
+  action: string
+}
+
+/** What the captain needs to know about the plan of the syndicate on show, if anything. */
+export function planNotice(syndicate: Membership): PlanNotice | null {
+  const { name, subscription } = syndicate
+  switch (subscription.status) {
+    case 'ACTIVE':
+    case 'TRIALING':
+      return null
     case 'PAST_DUE':
-      return { text: `The last payment for ${syndicate.name} didn’t go through, so it’s read-only. Update your card and everything opens up again.`, action: 'Update payment' }
+      // Still fully usable while Stripe retries the card (server/access.ts).
+      return { tone: 'warning', text: `The last payment for ${name} didn’t go through. Everything still works while Stripe tries your card again over the next few days. Update your card to keep it that way.`, action: 'Update payment' }
+    case null:
+      return { tone: 'read-only', text: `Choose a plan to start using ${name}. Until then you can look around, but nothing can be saved.`, action: 'Choose a plan' }
+    case 'UNPAID':
+      return { tone: 'read-only', text: `Payments for ${name} have failed and Stripe has stopped trying, so it’s read-only. Update your card and pay the open invoice under Update payment, and everything opens up again.`, action: 'Update payment' }
     case 'INCOMPLETE':
       // The plan was chosen but its first payment hasn't been taken: paying it opens the
       // syndicate, and choosing another plan would only start a second subscription.
-      return { text: `The first payment for ${syndicate.name} hasn’t gone through yet, so it’s read-only. Finish paying and everything opens up.`, action: 'Update payment' }
+      return { tone: 'read-only', text: `The first payment for ${name} hasn’t gone through yet, so it’s read-only. Finish paying and everything opens up.`, action: 'Update payment' }
     default:
-      return { text: `The plan for ${syndicate.name} isn’t active, so it’s read-only. Everything is still here to view and export.`, action: 'Choose a plan' }
+      return { tone: 'read-only', text: `The plan for ${name} isn’t active, so it’s read-only. Everything is still here to view and export.`, action: 'Choose a plan' }
   }
 }

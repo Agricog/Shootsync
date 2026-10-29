@@ -87,9 +87,9 @@ describe('who am I, archiving and plain-English errors', () => {
       }
     })
 
-    it('a plan counts as paid up only while active or trialling', async () => {
+    it('a plan can be used while active, trialling, or past due while Stripe retries; not once unpaid or ended', async () => {
       const cases: Array<[string | null, boolean]> = [
-        [null, false], ['ACTIVE', true], ['TRIALING', true], ['PAST_DUE', false], ['INCOMPLETE', false], ['CANCELLED', false],
+        [null, false], ['ACTIVE', true], ['TRIALING', true], ['PAST_DUE', true], ['UNPAID', false], ['INCOMPLETE', false], ['CANCELLED', false],
       ]
       for (const [status, expected] of cases) {
         await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionStatus: status as any } })
@@ -110,7 +110,7 @@ describe('who am I, archiving and plain-English errors', () => {
 
   describe('archiving a syndicate', () => {
     it('is refused while a plan is still being charged, with what to do instead', async () => {
-      for (const status of ['ACTIVE', 'TRIALING', 'PAST_DUE', 'INCOMPLETE'] as const) {
+      for (const status of ['ACTIVE', 'TRIALING', 'PAST_DUE', 'UNPAID', 'INCOMPLETE'] as const) {
         await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionStatus: status } })
         const res = await call(server, `/api/syndicates/${data.a.syndicate.id}`, { method: 'DELETE', as: CAPTAIN_A })
         assert.equal(res.status, 409, status)

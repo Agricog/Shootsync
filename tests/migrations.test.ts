@@ -131,8 +131,10 @@ describe('migrations', () => {
       assert.equal(await adopt(db), null)
       const rows = await db.$queryRawUnsafe<Array<{ id: string }>>('SELECT id FROM schema_migrations')
       assert.deepEqual(rows.map((r) => r.id), ['0001_baseline'])
-      // Ready once 0001 is recorded, if 0001 is still the newest migration the code needs.
-      assert.equal((await checkSchema(db)).ready, REQUIRED_MIGRATION === '0001_baseline')
+      // Adopted at 0001; later migrations then apply on top, in order, as on a fresh database.
+      for (const id of migrationIds.slice(1)) for (const statement of statements(migrationSql(id))) await db.$executeRawUnsafe(statement)
+      assert.deepEqual(await checkSchema(db), { ready: true })
+      assert.deepEqual(await catalog(db), await catalog(main))
     })
 
     it('a second run refuses and changes nothing', async () => {
@@ -238,7 +240,7 @@ describe('migrations', () => {
       const result = await boot(db)
       assert.equal(result.exitCode, 1)
       assert.deepEqual(result.waits, [])
-      assert.match(result.log.join('\n'), /Refusing to start: migration 0001_baseline has not been applied/)
+      assert.match(result.log.join('\n'), new RegExp(`Refusing to start: migration ${REQUIRED_MIGRATION} has not been applied.*Run prisma/migrations/${REQUIRED_MIGRATION}/migration\\.sql in the Neon SQL editor`))
     })
 
     it('stops at once when schema_migrations is missing, and says to adopt 0001', async () => {
