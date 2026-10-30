@@ -110,13 +110,16 @@ export default function Terms() {
           },
           {
             id: 'guests',
-            heading: 'Guest guns and the guest waiver',
+            heading: 'Guest guns and the guest acknowledgement',
             body: (
               <>
                 <p>
-                  ShootSync provides a standard guest waiver for guests to accept before a shoot day. It is a
-                  starting point, not legal advice. You are responsible for checking it suits your shoot and for
-                  your syndicate’s safety arrangements, insurance and conduct on the day.
+                  ShootSync provides a standard guest acknowledgement for guests to accept before a shoot day:
+                  their competence, insurance, the ordinary risks of the sport, following instructions and an
+                  emergency contact. It does not limit anyone’s liability for negligence. You can add your own
+                  clauses under Settings. It is a starting point, not legal advice: you are responsible for
+                  checking it suits your shoot and for your syndicate’s safety arrangements, insurance and
+                  conduct on the day. ShootSync keeps a record of the exact wording each guest accepted.
                 </p>
                 <p>
                   ShootSync doesn’t take guest day fees. Guests pay your syndicate directly, as you arrange

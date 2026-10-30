@@ -24,6 +24,12 @@ interface ShootBriefingData {
   beaters: Array<{
     name: string
   }>
+  /** Guests' emergency contacts, for the captain's copy: who to ring if someone is hurt. */
+  emergencyContacts?: Array<{
+    name: string
+    contactName: string
+    contactPhone: string
+  }>
 }
 
 export function generateShootBriefingPDF(data: ShootBriefingData): void {
@@ -152,6 +158,25 @@ export function generateShootBriefingPDF(data: ShootBriefingData): void {
     doc.setFontSize(11)
     doc.text(splitBeaters, 20, y)
     y += splitBeaters.length * 6 + 8
+  }
+
+  // Emergency contacts: the one section a captain must have to hand on the day.
+  if (data.emergencyContacts && data.emergencyContacts.length > 0) {
+    if (y > 230) {
+      doc.addPage()
+      y = 20
+    }
+    y = sectionHeader('Emergency contacts (guests)', y)
+    doc.setFontSize(10)
+    for (const row of data.emergencyContacts) {
+      if (y > 270) {
+        doc.addPage()
+        y = 20
+      }
+      doc.text(`${row.name}: ${row.contactName}, ${row.contactPhone}`, 20, y)
+      y += 6
+    }
+    y += 6
   }
 
   // Captain's notes

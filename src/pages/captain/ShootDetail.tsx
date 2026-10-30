@@ -51,6 +51,8 @@ interface ShootDay {
     rsvpStatus: string
     paymentStatus: string
     waiverAccepted: boolean
+    emergencyContactName?: string | null
+    emergencyContactPhone?: string | null
     /** Set when the fee was paid by card through Stripe; null when the captain marked it paid. */
     stripePaymentId?: string | null
     inviteToken?: string
@@ -209,6 +211,27 @@ export default function ShootDetail() {
     await refreshShoot()
   }
 
+  // A guest's peg, set by the captain on this page (the draw places the guns; guests are placed by hand).
+  const [pegEdits, setPegEdits] = useState<Record<string, string>>({})
+  const [savingPeg, setSavingPeg] = useState<string | null>(null)
+  const saveGuestPeg = async (guestId: string, value: string) => {
+    const peg = value.trim() === '' ? null : Number(value)
+    if (peg !== null && (!Number.isInteger(peg) || peg < 1 || peg > 40)) {
+      setGuestError('A peg is a whole number from 1 to 40.')
+      return
+    }
+    setGuestError(null)
+    setSavingPeg(guestId)
+    const result = await apiRequest<unknown>(`/api/guests/${encodeURIComponent(guestId)}`, { method: 'PATCH', body: { pegNumber: peg } })
+    setSavingPeg(null)
+    if (!result.ok) {
+      setGuestError(result.error)
+      return
+    }
+    setPegEdits((edits) => { const next = { ...edits }; delete next[guestId]; return next })
+    await refreshShoot()
+  }
+
   // Guests pay the syndicate directly; the captain records it.
   const [markingPayment, setMarkingPayment] = useState<string | null>(null)
   const setGuestPaid = async (guestId: string, paid: boolean) => {
@@ -285,6 +308,9 @@ export default function ShootDetail() {
       beaters: shoot.beaterBookings?.filter(b => b.status === 'CONFIRMED').map(b => ({
         name: b.beater?.name || 'Unknown',
       })) || [],
+      emergencyContacts: (shoot.guestGuns ?? [])
+        .filter((g) => g.rsvpStatus === 'CONFIRMED' && g.emergencyContactName && g.emergencyContactPhone)
+        .map((g) => ({ name: g.name, contactName: g.emergencyContactName as string, contactPhone: g.emergencyContactPhone as string })),
     })
   }
 
@@ -470,7 +496,7 @@ export default function ShootDetail() {
             <div className="mb-6 p-4 bg-slate-800 rounded-lg">
               <h3 className="text-white font-medium mb-1">Add a guest</h3>
               <p className="text-sm text-slate-300 mb-4">
-                You’ll get an invite link to send them. On it they confirm and sign the waiver. Any day fee is paid to you directly, and you mark it paid here.
+                You’ll get an invite link to send them. On it they confirm and sign the guest acknowledgement. Any day fee is paid to you directly, and you mark it paid here.
               </p>
               <form onSubmit={handleInviteGuest} className="space-y-4">
                 <div>
@@ -559,6 +585,12 @@ export default function ShootDetail() {
                       <p className="text-white font-medium">{guest.name}</p>
                       <p className="text-slate-400 text-sm">{guest.email}</p>
                       {guest.invitedByMember && <p className="text-slate-400 text-sm">{guest.invitedByMember.name}’s guest</p>}
+                      {guest.emergencyContactName && (
+                        <p className="text-slate-300 text-sm mt-1">
+                          <span className="text-slate-400">Emergency contact:</span> {guest.emergencyContactName}
+                          {guest.emergencyContactPhone && <>, <a href={`tel:${guest.emergencyContactPhone.replace(/\s+/g, '')}`} className="text-green-400 hover:text-green-300">{guest.emergencyContactPhone}</a></>}
+                        </p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getRsvpStatusColor(guest.rsvpStatus)}`}>
@@ -584,7 +616,25 @@ export default function ShootDetail() {
                       </button>
                     )}
                     {guest.waiverAccepted && (
-                      <span className="text-sm text-slate-400">Waiver signed ✓</span>
+                      <span className="text-sm text-slate-400">Acknowledgement signed ✓</span>
+                    )}
+                    {guest.rsvpStatus !== 'DECLINED' && (
+                      <label className="flex items-center gap-2 text-sm text-slate-300">
+                        Peg
+                        <input
+                          type="number"
+                          min={1}
+                          max={40}
+                          inputMode="numeric"
+                          aria-label={`${guest.name}’s peg`}
+                          value={pegEdits[guest.id] ?? (guest.pegNumber ?? '')}
+                          onChange={(e) => setPegEdits({ ...pegEdits, [guest.id]: e.target.value })}
+                          onBlur={(e) => { if (pegEdits[guest.id] !== undefined) void saveGuestPeg(guest.id, e.target.value) }}
+                          onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                          disabled={!canWrite || savingPeg === guest.id}
+                          className="w-16 px-2 py-1 bg-slate-700 border border-slate-600 rounded text-white disabled:opacity-60"
+                        />
+                      </label>
                     )}
                     {canWrite && guest.dayFee > 0 && guest.rsvpStatus !== 'DECLINED' && guest.paymentStatus === 'PENDING' && (
                       <button

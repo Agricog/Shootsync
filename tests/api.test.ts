@@ -7,7 +7,6 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import type Stripe from 'stripe'
 import { PUBLIC_ROUTES } from '../server/auth.js'
-import { REQUIRED_MIGRATION } from '../server/schemaVersion.js'
 import {
   CAPTAIN_A,
   CAPTAIN_B,
@@ -26,6 +25,7 @@ import {
   tokenFor,
   type StripeCalls,
   type TestServer,
+  acceptBody,
 } from './helpers.js'
 
 type Seeded = Awaited<ReturnType<typeof seed>>
@@ -116,10 +116,9 @@ describe('API', () => {
     })
 
     it('health is public', async () => {
-      await prisma.$executeRawUnsafe(`INSERT INTO schema_migrations (id) VALUES ('${REQUIRED_MIGRATION}') ON CONFLICT DO NOTHING`)
+      // The test database is built from the migrations, so the row the code needs is there.
       const res = await call(server, '/api/health')
       assert.equal(res.status, 200)
-      await prisma.$executeRawUnsafe(`DELETE FROM schema_migrations WHERE id = '${REQUIRED_MIGRATION}'`)
     })
 
     it('unknown API paths return JSON 404, not the web page', async () => {
@@ -341,7 +340,7 @@ describe('API', () => {
 
     it('accepting confirms the guest; ShootSync no longer starts a card payment for the day fee', async () => {
       const accepted = await call(server, `${base}/accept`, {
-        method: 'POST', body: { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000', waiverAccepted: true },
+        method: 'POST', body: acceptBody(),
       })
       assert.equal(accepted.status, 200)
       assert.equal(accepted.json.rsvpStatus, 'CONFIRMED')

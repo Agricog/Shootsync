@@ -29,6 +29,13 @@ export interface Case {
   allowLapsed?: ReadonlyArray<string | null>
 }
 
+/** The seed's shoot day with its bag, pay and the guest's acceptance taken off, so it can be deleted. */
+const nothingOnRecord = async (prisma: PrismaClient, x: Side) => {
+  await prisma.bagRecord.deleteMany({ where: { shootId: x.shoot.id } })
+  await prisma.beaterPayment.deleteMany({ where: { shootId: x.shoot.id } })
+  await prisma.guestGun.updateMany({ where: { shootId: x.shoot.id }, data: { waiverAccepted: false, paymentStatus: 'PENDING' } })
+}
+
 const planEnded = (prisma: PrismaClient, x: Side) =>
   prisma.syndicate.update({ where: { id: x.syndicate.id }, data: { stripeSubscriptionStatus: 'CANCELLED' } })
 
@@ -67,7 +74,8 @@ export const CASES: Case[] = [
   { name: 'draw pegs', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/pegs/draw`, body: (x) => ({ method: 'fair', numberOfPegs: 4, memberIds: [x.gun.id, x.captainMember.id] }), level: 'captain' },
   { name: 'save pegs', method: 'PUT', path: (x) => `/api/shoots/${x.shoot.id}/pegs`, body: (x) => ({ allocations: [{ memberId: x.gun.id, pegNumber: 2 }] }), level: 'captain' },
   { name: 'check in', method: 'POST', path: (x) => `/api/shoots/${x.shoot.id}/checkin`, body: (x) => ({ memberId: x.gun.id }), level: 'member' },
-  { name: 'delete shoot', method: 'DELETE', path: (x) => `/api/shoots/${x.shoot.id}`, level: 'captain' },
+  // Only a day with nothing on record can be deleted (tests/records.test.ts has the rules).
+  { name: 'delete shoot', method: 'DELETE', path: (x) => `/api/shoots/${x.shoot.id}`, level: 'captain', prepare: nothingOnRecord },
   // Bags
   { name: 'list bags', method: 'GET', path: (x) => `/api/bags?shootId=${x.shoot.id}`, level: 'member' },
   { name: 'season bag', method: 'GET', path: (x) => `/api/bags/season?syndicateId=${x.syndicate.id}`, level: 'member' },

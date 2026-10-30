@@ -16,6 +16,7 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import {
   CAPTAIN_A, GUN_A, INVITE_TOKEN_A, TEST_TODAY, TEST_WEBHOOK_SECRET, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testVerifier, type TestServer,
+  acceptBody,
 } from './helpers.js'
 import { GUEST_LINK_DAYS_AFTER_SHOOT, guestDayClosed, guestLinkExpired } from '../server/routes/guests.js'
 
@@ -67,11 +68,12 @@ describe('guest guard rails, on the server', () => {
 
   const invite = () => call(server, `/api/guests/token/${INVITE_TOKEN_A}`)
   const accept = () => call(server, `/api/guests/token/${INVITE_TOKEN_A}/accept`, {
-    method: 'POST', body: { emergencyContactName: 'Pat', emergencyContactPhone: '07700 900000', waiverAccepted: true },
+    method: 'POST', body: acceptBody(),
   })
   const guestRow = () => prisma.guestGun.findUniqueOrThrow({ where: { id: data.a.guest.id } })
 
   it('before the day: open, and the guest can accept', async () => {
+    today = '2026-11-01'
     assert.equal((await invite()).json.closed, null)
     assert.equal((await accept()).status, 200)
   })

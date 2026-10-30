@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import { HMRC_CASUAL_DAY_LIMIT, normaliseAccountNumber, normaliseSortCode, poundsToPence, syncBeaterPayments, taxYearOf } from '../server/beaterPay.js'
 import { csvCell, toCsv } from '../src/utils/csv.js'
-import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
+import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testVerifier, type TestServer } from './helpers.js'
 
 describe('beater pay rules', () => {
   it('the tax year runs from 6 April to 5 April', () => {
@@ -47,7 +47,8 @@ describe('beater pay API', () => {
   before(async () => {
     prisma = createTestPrisma()
     const { stripe } = createTestStripe()
-    server = await startTestServer(prisma, stripe)
+    // Days in these tests fall in December 2026; the server's date is past them all, so each can be completed.
+    server = await startTestServer(prisma, stripe, testVerifier, () => '2026-12-31')
   })
 
   after(async () => {
@@ -182,7 +183,7 @@ describe('beater pay API', () => {
     assert.equal((await as('PATCH', `/api/shoots/${shootId}/beaters/${booking.id}`, { dayRate: 99 })).status, 409)
     assert.equal((await as('DELETE', `/api/shoots/${shootId}/beaters/${booking.id}`)).status, 409)
     assert.equal((await as('POST', `/api/shoots/${shootId}/cancel`)).status, 409)
-    assert.equal((await as('DELETE', `/api/shoots/${shootId}`)).status, 400, 'completed days are never deleted')
+    assert.equal((await as('DELETE', `/api/shoots/${shootId}`)).status, 409, 'completed days are never deleted')
     const [after] = await paymentsOn()
     assert.deepEqual([after.status, after.amount, after.paymentReference], ['PAID', 4500, 'BEAT NOV'])
   })

@@ -22,6 +22,7 @@ import {
   seed,
   startTestServer,
   type TestServer,
+  acceptBody,
 } from './helpers.js'
 
 type Seeded = Awaited<ReturnType<typeof seed>>
@@ -147,7 +148,7 @@ describe('who am I, archiving and plain-English errors', () => {
       const base = `/api/guests/token/${INVITE_TOKEN_A}`
       for (const [method, path, body] of [
         ['GET', base, undefined],
-        ['POST', `${base}/accept`, { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000', waiverAccepted: true }],
+        ['POST', `${base}/accept`, acceptBody()],
         ['POST', `${base}/decline`, {}],
       ] as const) {
         const res = await call(server, path, { method, body })

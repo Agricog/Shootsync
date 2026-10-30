@@ -15,6 +15,8 @@ model Syndicate {
   id                  String   @id @default(cuid())
   name                String
   captainClerkId      String   @map("captain_clerk_id")
+  /// Clauses this syndicate adds to the standard guest acknowledgement (server/waiver.ts). Migration 0004.
+  waiverExtra         String?  @map("waiver_extra")
   seasonStart         DateTime @map("season_start")
   seasonEnd           DateTime @map("season_end")
   subscriptionAmount  Int      @default(0) @map("subscription_amount")
@@ -42,6 +44,7 @@ model Syndicate {
   beaterBookings      BeaterBooking[]
   activityLogs        ActivityLog[]
 
+  @@index([captainClerkId])
   @@map("syndicates")
 }
 
@@ -75,6 +78,8 @@ model Member {
   activityLogs          ActivityLog[]
 
   @@unique([syndicateId, clerkUserId])
+  @@index([clerkUserId])
+  @@index([syndicateId, status])
   @@map("members")
 }
 
@@ -97,6 +102,7 @@ model Beater {
   payments          BeaterPayment[]
   bookings          BeaterBooking[]
 
+  @@index([syndicateId, status])
   @@map("beaters")
 }
 
@@ -125,6 +131,7 @@ model ShootDay {
   beaterPayments    BeaterPayment[]
   beaterBookings    BeaterBooking[]
 
+  @@index([syndicateId, date])
   @@map("shoot_days")
 }
 
@@ -145,6 +152,7 @@ model ShootAttendance {
   member        Member   @relation(fields: [memberId], references: [id], onDelete: Cascade)
 
   @@unique([shootId, memberId])
+  @@index([memberId])
   @@map("shoot_attendances")
 }
 
@@ -158,20 +166,28 @@ model GuestGun {
   emergencyContactName  String?  @map("emergency_contact_name")
   emergencyContactPhone String?  @map("emergency_contact_phone")
   pegNumber             Int?     @map("peg_number")
-  dayFee                Int      @default(50) @map("day_fee")
+  dayFee                Int      @default(5000) @map("day_fee")
   paymentStatus         PaymentStatus @default(PENDING) @map("payment_status")
   stripePaymentId       String?  @map("stripe_payment_id")
   waiverAccepted        Boolean  @default(false) @map("waiver_accepted")
   waiverAcceptedAt      DateTime? @map("waiver_accepted_at")
+  /// Which acknowledgement text the guest accepted (server/waiver.ts version) and a SHA-256 of the
+  /// exact words shown, including the syndicate's own clauses. Migration 0004.
+  waiverVersion         String?  @map("waiver_version")
+  waiverTextHash        String?  @map("waiver_text_hash")
   rsvpStatus            RsvpStatus @default(PENDING) @map("rsvp_status")
   inviteToken           String?  @unique @map("invite_token")
   notes                 String?
   createdAt             DateTime @default(now()) @map("created_at")
   updatedAt             DateTime @updatedAt @map("updated_at")
 
-  shootDay              ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
-  invitedByMember       Member   @relation("InvitedBy", fields: [invitedByMemberId], references: [id], onDelete: Cascade)
+  // Restrict: a signed acknowledgement or a payment can never be wiped by deleting the day or
+  // the member. The shoot-day delete route removes un-accepted invitations itself first.
+  shootDay              ShootDay @relation(fields: [shootId], references: [id], onDelete: Restrict)
+  invitedByMember       Member   @relation("InvitedBy", fields: [invitedByMemberId], references: [id], onDelete: Restrict)
 
+  @@index([shootId])
+  @@index([invitedByMemberId])
   @@map("guest_guns")
 }
 
@@ -191,9 +207,11 @@ model BagRecord {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt @map("updated_at")
 
-  shootDay          ShootDay @relation(fields: [shootId], references: [id], onDelete: Cascade)
+  shootDay          ShootDay @relation(fields: [shootId], references: [id], onDelete: Restrict)
   recordedBy        Member?  @relation(fields: [recordedByMemberId], references: [id], onDelete: SetNull)
 
+  @@index([shootId])
+  @@index([recordedByMemberId])
   @@map("bag_records")
 }
 
@@ -211,9 +229,14 @@ model BeaterPayment {
   updatedAt        DateTime @updatedAt @map("updated_at")
 
   syndicate        Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
-  beater           Beater    @relation(fields: [beaterId], references: [id], onDelete: Cascade)
-  shootDay         ShootDay  @relation(fields: [shootId], references: [id], onDelete: Cascade)
+  // Restrict: money owed or paid is never wiped by deleting the beater or the day.
+  beater           Beater    @relation(fields: [beaterId], references: [id], onDelete: Restrict)
+  shootDay         ShootDay  @relation(fields: [shootId], references: [id], onDelete: Restrict)
 
+  // One payment record per beater per day: a beater can never be paid twice for one day.
+  @@unique([beaterId, shootId])
+  @@index([syndicateId, status])
+  @@index([shootId])
   @@map("beater_payments")
 }
 
@@ -233,8 +256,10 @@ model MemberPayment {
   updatedAt       DateTime @updatedAt @map("updated_at")
 
   syndicate       Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
-  member          Member    @relation(fields: [memberId], references: [id], onDelete: Cascade)
+  member          Member    @relation(fields: [memberId], references: [id], onDelete: Restrict)
 
+  @@index([syndicateId, status])
+  @@index([memberId])
   @@map("member_payments")
 }
 
@@ -259,6 +284,8 @@ model BeaterBooking {
   shootDay      ShootDay  @relation(fields: [shootId], references: [id], onDelete: Cascade)
 
   @@unique([beaterId, shootId])
+  @@index([shootId])
+  @@index([syndicateId])
   @@map("beater_bookings")
 }
 
@@ -276,6 +303,7 @@ model ActivityLog {
   syndicate     Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
   actor         Member?   @relation(fields: [actorMemberId], references: [id], onDelete: SetNull)
 
+  @@index([syndicateId, timestamp])
   @@map("activity_logs")
 }
 

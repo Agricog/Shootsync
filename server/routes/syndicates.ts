@@ -19,7 +19,10 @@ const createSyndicateSchema = z.object({
   pegRotationRule: z.enum(['FAIR_ROTATION', 'RANDOM', 'MANUAL']).optional(),
 })
 
-const updateSyndicateSchema = createSyndicateSchema.partial()
+const updateSyndicateSchema = createSyndicateSchema.partial().extend({
+  /** Clauses added under the standard guest acknowledgement. Empty clears them. */
+  waiverExtra: z.string().trim().max(2000).nullable().optional(),
+})
 
 export function syndicateRoutes({ prisma }: Deps): Router {
   const router = Router()
@@ -71,7 +74,7 @@ export function syndicateRoutes({ prisma }: Deps): Router {
   router.post('/', handle(async (req, res) => {
     const userId = userIdOf(req)
     const data = createSyndicateSchema.parse(req.body)
-    if (data.seasonEnd < data.seasonStart) {
+    if (data.seasonEnd <= data.seasonStart) {
       return res.status(400).json({ error: 'Season end must be after season start' })
     }
 
@@ -99,7 +102,7 @@ export function syndicateRoutes({ prisma }: Deps): Router {
     // The season must still end after it starts once this change is applied, whichever end moves.
     if (data.seasonStart || data.seasonEnd) {
       const current = await prisma.syndicate.findUniqueOrThrow({ where: { id: req.params.id }, select: { seasonStart: true, seasonEnd: true } })
-      if ((data.seasonEnd ?? current.seasonEnd) < (data.seasonStart ?? current.seasonStart)) {
+      if ((data.seasonEnd ?? current.seasonEnd) <= (data.seasonStart ?? current.seasonStart)) {
         return res.status(400).json({ error: 'Season end must be after season start' })
       }
     }

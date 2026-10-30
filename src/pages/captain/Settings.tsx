@@ -216,6 +216,20 @@ export default function Settings() {
                 </fieldset>
               </Card>
 
+              <Card>
+                <h2 className="text-lg font-semibold text-white mb-1">Guest acknowledgement</h2>
+                <p className="text-sm text-slate-300 mb-4">
+                  Every guest reads and accepts ShootSync’s standard acknowledgement before a day: competence, insurance,
+                  the ordinary risks of the sport, following instructions, and an emergency contact. Add anything your
+                  shoot also asks of guests below; it is shown to them under the standard text, and the exact words each
+                  guest accepted are kept.
+                </p>
+                <Field id="waiverExtra" title="Your syndicate’s own clauses (optional)" error={err('waiverExtra')} hint="For example: no ground game; shotguns only; dogs by arrangement with the keeper.">
+                  <textarea id="waiverExtra" aria-describedby="waiverExtra-note" rows={4} maxLength={2000} className={input} value={form.waiverExtra} aria-invalid={Boolean(err('waiverExtra'))}
+                    onChange={(e) => set('waiverExtra', e.target.value)} />
+                </Field>
+              </Card>
+
               <div aria-live="polite">
                 {message && (
                   <p className={`rounded-lg px-4 py-3 ${message.kind === 'error' ? 'bg-red-900/40 text-red-200 border border-red-800' : 'bg-green-900/40 text-green-200 border border-green-800'}`}>

@@ -2,6 +2,7 @@ import { Router } from 'express'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
+import { WAIVER_VERSION, waiverHash, waiverText } from '../waiver.js'
 import {
   GUN_ROLES,
   HttpError,
@@ -14,6 +15,9 @@ import {
 } from '../access.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
+
+/** Pegs run 1 to 40, for guns and guests alike (server/routes/shoots.ts has the same limit). */
+export const MAX_PEGS = 40
 
 /** Day fee is held in pence, the unit Stripe charges in. £50.00 = 5000. */
 const DEFAULT_GUEST_DAY_FEE = 5000
@@ -40,7 +44,7 @@ const updateGuestSchema = z.object({
   phone: optionalText(30),
   emergencyContactName: optionalText(100),
   emergencyContactPhone: optionalText(30),
-  pegNumber: z.number().int().min(1).max(100).optional(),
+  pegNumber: z.number().int().min(1).max(MAX_PEGS).nullable().optional(),
   dayFee: dayFeePence.optional(),
   notes: optionalText(2000),
 })
@@ -49,6 +53,8 @@ const acceptGuestSchema = z.object({
   emergencyContactName: z.string().trim().min(1).max(100),
   emergencyContactPhone: z.string().trim().min(1).max(30),
   waiverAccepted: z.literal(true, { error: 'Waiver must be accepted' }),
+  /** SHA-256 of the acknowledgement text the guest was shown (from GET /token/:token). */
+  waiverTextHash: z.string().regex(/^[a-f0-9]{64}$/, 'The acknowledgement text is missing. Reload the page.'),
 })
 
 export const INVITE_TOKEN_PATTERN = /^[a-f0-9]{64}$/
@@ -113,7 +119,7 @@ const guestInviteSelect = {
       locationAddress: true,
       locationPostcode: true,
       meetTime: true,
-      syndicate: { select: { name: true } },
+      syndicate: { select: { name: true, waiverExtra: true } },
     },
   },
 } as const
@@ -145,10 +151,17 @@ export function guestRoutes({ prisma, today }: Deps): Router {
   // GET /api/guests/token/:token
   router.get('/token/:token', handle(async (req, res) => {
     const { id, closed } = await guestByToken(req.params.token)
-    const guest = await prisma.guestGun.findUnique({ where: { id }, select: guestInviteSelect })
+    const guest = await prisma.guestGun.findUniqueOrThrow({ where: { id }, select: guestInviteSelect })
     res.set('Cache-Control', 'no-store')
+    const { waiverExtra, ...syndicate } = guest.shootDay.syndicate
     // closed: why nothing more can be done with this invitation (the page shows it), or null.
-    res.json({ ...guest, closed })
+    // waiver: the exact words to accept, from the server, so the record matches what was shown.
+    res.json({
+      ...guest,
+      shootDay: { ...guest.shootDay, syndicate },
+      closed,
+      waiver: { version: WAIVER_VERSION, text: waiverText(waiverExtra) },
+    })
   }))
 
   // POST /api/guests/token/:token/accept - RSVP yes and sign the waiver
@@ -158,6 +171,15 @@ export function guestRoutes({ prisma, today }: Deps): Router {
     if (guest.rsvpStatus === 'DECLINED') throw new HttpError(409, 'This invitation was declined.')
     const data = acceptGuestSchema.parse(req.body)
 
+    // The record says exactly which words were accepted. The browser sends the hash of the text
+    // it showed; if the syndicate's clauses changed in between, the guest is asked to read again.
+    const shown = await prisma.guestGun.findUniqueOrThrow({ where: { id: guest.id }, select: { shootDay: { select: { syndicate: { select: { waiverExtra: true } } } } } })
+    const text = waiverText(shown.shootDay.syndicate.waiverExtra)
+    const hash = waiverHash(text)
+    if (data.waiverTextHash !== hash) {
+      throw new HttpError(409, 'The acknowledgement has been updated since this page was opened. Reload and read it again before accepting.')
+    }
+
     const updated = await prisma.guestGun.update({
       where: { id: guest.id },
       data: {
@@ -165,11 +187,14 @@ export function guestRoutes({ prisma, today }: Deps): Router {
         emergencyContactPhone: data.emergencyContactPhone,
         waiverAccepted: true,
         waiverAcceptedAt: new Date(),
+        waiverVersion: WAIVER_VERSION,
+        waiverTextHash: hash,
         rsvpStatus: 'CONFIRMED',
       },
       select: guestInviteSelect,
     })
-    res.json(updated)
+    const { waiverExtra: _extra, ...syndicate } = updated.shootDay.syndicate
+    res.json({ ...updated, shootDay: { ...updated.shootDay, syndicate } })
   }))
 
   // POST /api/guests/token/:token/decline
@@ -181,7 +206,8 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       data: { rsvpStatus: 'DECLINED' },
       select: guestInviteSelect,
     })
-    res.json(updated)
+    const { waiverExtra: _extra, ...syndicate } = updated.shootDay.syndicate
+    res.json({ ...updated, shootDay: { ...updated.shootDay, syndicate } })
   }))
 
   // ---- Signed in: captain manages guests; a member may invite their own guests ----
@@ -272,20 +298,43 @@ export function guestRoutes({ prisma, today }: Deps): Router {
     await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
     const data = updateGuestSchema.parse(req.body)
 
-    // The fee is fixed once the guest has accepted the invitation: that is the fee they agreed to
-    // and the one their page tells them to pay. The condition is part of the write, so an acceptance
-    // arriving at the same moment can't slip between a check and the change.
-    if (data.dayFee !== undefined) {
-      const changed = await prisma.guestGun.updateMany({
-        where: { id: req.params.id, OR: [{ dayFee: data.dayFee }, { waiverAccepted: false, paymentStatus: 'PENDING' }] },
-        data,
+    // One transaction, so a change that is refused half-way (a peg that is free but a fee that
+    // can't change) leaves the guest exactly as they were.
+    const guest = await prisma.$transaction(async (tx) => {
+      const current = await tx.guestGun.findUniqueOrThrow({
+        where: { id: req.params.id },
+        select: { shootId: true, shootDay: { select: { status: true } } },
       })
-      if (changed.count === 0) {
-        throw new HttpError(409, 'This guest has already accepted the invitation at its day fee, so the fee can’t change now. Remove them and invite them again if it must.')
+
+      // A peg is one person's for the day: checked against the guns' pegs and the other guests'
+      // under the shoot day's row lock, the same lock the peg draw takes, so two saves can't cross.
+      if (data.pegNumber !== undefined && data.pegNumber !== null) {
+        const peg = data.pegNumber
+        if (current.shootDay.status === 'CANCELLED') throw new HttpError(409, 'This shoot day has been cancelled, so pegs can’t be set for it.')
+        await tx.$queryRaw`SELECT id FROM shoot_days WHERE id = ${current.shootId} FOR UPDATE`
+        const [gun, otherGuest] = await Promise.all([
+          tx.shootAttendance.findFirst({ where: { shootId: current.shootId, pegNumber: peg }, select: { member: { select: { name: true } } } }),
+          tx.guestGun.findFirst({ where: { shootId: current.shootId, pegNumber: peg, id: { not: req.params.id }, rsvpStatus: { not: 'DECLINED' } }, select: { name: true } }),
+        ])
+        const taken = gun?.member.name ?? otherGuest?.name
+        if (taken) throw new HttpError(409, `Peg ${peg} is already ${taken}’s for this day.`)
       }
-      return res.json(await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id } }))
-    }
-    const guest = await prisma.guestGun.update({ where: { id: req.params.id }, data })
+
+      // The fee is fixed once the guest has accepted the invitation: that is the fee they agreed to
+      // and the one their page tells them to pay. The condition is part of the write, so an acceptance
+      // arriving at the same moment can't slip between a check and the change.
+      if (data.dayFee !== undefined) {
+        const changed = await tx.guestGun.updateMany({
+          where: { id: req.params.id, OR: [{ dayFee: data.dayFee }, { waiverAccepted: false, paymentStatus: 'PENDING' }] },
+          data,
+        })
+        if (changed.count === 0) {
+          throw new HttpError(409, 'This guest has already accepted the invitation at its day fee, so the fee can’t change now. Remove them and invite them again if it must.')
+        }
+        return tx.guestGun.findUniqueOrThrow({ where: { id: req.params.id } })
+      }
+      return tx.guestGun.update({ where: { id: req.params.id }, data })
+    })
     res.json(guest)
   }))
 

@@ -15,6 +15,7 @@ import {
 } from '../access.js'
 import { fairDraw, randomDraw } from '../pegDraw.js'
 import { lockShoot, syncBeaterPayments } from '../beaterPay.js'
+import { shootDateKey } from './guests.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
@@ -92,7 +93,7 @@ const savePegsSchema = z.object({
     .refine((a) => new Set(a.map((x) => x.pegNumber)).size === a.length, 'Two guns are on the same peg'),
 })
 
-export function shootRoutes({ prisma }: Deps): Router {
+export function shootRoutes({ prisma, today }: Deps): Router {
   const router = Router()
 
   // GET /api/shoots?syndicateId= - captain and active members
@@ -204,9 +205,10 @@ export function shootRoutes({ prisma }: Deps): Router {
 
     const shoot = await prisma.$transaction(async (tx) => {
       await lockShoot(tx, req.params.id)
-      const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
+      const current = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true, date: true } })
       if (!current) throw notFound('That shoot day could not be found. It may have been removed.')
       if (current.status === 'CANCELLED') throw new HttpError(400, 'A cancelled shoot day cannot be completed')
+      if (shootDateKey(current.date) > today()) throw new HttpError(409, 'This day hasn’t happened yet, so it can’t be marked complete.')
       const updated = await tx.shootDay.update({ where: { id: req.params.id }, data: { status: 'COMPLETED' } })
       await syncBeaterPayments(tx, req.params.id)
       return updated
@@ -428,6 +430,15 @@ export function shootRoutes({ prisma }: Deps): Router {
     await prisma.$transaction(async (tx) => {
       await lockShoot(tx, shoot.id)
       await requireActiveGuns(shoot.syndicateId, memberIds, tx)
+      // Guests' pegs are set by hand on the day page; the draw must not land a gun on one.
+      const guestPegs = await tx.guestGun.findMany({
+        where: { shootId: shoot.id, pegNumber: { in: allocations.map((a) => a.pegNumber) }, rsvpStatus: { not: 'DECLINED' } },
+        select: { name: true, pegNumber: true },
+      })
+      if (guestPegs.length > 0) {
+        const g = guestPegs[0]
+        throw new HttpError(409, `Peg ${g.pegNumber} is ${g.name}’s (a guest) for this day. Change their peg on the day page, or leave it out of the draw.`)
+      }
       await tx.shootAttendance.updateMany({
         where: { shootId: shoot.id, memberId: { notIn: memberIds } },
         data: { pegNumber: null },
@@ -473,12 +484,20 @@ export function shootRoutes({ prisma }: Deps): Router {
       await lockShoot(tx, req.params.id)
       const shoot = await tx.shootDay.findUnique({ where: { id: req.params.id }, select: { status: true } })
       if (!shoot) throw notFound('That shoot day could not be found. It may have been removed.')
-      if (shoot.status === 'COMPLETED') throw new HttpError(400, 'Cannot delete completed shoots')
-      const paid = await tx.beaterPayment.count({ where: { shootId: req.params.id, status: 'PAID' } })
-      if (paid > 0) throw new HttpError(409, 'Beaters have been paid for this day, so it cannot be deleted')
-      // Deleting the day would delete its guests too, and with them the record of who paid.
-      const paidGuests = await tx.guestGun.count({ where: { shootId: req.params.id, paymentStatus: 'PAID' } })
-      if (paidGuests > 0) throw new HttpError(409, 'Guests have paid a day fee for this day, so it cannot be deleted. Cancel it instead.')
+      if (shoot.status === 'COMPLETED') throw new HttpError(409, 'This day has been completed, so it stays on record. Nothing completed can be deleted.')
+      // Only a day with nothing on record can be deleted. Anything recorded against it (bag
+      // numbers, pay owed or paid, a guest's signed acknowledgement or payment) stays; cancel
+      // the day instead. The database refuses these deletes too (RESTRICT, migration 0004).
+      const [bags, pay, signedGuests] = await Promise.all([
+        tx.bagRecord.count({ where: { shootId: req.params.id } }),
+        tx.beaterPayment.count({ where: { shootId: req.params.id } }),
+        tx.guestGun.count({ where: { shootId: req.params.id, OR: [{ waiverAccepted: true }, { paymentStatus: { not: 'PENDING' } }] } }),
+      ])
+      if (bags > 0) throw new HttpError(409, 'Bag numbers have been recorded for this day, so it stays on record. Cancel it instead if it didn’t happen.')
+      if (pay > 0) throw new HttpError(409, 'Beaters are owed or have been paid for this day, so it stays on record. Cancel it instead.')
+      if (signedGuests > 0) throw new HttpError(409, 'A guest has signed the acknowledgement for this day, so it stays on record. Cancel it instead.')
+      // Invitations nobody has accepted are just invitations: they go with the day.
+      await tx.guestGun.deleteMany({ where: { shootId: req.params.id } })
       await tx.shootDay.delete({ where: { id: req.params.id } })
     })
     res.json({ success: true })

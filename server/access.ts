@@ -44,6 +44,7 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === 'P2025') return res.status(404).json({ error: 'That could not be found. It may have been removed.' })
     if (err.code === 'P2002') return res.status(409).json({ error: 'That is already on the list.' })
+    if (err.code === 'P2003') return res.status(409).json({ error: 'That is part of the record (a bag, a payment or a signed acknowledgement depends on it), so it can’t be removed.' })
   }
   if (err instanceof SyntaxError && 'body' in (err as object)) {
     return res.status(400).json({ error: 'That request could not be read. Reload the page and try again.' })
@@ -202,6 +203,7 @@ export const syndicateSelect = {
   planTier: true,
   defaultBeaterRate: true,
   pegRotationRule: true,
+  waiverExtra: true,
   status: true,
   createdAt: true,
   updatedAt: true,

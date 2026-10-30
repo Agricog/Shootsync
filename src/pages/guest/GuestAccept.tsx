@@ -2,7 +2,7 @@
  * Guest invitation - ShootSync
  *
  * A guest opens the link a gun or captain sent them, sees the day, and either accepts (reading
- * the waiver and leaving an emergency contact) or declines. The link is the guest's only key:
+ * the guest acknowledgement and leaving an emergency contact) or declines. The link is the guest's only key:
  * they have no account. ShootSync doesn't take the day fee: the guest pays the syndicate as
  * arranged, and the captain marks them paid.
  *
@@ -18,6 +18,7 @@ import Button from '../../components/common/Button'
 import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { apiRequest } from '../../lib/api'
+import { sha256Hex } from '../../lib/hash'
 import { formatCurrency } from '../../config/stripe'
 import { formatLongDate, formatTime } from '../../utils/dateHelpers'
 
@@ -32,6 +33,8 @@ interface GuestInvite {
   waiverAccepted: boolean
   /** Why nothing more can be done with this invitation (the day was cancelled or has passed), or null. */
   closed: string | null
+  /** The exact words to accept, from the server, so the record matches what was shown. */
+  waiver: { version: string; text: string }
   invitedByMember: { name: string } | null
   shootDay: {
     date: string
@@ -43,25 +46,6 @@ interface GuestInvite {
   }
 }
 
-const WAIVER_TEXT = `SHOOTING GUEST LIABILITY WAIVER
-
-By accepting this invitation, I acknowledge and agree to the following:
-
-1. COMPETENCY: I confirm that I am a competent and experienced shot, familiar with safe gun handling practices and shooting etiquette.
-
-2. INSURANCE: I confirm that I hold valid shooting insurance with a minimum of £10 million public liability cover that will be in effect on the date of the shoot.
-
-3. ASSUMPTION OF RISK: I understand that shooting involves inherent risks including but not limited to injury from firearms, falls, and other hazards. I voluntarily assume all such risks.
-
-4. COMPLIANCE: I agree to follow all safety instructions given by the shoot captain, gamekeeper, and other officials, and to conduct myself in a safe and sporting manner at all times.
-
-5. RELEASE: I release and hold harmless the syndicate, its members, landowners, and organisers from any liability for personal injury or property damage arising from my participation, except in cases of gross negligence.
-
-6. EMERGENCY CONTACT: I have provided accurate emergency contact information and consent to emergency medical treatment if required.
-
-7. CONDUCT: I agree to respect the countryside, other participants, and the quarry, and to uphold the highest standards of fieldsports conduct.
-
-This waiver is binding upon myself, my heirs, and legal representatives.`
 
 const PHONE_PATTERN = /^[\d\s+()-]{10,}$/
 
@@ -164,7 +148,7 @@ export default function GuestAccept() {
     const result = await apiRequest<GuestInvite>(`${base}/decline`, { method: 'POST' })
     setWorking(false)
     if (!result.ok) return afterRefusal(result.error, result.status)
-    setInvite({ ...result.data, closed: invite?.closed ?? null })
+    setInvite({ ...result.data, closed: invite?.closed ?? null, waiver: invite!.waiver })
     setStep('declined')
   }
 
@@ -174,19 +158,20 @@ export default function GuestAccept() {
     if (!contact.name.trim()) errors.name = 'Enter your emergency contact’s name.'
     if (!contact.phone.trim()) errors.phone = 'Enter your emergency contact’s phone number.'
     else if (!PHONE_PATTERN.test(contact.phone.trim())) errors.phone = 'Enter a phone number of at least 10 digits.'
-    if (!waiverTicked) errors.waiver = 'Tick to accept the waiver.'
+    if (!waiverTicked) errors.waiver = 'Tick to accept the acknowledgement.'
     setFieldErrors(errors)
     if (Object.keys(errors).length > 0) return
 
     setWorking(true)
     setActionError(null)
+    const waiverTextHash = await sha256Hex(invite!.waiver.text)
     const result = await apiRequest<GuestInvite>(`${base}/accept`, {
       method: 'POST',
-      body: { emergencyContactName: contact.name.trim(), emergencyContactPhone: contact.phone.trim(), waiverAccepted: true },
+      body: { emergencyContactName: contact.name.trim(), emergencyContactPhone: contact.phone.trim(), waiverAccepted: true, waiverTextHash },
     })
     setWorking(false)
     if (!result.ok) return afterRefusal(result.error, result.status)
-    setInvite({ ...result.data, closed: null })
+    setInvite({ ...result.data, closed: null, waiver: invite!.waiver })
     setStep('confirmed')
   }
 
@@ -271,12 +256,16 @@ export default function GuestAccept() {
             <Card>
               <form onSubmit={(e) => void accept(e)} noValidate className="p-6 space-y-6">
                 <div>
-                  <h1 className="text-2xl font-bold text-white mb-2">Guest waiver</h1>
-                  <p className="text-slate-300">Read the waiver, leave an emergency contact, and accept.</p>
+                  <h1 className="text-2xl font-bold text-white mb-2">Guest acknowledgement</h1>
+                  <p className="text-slate-300">Read it, leave an emergency contact, and accept.</p>
                 </div>
-                <div className="h-48 overflow-y-auto p-4 bg-slate-800 rounded-lg" tabIndex={0} aria-label="Waiver text">
-                  <pre className="text-slate-300 text-sm whitespace-pre-wrap font-sans">{WAIVER_TEXT}</pre>
+                <div className="h-56 overflow-y-auto p-4 bg-slate-800 rounded-lg" tabIndex={0} aria-label="Acknowledgement text">
+                  <pre className="text-slate-200 text-sm whitespace-pre-wrap font-sans">{invite.waiver.text}</pre>
                 </div>
+                <p className="text-slate-400 text-xs">
+                  Version {invite.waiver.version}. How your details are used:{' '}
+                  <a href="/privacy" target="_blank" rel="noreferrer" className="text-green-400 underline underline-offset-2">ShootSync’s privacy notice</a>.
+                </p>
                 <div className="space-y-4">
                   <Input
                     label="Emergency contact name"
@@ -307,7 +296,7 @@ export default function GuestAccept() {
                       aria-invalid={fieldErrors.waiver ? 'true' : 'false'}
                       className="mt-1 w-5 h-5 rounded border-slate-600 bg-slate-700 text-green-600 focus:ring-green-500"
                     />
-                    <span className="text-sm text-white">I have read and accept the guest waiver</span>
+                    <span className="text-sm text-white">I have read and accept the guest acknowledgement</span>
                   </label>
                   {fieldErrors.waiver && <p className="text-red-300 text-sm mt-1">{fieldErrors.waiver}</p>}
                 </div>

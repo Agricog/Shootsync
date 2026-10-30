@@ -1,8 +1,10 @@
 /**
  * Migrations (Build Standard 9.8).
  *
- * - A database built from prisma/migrations, in order, is the same schema the app is tested on
- *   (built by CI from prisma/schema.prisma): every column, constraint, index and enum value.
+ * - The app is tested on a database built from prisma/migrations, in order, exactly as production
+ *   is; and the migrations match prisma/schema.prisma (built separately by CI with `prisma db
+ *   push`): every column, constraint, index and enum value, apart from the CHECK constraints
+ *   Prisma can't express, which are listed here instead.
  * - Every migration records itself, the files are numbered without gaps, and the server asks
  *   for the newest one.
  * - The production adoption script for 0001 is run for real: it records 0001 on an exact
@@ -12,10 +14,11 @@
 
 import { after, before, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
 import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { PrismaClient } from '@prisma/client'
-import { call, createTestPrisma, createTestStripe, databaseUrlFor, startTestServer, type TestServer } from './helpers.js'
+import { call, createTestPrisma, createTestStripe, databaseUrlFor, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
 import { REQUIRED_MIGRATION, checkSchema, requireSchema, sqlStateOf } from '../server/schemaVersion.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -26,11 +29,36 @@ const migrationIds = readdirSync(`${root}prisma/migrations`, { withFileTypes: tr
 const migrationSql = (id: string) => readFileSync(`${root}prisma/migrations/${id}/migration.sql`, 'utf8')
 const adoptScript = readFileSync(`${root}prisma/production/0001_adopt.sql`, 'utf8')
 
-/** Statements in a migration file: comments dropped, split at each semicolon that ends a line. */
+/**
+ * Statements in a migration file: comments dropped, split at each semicolon that ends a line.
+ * BEGIN and COMMIT are left out: these run one statement at a time through Prisma's pool, where
+ * a transaction can't span statements; psql runs the file as written (`appliedByPsql` below).
+ */
 function statements(sql: string): string[] {
   const code = sql.split('\n').filter((line) => !line.trimStart().startsWith('--')).join('\n')
-  return code.split(/;\s*(?:\n|$)/).map((s) => s.trim()).filter(Boolean)
+  return code
+    .split(/;\s*(?:\n|$)/)
+    .map((s) => s.trim())
+    .filter((s) => s && s !== 'BEGIN' && s !== 'COMMIT')
 }
+
+/** Migrations from this one on are a single transaction: all of it applies or none of it does. */
+const FIRST_TRANSACTIONAL = '0004_records_protected'
+
+/** The CHECK constraints production carries. Prisma can't express them, so this list is the record. */
+const CHECKS = [
+  'syndicates.syndicates_season_check',
+  'syndicates.syndicates_amounts_check',
+  'beaters.beaters_day_rate_check',
+  'beater_bookings.beater_bookings_day_rate_check',
+  'beater_payments.beater_payments_amount_check',
+  'member_payments.member_payments_amount_check',
+  'guest_guns.guest_guns_day_fee_check',
+  'guest_guns.guest_guns_peg_number_check',
+  'shoot_attendances.shoot_attendances_peg_number_check',
+  'bag_records.bag_records_counts_check',
+  'shoot_days.shoot_days_drives_check',
+]
 
 /** Every column, constraint, index and enum value in the public schema, as sortable lines. */
 async function catalog(db: PrismaClient): Promise<string[]> {
@@ -99,22 +127,84 @@ describe('migrations', () => {
     }
   })
 
+  it('from 0004 on, each is one transaction: BEGIN first, COMMIT last', () => {
+    for (const id of migrationIds) {
+      const code = migrationSql(id).split('\n').filter((line) => line.trim() && !line.trimStart().startsWith('--'))
+      if (id < FIRST_TRANSACTIONAL) continue
+      assert.equal(code.at(0), 'BEGIN;', id)
+      assert.equal(code.at(-1), 'COMMIT;', id)
+    }
+  })
+
+  it('a row a migration would refuse stops it and leaves the database exactly as it was; put right, it runs', async () => {
+    const at = migrationIds.indexOf(FIRST_TRANSACTIONAL)
+    const before = await freshDatabase(migrationIds.slice(0, at))
+    const was = await catalog(before)
+    // Legal before 0004 (the code only refused season_end < season_start), refused by its CHECK.
+    await before.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, updated_at)
+      VALUES ('bad-season', 'Same day', 'user_x', '2026-10-01', '2026-10-01', now())`)
+    const file = `${root}prisma/migrations/${FIRST_TRANSACTIONAL}/migration.sql`
+    const run = () => spawnSync('psql', [databaseUrlFor(scratchName), '-q', '-v', 'ON_ERROR_STOP=1', '-f', file], { encoding: 'utf8' })
+
+    const refused = run()
+    assert.notEqual(refused.status, 0)
+    assert.match(refused.stderr, /syndicates_season_check/)
+    assert.deepEqual(await catalog(before), was)
+    const recorded = () => before.$queryRawUnsafe<Array<{ id: string }>>('SELECT id FROM schema_migrations ORDER BY id').then((rows) => rows.map((r) => r.id))
+    assert.deepEqual(await recorded(), migrationIds.slice(0, at))
+
+    await before.$executeRawUnsafe(`UPDATE syndicates SET season_end = '2027-02-01' WHERE id = 'bad-season'`)
+    const applied = run()
+    assert.equal(applied.status, 0, applied.stderr)
+    assert.deepEqual(await recorded(), migrationIds.slice(0, at + 1))
+    if (at + 1 === migrationIds.length) assert.deepEqual(await catalog(before), await catalog(main))
+  })
+
   it('the server asks for the newest migration', () => {
     assert.equal(REQUIRED_MIGRATION, migrationIds.at(-1))
   })
 
-  it('built in order, they give exactly the schema the app is tested on', async () => {
+  it('the database the tests run on is exactly what the migrations build, in order', async () => {
     const built = await freshDatabase(migrationIds)
     const fromMigrations = await catalog(built)
     const tested = await catalog(main)
     assert.ok(fromMigrations.length > 200, `only ${fromMigrations.length} catalog entries: the reader is broken`)
-    assert.deepEqual(
-      { missingFromMigrations: tested.filter((l) => !fromMigrations.includes(l)), extraInMigrations: fromMigrations.filter((l) => !tested.includes(l)) },
-      { missingFromMigrations: [], extraInMigrations: [] }
-    )
+    assert.deepEqual(tested, fromMigrations)
     const recorded = await built.$queryRawUnsafe<Array<{ id: string }>>('SELECT id FROM schema_migrations ORDER BY id')
     assert.deepEqual(recorded.map((r) => r.id), migrationIds)
     assert.deepEqual(await checkSchema(built), { ready: true })
+  })
+
+  it('the migrations match schema.prisma, apart from the CHECK constraints Prisma cannot express', async () => {
+    const schemaUrl = process.env.SCHEMA_DATABASE_URL
+    assert.ok(schemaUrl, 'SCHEMA_DATABASE_URL must point at a database built from prisma/schema.prisma (prisma db push)')
+    const fromSchema = createTestPrisma(schemaUrl)
+    try {
+      const isCheck = (line: string) => / c CHECK /.test(line)
+      const migrated = (await catalog(main)).filter((l) => !isCheck(l))
+      const declared = (await catalog(fromSchema)).filter((l) => !isCheck(l))
+      assert.deepEqual(
+        { inMigrationsOnly: migrated.filter((l) => !declared.includes(l)), inSchemaOnly: declared.filter((l) => !migrated.includes(l)) },
+        { inMigrationsOnly: [], inSchemaOnly: [] }
+      )
+    } finally {
+      await fromSchema.$disconnect()
+    }
+  })
+
+  it('every CHECK constraint on the record is there, and nothing else of that kind', async () => {
+    const found = (await catalog(main)).filter((l) => / c CHECK /.test(l)).map((l) => l.split(' ')[1]).sort()
+    assert.deepEqual(found, [...CHECKS].sort())
+  })
+
+  it('the checks hold: a negative amount, a peg of 0 and a season ending before it starts are all refused', async () => {
+    await resetDatabase(main)
+    const seeded = await seed(main)
+    await assert.rejects(main.beaterPayment.create({ data: { syndicateId: seeded.a.syndicate.id, beaterId: seeded.a.beater.id, shootId: seeded.b.shoot.id, amount: -1 } }), /beater_payments_amount_check/)
+    await assert.rejects(main.guestGun.update({ where: { id: seeded.a.guest.id }, data: { pegNumber: 0 } }), /guest_guns_peg_number_check/)
+    await assert.rejects(main.syndicate.update({ where: { id: seeded.a.syndicate.id }, data: { seasonEnd: new Date('2020-01-01') } }), /syndicates_season_check/)
+    await assert.rejects(main.bagRecord.create({ data: { shootId: seeded.a.shoot.id, driveNumber: 1, pheasant: -5 } }), /bag_records_counts_check/)
+    await resetDatabase(main)
   })
 
   describe('adopting 0001 on the live database (prisma/production/0001_adopt.sql)', () => {

@@ -13,6 +13,7 @@ import Stripe from 'stripe'
 import { createApp } from '../server/app.js'
 import type { AppConfig } from '../server/config.js'
 import { sessionFromClaims, type TokenVerifier } from '../server/auth.js'
+import { waiverHash, waiverText } from '../server/waiver.js'
 
 export const TEST_WEBHOOK_SECRET = 'whsec_test_shootsync'
 
@@ -38,6 +39,11 @@ export const testVerifier: TokenVerifier = async (token) => {
   const iat = Math.floor(Date.now() / 1000)
   const fva = match[2] === 'nofva' ? undefined : [match[2] === undefined ? 1 : Number(match[2]), -1]
   return sessionFromClaims({ sub: match[1], sid: `sess_${match[1]}`, fva, iat }, iat)
+}
+
+/** What a guest sends to accept: an emergency contact and the hash of the acknowledgement they were shown. */
+export function acceptBody(waiverExtra: string | null = null, contact = { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000' }) {
+  return { ...contact, waiverAccepted: true, waiverTextHash: waiverHash(waiverText(waiverExtra)) }
 }
 
 export const tokenFor = (userId: string, minutesSinceSignIn?: number | 'nofva') =>
@@ -138,10 +144,11 @@ export interface TestServer {
 }
 
 /**
- * The date the test server believes it is: before the seeded shoot days (14 Nov 2026), so a
- * guest can still accept and pay whenever the tests run. Tests about dates pass their own.
+ * The date the test server believes it is: the seeded shoot days' own date (14 Nov 2026), so
+ * whenever the tests run a guest can still accept, and the day can be completed. Tests about
+ * dates pass their own.
  */
-export const TEST_TODAY = '2026-11-01'
+export const TEST_TODAY = '2026-11-14'
 
 export async function startTestServer(prisma: PrismaClient, stripe: Stripe, verifyToken: TokenVerifier = testVerifier, today: () => string = () => TEST_TODAY): Promise<TestServer> {
   const app = createApp({ prisma, stripe, config: testConfig, verifyToken, today })

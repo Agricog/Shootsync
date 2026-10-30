@@ -10,7 +10,7 @@ import type { PrismaClient } from '@prisma/client'
 import { settingsPayload, toForm, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyDraft, payloadFrom } from '../src/utils/beaterForm.js'
 import { normaliseWhat3Words, shootPayload, validateShoot, type ShootDraft } from '../src/utils/shootForm.js'
-import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
+import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, type TestServer, acceptBody } from './helpers.js'
 
 const settings = {
   id: 's', name: 'Beatrice', seasonStart: '2026-10-01T00:00:00.000Z', seasonEnd: '2027-02-01T00:00:00.000Z',
@@ -188,7 +188,7 @@ describe('managing the syndicate (API)', () => {
     assert.deepEqual([withdrawn.status, withdrawn.json.withdrawn], [200, true])
     assert.equal((await prisma.guestGun.findUniqueOrThrow({ where: { id: guestId } })).rsvpStatus, 'DECLINED')
     const accept = await call(server, `/api/guests/token/${data.a.guest.inviteToken}/accept`, {
-      method: 'POST', body: { emergencyContactName: 'Jo', emergencyContactPhone: '07700900000', waiverAccepted: true },
+      method: 'POST', body: acceptBody(),
     })
     assert.equal(accept.status, 409, 'a withdrawn guest cannot accept again')
     // Never reached payment: removed.
