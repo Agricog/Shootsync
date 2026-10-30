@@ -12,6 +12,7 @@ import path from 'node:path'
 import { readFileSync } from 'node:fs'
 import type { Deps } from './deps.js'
 import { authGate, isPublicRoute, type TokenVerifier } from './auth.js'
+import { auditTrail } from './audit.js'
 import { errorHandler, handle } from './access.js'
 import { checkSchema } from './schemaVersion.js'
 import { rateLimit } from './rateLimit.js'
@@ -196,6 +197,8 @@ export function createApp(options: AppOptions) {
   }))
 
   app.use('/api', authGate(verifyToken, deps.prisma, deps.alerts))
+  // Every successful change is written to the syndicate's audit trail (server/audit.ts).
+  app.use('/api', auditTrail(deps.prisma, deps.alerts))
 
   // The browser's word that a signed-in user is still busy on a page that isn't saving anything
   // (server/sessionPolicy.ts). The auth gate above has already recorded the activity.

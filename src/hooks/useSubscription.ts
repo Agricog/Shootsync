@@ -17,6 +17,7 @@ interface SubscriptionState {
   currentPeriodEnd: string | null
   reason: PlanState['reason']
   readOnlyFrom: string | null
+  deletionDate: string | null
   /** Why the status couldn't be read, if it couldn't. Never taken to mean "not subscribed". */
   error: string | null
   fetching: boolean
@@ -30,6 +31,7 @@ const EMPTY: SubscriptionState = {
   currentPeriodEnd: null,
   reason: null,
   readOnlyFrom: null,
+  deletionDate: null,
   error: null,
   fetching: false,
 }
@@ -52,6 +54,7 @@ export function useSubscription(syndicateId: string | null) {
         currentPeriodEnd: result.data.currentPeriodEnd,
         reason: result.data.reason ?? null,
         readOnlyFrom: result.data.readOnlyFrom ?? null,
+        deletionDate: result.data.deletionDate ?? null,
         error: null,
         fetching: false,
       })
@@ -99,6 +102,7 @@ export function useSubscription(syndicateId: string | null) {
     currentPeriodEnd: state.currentPeriodEnd,
     reason: state.reason,
     readOnlyFrom: state.readOnlyFrom,
+    deletionDate: state.deletionDate,
     error: state.error,
     loading,
     checkSubscription,

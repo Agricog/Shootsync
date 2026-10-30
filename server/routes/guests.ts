@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
 import { WAIVER_VERSION, waiverHash, waiverText } from '../waiver.js'
+import { noteAuditTarget, noteGuestAction } from '../audit.js'
 import {
   GUN_ROLES,
   HttpError,
@@ -138,14 +139,14 @@ export function guestRoutes({ prisma, today }: Deps): Router {
     if (!INVITE_TOKEN_PATTERN.test(token)) throw notFound('This invitation is invalid or has expired.')
     const guest = await prisma.guestGun.findUnique({
       where: { inviteToken: token },
-      select: { id: true, rsvpStatus: true, shootDay: { select: { status: true, date: true, syndicate: { select: { status: true } } } } },
+      select: { id: true, rsvpStatus: true, shootDay: { select: { status: true, date: true, syndicateId: true, syndicate: { select: { status: true } } } } },
     })
     // An archived syndicate is gone from the app, its guest links with it; and every link
     // expires a while after its day.
     if (!guest || guest.shootDay.syndicate.status !== 'ACTIVE' || guestLinkExpired(guest.shootDay.date, today())) {
       throw notFound('This invitation is invalid or has expired.')
     }
-    return { id: guest.id, rsvpStatus: guest.rsvpStatus, closed: guestDayClosed(guest.shootDay, today()) }
+    return { id: guest.id, rsvpStatus: guest.rsvpStatus, syndicateId: guest.shootDay.syndicateId, closed: guestDayClosed(guest.shootDay, today()) }
   }
 
   // GET /api/guests/token/:token
@@ -168,6 +169,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
   router.post('/token/:token/accept', handle(async (req, res) => {
     const guest = await guestByToken(req.params.token)
     if (guest.closed) throw new HttpError(409, guest.closed)
+    noteGuestAction(res, guest.syndicateId, guest.id)
     if (guest.rsvpStatus === 'DECLINED') throw new HttpError(409, 'This invitation was declined.')
     const data = acceptGuestSchema.parse(req.body)
 
@@ -202,6 +204,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
   router.post('/token/:token/decline', handle(async (req, res) => {
     const guest = await guestByToken(req.params.token)
     if (guest.closed) throw new HttpError(409, guest.closed)
+    noteGuestAction(res, guest.syndicateId, guest.id)
     const updated = await prisma.guestGun.update({
       where: { id: guest.id },
       data: { rsvpStatus: 'DECLINED' },
@@ -290,6 +293,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       },
       include: { shootDay: { select: { date: true, locationName: true } } },
     })
+    noteAuditTarget(res, guest.id)
     res.status(201).json(guest)
   }))
 
@@ -390,6 +394,39 @@ export function guestRoutes({ prisma, today }: Deps): Router {
     const removed = await prisma.guestGun.deleteMany({ where: { id: req.params.id, paymentStatus: 'PENDING', waiverAccepted: false } })
     if (removed.count === 0) throw new HttpError(409, 'This guest’s status has just changed. Reload the page and try again.')
     res.json({ success: true })
+  }))
+
+  // POST /api/guests/:id/erase - the guest asked for their details to be erased (UK GDPR Article
+  // 17). Captain only, once the day has passed. Phone, emergency contact, email and the invitation
+  // link go now. A guest who accepted or paid keeps their name and signed acknowledgement on the
+  // record for its retention period (the syndicate may need them to answer a claim); anyone else
+  // is removed completely.
+  router.post('/:id/erase', handle(async (req, res) => {
+    const syndicateId = await syndicateOfGuest(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
+    const guest = await prisma.guestGun.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { waiverAccepted: true, paymentStatus: true, shootDay: { select: { date: true, status: true } } },
+    })
+    if (guest.shootDay.status === 'SCHEDULED' && shootDateKey(guest.shootDay.date) >= today()) {
+      throw new HttpError(409, 'This guest’s day hasn’t happened yet. Remove them from the day instead.')
+    }
+    const onRecord = guest.waiverAccepted || guest.paymentStatus === 'PAID' || guest.paymentStatus === 'REFUNDED'
+    if (onRecord) {
+      await prisma.guestGun.update({
+        where: { id: req.params.id },
+        data: { email: `removed-${req.params.id}@removed.invalid`, phone: null, emergencyContactName: null, emergencyContactPhone: null, inviteToken: null, notes: null },
+      })
+    } else {
+      await prisma.guestGun.delete({ where: { id: req.params.id } })
+    }
+    res.json({
+      erased: true,
+      nameKept: onRecord,
+      message: onRecord
+        ? 'Their contact details are erased. Their name and signed acknowledgement stay on the record until the end of its retention period, in case the syndicate needs them to answer a claim.'
+        : 'They have been removed completely.',
+    })
   }))
 
   return router

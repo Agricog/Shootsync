@@ -21,6 +21,7 @@ import type { Request, Response } from 'express'
 import type Stripe from 'stripe'
 import type { StripeSubscriptionStatus } from '@prisma/client'
 import type { Deps } from '../deps.js'
+import { recordActivity } from '../audit.js'
 
 const STATUS_MAP: Record<Stripe.Subscription.Status, StripeSubscriptionStatus> = {
   active: 'ACTIVE',
@@ -86,6 +87,8 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
     const end = periodEnd(subscription)
     const planTier = tierOf(subscription, metadataTier)
     if (!end) alerts.alert('webhook', 'A subscription has no renewal date; its status was recorded without one.', { subscription: subscription.id })
+    const before = await prisma.syndicate.findUnique({ where: { id: syndicateId }, select: { stripeSubscriptionStatus: true } })
+    const status = STATUS_MAP[subscription.status]
     const result = await prisma.syndicate.updateMany({
       where: startsNew
         ? { id: syndicateId }
@@ -93,7 +96,7 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
       data: {
         stripeSubscriptionId: subscription.id,
         stripePriceId: subscription.items?.data[0]?.price.id ?? null,
-        stripeSubscriptionStatus: STATUS_MAP[subscription.status],
+        stripeSubscriptionStatus: status,
         subscriptionCurrentPeriodEnd: end, // undefined leaves the saved date as it is
         ...(planTier && PLAN_TIERS.has(planTier) ? { planTier: planTier as 'STARTER' | 'STANDARD' } : {}),
       },
@@ -104,6 +107,16 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
     }
     // When the card first fails, note the moment: full use runs 14 days from here (planAccess).
     // Any other status ends the episode, so the next failure starts its own two weeks.
+    // The plan ending starts the 90-day clock to deletion (claude/retention-policy-2026-10-30.md);
+    // a plan that starts again stops it.
+    if (status === 'CANCELLED' || status === 'UNPAID') {
+      await prisma.syndicate.updateMany({ where: { id: syndicateId, planEndedAt: null }, data: { planEndedAt: now() } })
+    } else if (status === 'ACTIVE' || status === 'TRIALING' || status === 'PAST_DUE') {
+      await prisma.syndicate.updateMany({ where: { id: syndicateId, planEndedAt: { not: null } }, data: { planEndedAt: null } })
+    }
+    if (before?.stripeSubscriptionStatus !== status) {
+      await recordActivity(prisma, { syndicateId, action: 'Plan status changed', actorRole: 'stripe', targetType: 'syndicate', targetId: syndicateId, details: { from: before?.stripeSubscriptionStatus ?? null, to: status, subscription: subscription.id } })
+    }
     if (subscription.status === 'past_due') {
       await prisma.syndicate.updateMany({ where: { id: syndicateId, pastDueSince: null }, data: { pastDueSince: now() } })
     } else {
@@ -135,6 +148,9 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
           if (recorded.count === 0) {
             // The guest was removed: the money arrived but there is no record to attach it to.
             alerts.alert('money', 'A guest day fee was paid for a guest who no longer exists. Refund it in Stripe.', { guest: session.metadata.guestId, session: session.id, paid: session.amount_total })
+          } else {
+            const where = await prisma.guestGun.findUnique({ where: { id: session.metadata.guestId }, select: { shootDay: { select: { syndicateId: true } } } })
+            if (where) await recordActivity(prisma, { syndicateId: where.shootDay.syndicateId, action: 'Guest paid by card', actorRole: 'stripe', targetType: 'guest', targetId: session.metadata.guestId, details: { amount: session.amount_total, session: session.id } })
           }
           console.log(`[stripe] guest day fee paid: guest ${session.metadata.guestId}`)
           return
@@ -188,6 +204,7 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
         if (!syndicate) return
         const cleared = await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: { lt: eventTime(event) } }, data: { disputeOpenedAt: null } })
         if (cleared.count > 0) {
+          await recordActivity(prisma, { syndicateId: syndicate.id, action: 'Payment received after a dispute: in full use again', actorRole: 'stripe', targetType: 'syndicate', targetId: syndicate.id, details: { invoice: invoice.id } })
           alerts.alert('billing', 'A syndicate that had a disputed payment has paid again; it is in full use again.', { syndicate: syndicate.id, invoice: invoice.id })
         }
         return
@@ -210,7 +227,8 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
           // closed must not lock the syndicate again.
           const status = (await fetchDispute(dispute.id))?.status ?? dispute.status
           if (!OPEN_DISPUTE.has(status)) return
-          await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: null }, data: { disputeOpenedAt: eventTime(event) } })
+          const opened = await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: null }, data: { disputeOpenedAt: eventTime(event) } })
+          if (opened.count > 0) await recordActivity(prisma, { syndicateId: syndicate.id, action: 'Card payment disputed: read-only', actorRole: 'stripe', targetType: 'syndicate', targetId: syndicate.id, details: { dispute: dispute.id, amount: dispute.amount } })
           alerts.alert('dispute', 'A syndicate has disputed a subscription payment with its card issuer. It is read-only until a payment arrives. Answer the dispute in Stripe before the deadline.', { syndicate: syndicate.id, dispute: dispute.id, amount: dispute.amount, reason: dispute.reason })
           return
         }
@@ -224,7 +242,8 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
         if (dispute.status === 'won' || dispute.status === 'warning_closed') {
           // The money stayed with ShootSync: nothing is owed, so the hold ends (unless a later
           // dispute has since opened its own).
-          if (syndicate) await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: { lte: eventTime(event) } }, data: { disputeOpenedAt: null } })
+          const cleared = syndicate ? await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: { lte: eventTime(event) } }, data: { disputeOpenedAt: null } }) : { count: 0 }
+          if (syndicate && cleared.count > 0) await recordActivity(prisma, { syndicateId: syndicate.id, action: 'Dispute closed with the payment kept: in full use again', actorRole: 'stripe', targetType: 'syndicate', targetId: syndicate.id, details: { dispute: dispute.id } })
           alerts.alert('dispute', 'A card dispute was closed in ShootSync’s favour.', { dispute: dispute.id, syndicate: syndicate?.id ?? null, status: dispute.status })
           return
         }
@@ -244,6 +263,8 @@ export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: De
             const changed = await prisma.guestGun.updateMany({ where: { id: guest.id, paymentStatus: 'PAID' }, data: { paymentStatus: 'REFUNDED' } })
             // A redelivery after the guest is already recorded as refunded says nothing new.
             if (changed.count === 0) return
+            const where = await prisma.guestGun.findUnique({ where: { id: guest.id }, select: { shootDay: { select: { syndicateId: true } } } })
+            if (where) await recordActivity(prisma, { syndicateId: where.shootDay.syndicateId, action: 'Guest refunded by card', actorRole: 'stripe', targetType: 'guest', targetId: guest.id, details: { refunded: charge.amount_refunded } })
             alerts.alert('money', 'A guest’s day fee paid by card has been refunded in full; the guest is now recorded as refunded.', { guest: guest.id, paymentIntent, charge: charge.id, refunded: charge.amount_refunded })
           } else {
             alerts.alert('money', 'A guest’s day fee paid by card has been partly refunded; the guest is still recorded as paid.', { guest: guest.id, paymentIntent, charge: charge.id, refunded: charge.amount_refunded, of: charge.amount })

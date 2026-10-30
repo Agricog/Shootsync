@@ -14,6 +14,9 @@ import { createClerkVerifier } from './auth.js'
 import { createApp } from './app.js'
 import { PLAN_PRICES_PENCE, type PlanTierKey } from './plans.js'
 import { REQUIRED_MIGRATION, requireSchema } from './schemaVersion.js'
+import { sealOutstandingBankDetails, wrongKey } from './bankBackfill.js'
+import { runRetention } from './retention.js'
+import { keyId } from './bankCrypto.js'
 
 let config: AppConfig
 try {
@@ -74,6 +77,21 @@ const PORT = Number(process.env.PORT) || 3001
 // Never run this code against a database that is behind it: exits if so (server/schemaVersion.ts).
 await requireSchema(prisma)
 
+// Bank details still readable (from before 0006) are sealed before any request is taken.
+const bankBoot = config.bankKeys
+  ? await sealOutstandingBankDetails(prisma, config.bankKeys)
+  : null
+if (bankBoot && wrongKey(bankBoot)) {
+  // Not one opens: this is the wrong key, not a damaged row. Refuse to start, so the previous
+  // deploy keeps serving and nobody is asked to re-enter every beater's details.
+  console.error('[boot] BANK_DETAILS_KEY does not open any beater’s bank details: it is not the key they were sealed with. Put the right key back in Railway → Variables (or set the old one as BANK_DETAILS_KEY_PREVIOUS), then redeploy.')
+  await Sentry.flush(2000).catch(() => undefined)
+  process.exit(1)
+}
+if (bankBoot?.unreadable.length) {
+  alerts.alert('config', 'Some beaters’ bank details are sealed with a key this server does not have, or have been altered. Restore the previous BANK_DETAILS_KEY as BANK_DETAILS_KEY_PREVIOUS, or ask those beaters for their details again.', { beaters: bankBoot.unreadable.join(',') })
+}
+
 const server = app.listen(PORT, () => {
   // Boot log is a verification point (Standard §19.10): it names what this process will accept.
   console.log(`[boot] ShootSync API listening on ${PORT}`)
@@ -81,8 +99,38 @@ const server = app.listen(PORT, () => {
   console.log(`[boot] Database schema: ${REQUIRED_MIGRATION} applied`)
   console.log(`[boot] Sessions accepted from: ${config.allowedOrigins.join(', ')}`)
   console.log(`[boot] Stripe mode: ${config.stripeSecretKey.startsWith('sk_live_') ? 'LIVE' : 'TEST'}`)
+  console.log(
+    bankBoot
+      ? `[boot] Bank details: sealed (key ${keyId(config.bankKeys!.current)}); ${bankBoot.sealed} sealed now, ${bankBoot.resealed} moved to the current key, ${bankBoot.halfCleared} half-entered cleared, ${bankBoot.unreadable.length} unreadable`
+      : '[boot] Bank details: no BANK_DETAILS_KEY, so none can be saved'
+  )
   void checkStripePrices()
 })
+
+// Retention (server/retention.ts): records past their time are removed every hour, starting a
+// minute after boot. One server runs it at a time; a failed run is reported and tried next hour.
+const RETENTION_EVERY_MS = 60 * 60 * 1000
+async function retentionRun() {
+  try {
+    // Anything written readable by older code during a deploy's overlap is sealed within the hour.
+    if (config.bankKeys) {
+      const late = await sealOutstandingBankDetails(prisma, config.bankKeys)
+      if (late.sealed || late.halfCleared) console.log(`[retention] bank details sealed late: ${late.sealed}, half-entered cleared: ${late.halfCleared}`)
+    }
+    const result = await runRetention(prisma)
+    if (result.ran) {
+      const { ran: _ran, ...counts } = result
+      const removed = Object.entries(counts).filter(([, n]) => n > 0)
+      console.log(`[retention] ${removed.length ? removed.map(([k, n]) => `${k} ${n}`).join(', ') : 'nothing due'}`)
+    }
+  } catch (err) {
+    alerts.report(err, 'retention run')
+  }
+}
+const retentionFirst = setTimeout(() => void retentionRun(), 60 * 1000)
+const retentionTimer = setInterval(() => void retentionRun(), RETENTION_EVERY_MS)
+retentionFirst.unref()
+retentionTimer.unref()
 
 /** The website's prices must be what Stripe charges. Logged at every boot; never stops the server. */
 async function checkStripePrices() {
@@ -115,6 +163,8 @@ let stopping = false
 async function shutdown(signal: string) {
   if (stopping) return
   stopping = true
+  clearTimeout(retentionFirst)
+  clearInterval(retentionTimer)
   console.log(`[shutdown] ${signal} received: finishing open requests`)
   await new Promise<void>((resolve) => {
     const limit = setTimeout(() => {

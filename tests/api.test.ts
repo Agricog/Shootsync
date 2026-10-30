@@ -191,10 +191,35 @@ describe('API', () => {
       assert.ok(!JSON.stringify(one.json).includes('12345678'))
     })
 
-    it("are in full only in the captain's payments summary", async () => {
+    it('the pay summary shows the last four digits, never the numbers', async () => {
       const res = await call(server, `/api/beaters/payments/summary?syndicateId=${data.a.syndicate.id}`, { as: CAPTAIN_A })
       assert.equal(res.status, 200)
-      assert.equal(res.json.beaters[0].bankAccountNumber, '12345678')
+      assert.equal(res.json.beaters[0].bankDetailsOnFile, true)
+      assert.equal(res.json.beaters[0].bankAccountLast4, '5678')
+      assert.equal(JSON.stringify(res.json).includes('12345678'), false)
+      assert.equal(JSON.stringify(res.json).includes('12-34-56'), false)
+    })
+
+    it('are in full only when one beater’s are asked for, or exported for paying: both POST, never cached, and recorded', async () => {
+      const shown = await call(server, `/api/beaters/${data.a.beater.id}/bank-details/reveal`, { method: 'POST', as: CAPTAIN_A })
+      assert.equal(shown.status, 200)
+      assert.deepEqual([shown.json.sortCode, shown.json.accountNumber], ['12-34-56', '12345678'])
+      assert.equal(shown.headers.get('cache-control'), 'no-store')
+      const exported = await call(server, '/api/beaters/payments/bank-export', { method: 'POST', as: CAPTAIN_A, body: { syndicateId: data.a.syndicate.id } })
+      assert.equal(exported.status, 200)
+      assert.equal(exported.headers.get('cache-control'), 'no-store')
+      // Only beaters owed money: the seeded beater is owed for one day.
+      assert.deepEqual(exported.json.rows.map((r: { name: string; sortCode: string; accountNumber: string }) => [r.name, r.sortCode, r.accountNumber]), [['A Beater', '12-34-56', '12345678']])
+      // A gun can't see them at all.
+      assert.equal((await call(server, `/api/beaters/${data.a.beater.id}/bank-details/reveal`, { method: 'POST', as: GUN_A })).status, 404)
+    })
+
+    it('are sealed in the database: the row holds nothing readable', async () => {
+      const row = await prisma.beater.findUniqueOrThrow({ where: { id: data.a.beater.id } })
+      assert.equal(row.bankSortCode, null)
+      assert.equal(row.bankAccountNumber, null)
+      assert.match(row.bankDetailsSealed ?? '', /^v1\.[0-9a-f]{8}\./)
+      assert.equal((row.bankDetailsSealed ?? '').includes('12345678'), false)
     })
   })
 

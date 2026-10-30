@@ -14,9 +14,12 @@ import { createApp } from '../server/app.js'
 import type { AppConfig } from '../server/config.js'
 import { refusal, sessionFromClaims, type TokenVerifier } from '../server/auth.js'
 import { waiverHash, waiverText } from '../server/waiver.js'
+import { sealBankNumbers } from '../server/bankCrypto.js'
 import { consoleAlerts, type AlertKind } from '../server/alerts.js'
 
 export const TEST_WEBHOOK_SECRET = 'whsec_test_shootsync'
+/** The key test bank details are sealed with. Never a real key. */
+export const TEST_BANK_KEY = Buffer.alloc(32, 7)
 
 export const testConfig: AppConfig = {
   isProduction: false,
@@ -28,6 +31,7 @@ export const testConfig: AppConfig = {
   stripePriceIds: { STARTER: 'price_starter_test', STANDARD: 'price_standard_test' },
   sentryDsn: null,
   release: 'test',
+  bankKeys: { current: TEST_BANK_KEY, previous: null },
 }
 
 /** Alerts raised by the server under test, so a test can assert that a human would be told. */
@@ -278,8 +282,11 @@ export async function seed(prisma: PrismaClient) {
         emergencyContactName: `${label} Next of kin`,
       },
     })
-    const beater = await prisma.beater.create({
-      data: { syndicateId: syndicate.id, name: `${label} Beater`, bankName: 'Bank', bankSortCode: '12-34-56', bankAccountNumber: '12345678' },
+    // Bank details sealed, as the server stores them (server/bankCrypto.ts).
+    const created = await prisma.beater.create({ data: { syndicateId: syndicate.id, name: `${label} Beater`, bankName: 'Bank' } })
+    const beater = await prisma.beater.update({
+      where: { id: created.id },
+      data: { bankDetailsSealed: sealBankNumbers({ sortCode: '12-34-56', accountNumber: '12345678' }, created.id, TEST_BANK_KEY), bankAccountLast4: '5678' },
     })
     // A member with the BEATER role: signed in, active, but not a gun.
     await prisma.member.create({

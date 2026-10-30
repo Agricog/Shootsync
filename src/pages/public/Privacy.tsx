@@ -9,8 +9,9 @@
 import Seo from '../../components/public/Seo'
 import LegalPage from '../../components/public/LegalPage'
 import { SITE } from '../../config/site'
+import { RETENTION } from '../../config/retention'
 
-const UPDATED = '29 October 2026'
+const UPDATED = '30 October 2026'
 const { operator, email } = SITE
 
 export default function Privacy() {
@@ -60,12 +61,14 @@ export default function Privacy() {
               <ul>
                 <li><strong>Captain’s account:</strong> name, email address and sign-in details.</li>
                 <li><strong>Syndicate details:</strong> syndicate name, season dates, subscription amount and beaters’ day rate.</li>
-                <li><strong>Members:</strong> name, email, phone and whether they are active.</li>
+                <li><strong>Members:</strong> name, email, phone and whether they are active, and, where the syndicate records them, BASC number, insurance expiry and an emergency contact.</li>
                 <li><strong>Beaters:</strong> name, contact details, day rate and, if the captain enters them, bank name, sort code and account number, used to pay them.</li>
                 <li><strong>Shoot days:</strong> dates, locations, peg allocations, attendance and bag records.</li>
-                <li><strong>Guest guns:</strong> name, email, phone, emergency contact, acceptance of the guest waiver, and whether the day fee has been paid.</li>
+                <li><strong>Guest guns:</strong> name, email, phone, emergency contact, the guest acknowledgement they accepted (the exact words, the version and when), and whether the day fee has been paid.</li>
                 <li><strong>Payments:</strong> plan, subscription status and payment references. Card details are entered directly with Stripe and never reach ShootSync.</li>
-                <li><strong>Technical:</strong> server logs of requests, which can include IP addresses, used to keep the service secure and working.</li>
+                <li><strong>Activity log:</strong> a record of each change made to a syndicate’s records: what changed, when and by whom (by account, not by name), and which details changed. It never holds the details themselves.</li>
+                <li><strong>Voice entry:</strong> if you use voice entry when recording a bag, your browser’s own speech recognition turns what you say into text (in Chrome that is Google’s service, in Safari Apple’s). ShootSync receives only the text.</li>
+                <li><strong>Technical:</strong> server logs of requests, which can include IP addresses, used to keep the service secure and working, and error reports, which never include names, contact details, bank details or what was typed.</li>
               </ul>
             ),
           },
@@ -92,6 +95,7 @@ export default function Privacy() {
                   <li><strong>Stripe</strong>: subscription payments. Stripe is also responsible in its own right for the payment data it processes.</li>
                   <li><strong>Neon</strong>: the database where syndicate records are stored.</li>
                   <li><strong>Railway</strong>: hosting for the ShootSync application.</li>
+                  <li><strong>Sentry</strong> (Functional Software, Inc.): error reports, stored in the EU (Frankfurt). Reports are stripped of personal data before they leave ShootSync.</li>
                 </ul>
                 <p>
                   Some of these providers are based in, or use services in, the United States. Where personal
@@ -105,12 +109,23 @@ export default function Privacy() {
             id: 'retention',
             heading: 'How long we keep it',
             body: (
-              <ul>
-                <li>Syndicate records are kept while the syndicate’s subscription is active, so the season’s history stays available.</li>
-                <li>When a captain closes their account and asks us to, we delete the syndicate’s records within 30 days of the request.</li>
-                <li>Payment records are kept for as long as UK tax law requires.</li>
-                <li>A captain can delete a guest record, and mark members and beaters inactive, at any time. To have records erased completely, email us.</li>
-              </ul>
+              <>
+                <p>
+                  We keep each kind of record only as long as it is needed, and remove it automatically when its
+                  time is up. The checks run every hour.
+                </p>
+                <ul>
+                  <li><strong>Payments</strong> (beaters’ pay, guest day fees, subscriptions) and the activity log entries about them: {RETENTION.paymentsYearsAfterTaxYear} years after the end of the UK tax year they fall in, as HMRC requires.</li>
+                  <li><strong>A guest’s signed acknowledgement</strong> (the words they accepted, their name and when): {RETENTION.paymentsYearsAfterTaxYear} years after the end of the tax year of the shoot day, so the syndicate can answer a claim.</li>
+                  <li><strong>A guest’s phone number, email address and emergency contact:</strong> {RETENTION.guestContactDays} days after the shoot day. A guest who never accepted or paid is removed completely at the same point.</li>
+                  <li><strong>A member’s emergency contact:</strong> while they are a member, and removed when they leave.</li>
+                  <li><strong>A beater’s bank details,</strong> once they have stopped beating for the syndicate: {RETENTION.bankDetailsDaysAfterLastPayment} days after their last payment is settled.</li>
+                  <li><strong>Contact details of members and beaters who have left:</strong> {RETENTION.leaverMonths} months after they leave. Their name stays only on payment records that must still be kept, and goes when those do.</li>
+                  <li><strong>The game book</strong> (shoot days, drives, bags and pegs): for as long as the syndicate uses ShootSync.</li>
+                  <li><strong>A syndicate that leaves ShootSync:</strong> everything is deleted {RETENTION.syndicateDaysAfterPlanEnds} days after its plan ends (or, if no plan was ever started, {RETENTION.syndicateDaysAfterPlanEnds} days after it was set up). Until then the syndicate stays in the app, read-only, the captain can download all of it, and the app shows the date. After that, keeping records for tax is the syndicate’s own responsibility, from its download.</li>
+                  <li><strong>Sign-in session records:</strong> {RETENTION.sessionDays} days, longer than any sign-in can last, so an ended session can never be used again.</li>
+                </ul>
+              </>
             ),
           },
           {
@@ -120,7 +135,8 @@ export default function Privacy() {
               <ul>
                 <li>Every connection to ShootSync is encrypted (HTTPS).</li>
                 <li>Every request is checked against the signed-in account. One syndicate can never see another syndicate’s records.</li>
-                <li>Beaters’ bank details are shown in full only on the captain’s own payments page.</li>
+                <li>Beaters’ bank details are stored encrypted (AES-256), with the key held apart from the database. They are shown only to the captain, only when asked for, and each time they are shown or exported is recorded in the syndicate’s activity log.</li>
+                <li>Every change to a syndicate’s records is recorded in an activity log the captain can read and nobody can edit.</li>
                 <li>Card payments are taken by Stripe; ShootSync never sees or stores card numbers.</li>
                 <li>Signing out clears ShootSync’s stored data from that browser.</li>
               </ul>
@@ -152,6 +168,13 @@ export default function Privacy() {
                   Under UK data protection law you can ask for a copy of your data, ask us to correct or delete it,
                   ask us to restrict or stop using it, and ask for it in a portable format. Email{' '}
                   <a href={`mailto:${email}`}>{email}</a>. We will reply within one month.
+                </p>
+                <p>
+                  If you are a gun, beater or guest, your syndicate’s captain can act on these requests directly:
+                  they can download everything held for the syndicate, and erase a member’s, beater’s or guest’s
+                  details. Erasing removes contact details, emergency contacts and bank details at once; a name
+                  stays only on payment records or a signed acknowledgement the law requires the syndicate to keep,
+                  and goes when those do.
                 </p>
                 <p>
                   If you are unhappy with how we have handled your data, you can complain to the Information

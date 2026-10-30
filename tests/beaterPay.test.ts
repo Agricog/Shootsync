@@ -8,7 +8,8 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import { HMRC_CASUAL_DAY_LIMIT, normaliseAccountNumber, normaliseSortCode, poundsToPence, syncBeaterPayments, taxYearOf } from '../server/beaterPay.js'
 import { csvCell, toCsv } from '../src/utils/csv.js'
-import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testVerifier, type TestServer } from './helpers.js'
+import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testConfig, testVerifier, type TestServer } from './helpers.js'
+import { openBankNumbers } from '../server/bankCrypto.js'
 
 describe('beater pay rules', () => {
   it('the tax year runs from 6 April to 5 April', () => {
@@ -243,7 +244,9 @@ describe('beater pay API', () => {
     const good = await as('POST', '/api/beaters', { syndicateId: data.a.syndicate.id, name: 'Y', bankSortCode: '123456', bankAccountNumber: '0123 4567' })
     assert.equal(good.status, 201)
     const saved = await prisma.beater.findUniqueOrThrow({ where: { id: good.json.id } })
-    assert.deepEqual([saved.bankSortCode, saved.bankAccountNumber], ['12-34-56', '01234567'])
+    // Stored sealed, never readable; tidied to the bank's form before sealing.
+    assert.deepEqual([saved.bankSortCode, saved.bankAccountNumber, saved.bankAccountLast4], [null, null, '4567'])
+    assert.deepEqual(openBankNumbers(saved.bankDetailsSealed!, saved.id, testConfig.bankKeys!), { sortCode: '12-34-56', accountNumber: '01234567' })
   })
 
   it('a completed day cannot be cancelled, so nothing it owes is wiped', async () => {

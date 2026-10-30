@@ -6,6 +6,8 @@
  * no fallback secrets, fail fast on boot).
  */
 
+import { parseBankKey, type BankKeys } from './bankCrypto.js'
+
 export interface AppConfig {
   isProduction: boolean
   frontendUrl: string
@@ -22,6 +24,11 @@ export interface AppConfig {
   sentryDsn: string | null
   /** What Sentry calls this deployment: Railway's commit SHA, or 'local'. */
   release: string
+  /**
+   * The keys bank details are sealed with (server/bankCrypto.ts). Required in production. Without
+   * one (a local run), bank details can't be saved, rather than being saved readable.
+   */
+  bankKeys: BankKeys | null
 }
 
 const REQUIRED = [
@@ -37,8 +44,8 @@ const REQUIRED = [
 const DEFAULT_FRONTEND_URL = 'https://shootsync.co.uk'
 
 export class ConfigError extends Error {
-  constructor(public readonly missing: string[]) {
-    super(`Missing required environment variables: ${missing.join(', ')}`)
+  constructor(public readonly missing: string[], detail?: string) {
+    super(detail ?? `Missing required environment variables: ${missing.join(', ')}`)
     this.name = 'ConfigError'
   }
 }
@@ -49,13 +56,23 @@ function originOf(url: string): string {
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const isProduction = env.NODE_ENV === 'production'
-  const required = isProduction ? [...REQUIRED, 'SENTRY_DSN'] : [...REQUIRED]
+  const required = isProduction ? [...REQUIRED, 'SENTRY_DSN', 'BANK_DETAILS_KEY'] : [...REQUIRED]
   const missing = required.filter((key) => !env[key] || env[key]!.trim() === '')
   if (missing.length > 0) {
     throw new ConfigError([...missing])
   }
 
   const frontendUrl = originOf(env.FRONTEND_URL?.trim() || DEFAULT_FRONTEND_URL)
+
+  let bankKeys: BankKeys | null = null
+  try {
+    const current = parseBankKey(env.BANK_DETAILS_KEY)
+    const previous = parseBankKey(env.BANK_DETAILS_KEY_PREVIOUS)
+    if (previous && !current) throw new Error('BANK_DETAILS_KEY_PREVIOUS is set but BANK_DETAILS_KEY is not.')
+    bankKeys = current ? { current, previous } : null
+  } catch (err) {
+    throw new ConfigError(['BANK_DETAILS_KEY'], (err as Error).message)
+  }
 
   const extraOrigins = (env.ALLOWED_ORIGINS ?? '')
     .split(',')
@@ -78,5 +95,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     },
     sentryDsn: env.SENTRY_DSN?.trim() || null,
     release: env.RAILWAY_GIT_COMMIT_SHA?.trim() || 'local',
+    bankKeys,
   }
 }

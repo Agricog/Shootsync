@@ -2,6 +2,8 @@ import { Router } from 'express'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
+import { noteAuditTarget } from '../audit.js'
+import { dateString } from '../validation.js'
 import {
   HttpError,
   handle,
@@ -18,7 +20,6 @@ import { lockShoot, syncBeaterPayments } from '../beaterPay.js'
 import { shootDateKey } from './guests.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
-const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
 
 const createShootSchema = z.object({
   syndicateId: z.string().min(1),
@@ -170,6 +171,7 @@ export function shootRoutes({ prisma, today }: Deps): Router {
         captainNotes: data.captainNotes,
       },
     })
+    noteAuditTarget(res, shoot.id)
     res.status(201).json(shoot)
   }))
 

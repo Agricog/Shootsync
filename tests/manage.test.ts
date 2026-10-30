@@ -10,7 +10,8 @@ import type { PrismaClient } from '@prisma/client'
 import { settingsPayload, toForm, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyDraft, payloadFrom } from '../src/utils/beaterForm.js'
 import { normaliseWhat3Words, shootPayload, validateShoot, type ShootDraft } from '../src/utils/shootForm.js'
-import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, type TestServer, acceptBody } from './helpers.js'
+import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testConfig, type TestServer, acceptBody } from './helpers.js'
+import { openBankNumbers } from '../server/bankCrypto.js'
 
 const settings = {
   id: 's', name: 'Beatrice', seasonStart: '2026-10-01T00:00:00.000Z', seasonEnd: '2027-02-01T00:00:00.000Z',
@@ -108,19 +109,23 @@ describe('managing the syndicate (API)', () => {
   it('editing a beater keeps their bank details unless new ones are typed, and tidies them', async () => {
     const id = data.a.beater.id // seeded with 12-34-56 / 12345678
     assert.equal((await as('PATCH', `/api/beaters/${id}`, { name: 'Dai Morgan', dayRate: 45, phone: '07700 900111' })).status, 200)
-    let beater = await prisma.beater.findUniqueOrThrow({ where: { id } })
-    assert.deepEqual([beater.name, beater.dayRate, beater.bankSortCode, beater.bankAccountNumber], ['Dai Morgan', 45, '12-34-56', '12345678'])
+    const numbers = async () => {
+      const row = await prisma.beater.findUniqueOrThrow({ where: { id } })
+      return { row, ...openBankNumbers(row.bankDetailsSealed!, id, testConfig.bankKeys!) }
+    }
+    let beater = await numbers()
+    assert.deepEqual([beater.row.name, beater.row.dayRate, beater.sortCode, beater.accountNumber], ['Dai Morgan', 45, '12-34-56', '12345678'])
 
     assert.equal((await as('PATCH', `/api/beaters/${id}`, { bankSortCode: '30 90 12', bankAccountNumber: '0123-4567' })).status, 200)
-    beater = await prisma.beater.findUniqueOrThrow({ where: { id } })
-    assert.deepEqual([beater.bankSortCode, beater.bankAccountNumber], ['30-90-12', '01234567'])
+    beater = await numbers()
+    assert.deepEqual([beater.sortCode, beater.accountNumber, beater.row.bankAccountLast4, beater.row.bankAccountNumber], ['30-90-12', '01234567', '4567', null])
 
     assert.equal((await as('PATCH', `/api/beaters/${id}`, { bankAccountNumber: '123' })).status, 400)
 
     // Blank bank fields (an older form, or a cleared box) keep what is saved.
     assert.equal((await as('PATCH', `/api/beaters/${id}`, { bankSortCode: '', bankAccountNumber: '' })).status, 200)
-    beater = await prisma.beater.findUniqueOrThrow({ where: { id } })
-    assert.deepEqual([beater.bankSortCode, beater.bankAccountNumber], ['30-90-12', '01234567'])
+    beater = await numbers()
+    assert.deepEqual([beater.sortCode, beater.accountNumber], ['30-90-12', '01234567'])
   })
 
   it('a beater edit never sends bank numbers back to the browser', async () => {

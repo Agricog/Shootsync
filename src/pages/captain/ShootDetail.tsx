@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { londonDate } from '../../utils/beaterPayCalculator'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Helmet } from 'react-helmet-async'
 import { useCanWrite, useCaptainSyndicate, useSyndicates } from '../../context/SyndicateContext'
@@ -211,6 +212,20 @@ export default function ShootDetail() {
     await refreshShoot()
   }
 
+  // A guest asked for their details to be erased (UK GDPR Article 17): only once the day is over.
+  const handleEraseGuest = async (guestId: string, name: string) => {
+    if (!confirm(`Erase ${name}’s details for good? Their phone, email and emergency contact go now and can’t be brought back. If they signed the acknowledgement or paid, their name and the signed acknowledgement stay on the record for its retention period.`)) return
+    setGuestError(null)
+    setGuestNotice(null)
+    const result = await apiRequest<{ message: string }>(`/api/guests/${encodeURIComponent(guestId)}/erase`, { method: 'POST' })
+    if (!result.ok) {
+      setGuestError(result.error)
+      return
+    }
+    setGuestNotice(result.data.message)
+    await refreshShoot()
+  }
+
   // A guest's peg, set by the captain on this page (the draw places the guns; guests are placed by hand).
   const [pegEdits, setPegEdits] = useState<Record<string, string>>({})
   const [savingPeg, setSavingPeg] = useState<string | null>(null)
@@ -336,6 +351,9 @@ export default function ShootDetail() {
       </DashboardLayout>
     )
   }
+
+  // The day is over once it has been completed or cancelled, or its date has passed (UK time).
+  const dayOver = shoot.status !== 'SCHEDULED' || shoot.date.slice(0, 10) < londonDate(new Date())
 
   const totalBag = shoot.bagTotals 
     ? shoot.bagTotals.pheasant + shoot.bagTotals.partridge + shoot.bagTotals.duck + shoot.bagTotals.woodcock + shoot.bagTotals.other
@@ -583,7 +601,7 @@ export default function ShootDetail() {
                   <div className="flex justify-between items-start mb-2">
                     <div>
                       <p className="text-white font-medium">{guest.name}</p>
-                      <p className="text-slate-400 text-sm">{guest.email}</p>
+                      <p className="text-slate-400 text-sm">{guest.email.endsWith('@removed.invalid') ? 'Details erased' : guest.email}</p>
                       {guest.invitedByMember && <p className="text-slate-400 text-sm">{guest.invitedByMember.name}’s guest</p>}
                       {guest.emergencyContactName && (
                         <p className="text-slate-300 text-sm mt-1">
@@ -617,6 +635,11 @@ export default function ShootDetail() {
                     )}
                     {guest.waiverAccepted && (
                       <span className="text-sm text-slate-400">Acknowledgement signed ✓</span>
+                    )}
+                    {dayOver && !guest.email.endsWith('@removed.invalid') && (
+                      <button type="button" onClick={() => void handleEraseGuest(guest.id, guest.name)} className="text-sm text-slate-300 hover:text-white underline">
+                        Erase details…
+                      </button>
                     )}
                     {guest.rsvpStatus !== 'DECLINED' && (
                       <label className="flex items-center gap-2 text-sm text-slate-300">

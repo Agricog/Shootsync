@@ -33,8 +33,8 @@ interface BeaterPay {
   phone?: string | null
   status: string
   bankName?: string | null
-  bankSortCode?: string | null
-  bankAccountNumber?: string | null
+  bankDetailsOnFile: boolean
+  bankAccountLast4: string | null
   dayRatePence: number
   daysWorked: number
   daysThisTaxYear: number
@@ -44,6 +44,17 @@ interface BeaterPay {
   totalPaid: number
   totalOutstanding: number
   owed: Owed[]
+}
+
+interface BankExportRow {
+  beaterId: string
+  name: string
+  bankName: string | null
+  sortCode: string | null
+  accountNumber: string | null
+  unreadable: boolean
+  owedPence: number
+  days: number
 }
 
 interface PaySummary {
@@ -69,6 +80,9 @@ export default function Finances() {
   const [reference, setReference] = useState('')
   const [saving, setSaving] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  // Numbers shown on request, one beater at a time; forgotten when the page is left.
+  const [shown, setShown] = useState<Record<string, { sortCode: string; accountNumber: string }>>({})
 
   const load = useCallback(async (id: string) => {
     const result = await apiRequest<PaySummary>(apiPath('/api/beaters/payments/summary', { syndicateId: id }))
@@ -114,27 +128,46 @@ export default function Finances() {
     setSaving(false)
   }
 
-  const exportForBank = () => {
-    if (!data) return
-    const owed = data.beaters.filter((b) => b.totalOutstanding > 0)
+  const showBankDetails = async (beater: BeaterPay) => {
+    setError(null)
+    const result = await apiRequest<{ sortCode: string; accountNumber: string }>(`/api/beaters/${encodeURIComponent(beater.id)}/bank-details/reveal`, { method: 'POST' })
+    if (result.ok) setShown((current) => ({ ...current, [beater.id]: result.data }))
+    else setError(`Couldn’t show ${beater.name}’s bank details. ${result.error}`)
+  }
+
+  const exportForBank = async () => {
+    setExporting(true)
+    setError(null)
+    // The numbers come from the server for this export only, and the export is recorded.
+    const result = await apiRequest<{ rows: BankExportRow[] }>('/api/beaters/payments/bank-export', { method: 'POST', body: { syndicateId } })
+    setExporting(false)
+    if (!result.ok) {
+      setError(`Couldn’t export for the bank. ${result.error}`)
+      return
+    }
     const header = ['Name', 'Bank', 'Sort code', 'Account number', 'Amount (£)', 'Days', 'Reference']
-    const rows = owed.map((b) => [
+    const rows = result.data.rows.map((b) => [
       b.name,
       b.bankName ?? '',
-      b.bankSortCode ?? '',
-      b.bankAccountNumber ?? '',
-      (b.totalOutstanding / 100).toFixed(2),
-      String(b.owed.length),
+      b.sortCode ?? '',
+      b.accountNumber ?? '',
+      (b.owedPence / 100).toFixed(2),
+      String(b.days),
       'Beating',
     ])
     const csv = toCsv([header, ...rows])
+    const unreadable = result.data.rows.filter((r) => r.unreadable).map((r) => r.name)
+    if (unreadable.length) {
+      setError(`Exported, but ${unreadable.join(', ')} ${unreadable.length === 1 ? 'is' : 'are'} in it without bank details: theirs can’t be opened. Ask for them again and enter them on the Beaters page.`)
+    }
     // The byte-order mark makes Excel read names with accents and apostrophes correctly.
     const url = URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' }))
     const link = document.createElement('a')
     link.href = url
     link.download = `beaters-owed-${new Date().toISOString().slice(0, 10)}.csv`
     link.click()
-    URL.revokeObjectURL(url)
+    // Some browsers cancel a download whose address is withdrawn at once.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
   }
 
   if (loading) {
@@ -149,7 +182,7 @@ export default function Finances() {
 
   const totals = data?.totals ?? { totalOutstanding: 0, totalPaid: 0, totalEarned: 0 }
   const owedCount = data?.beaters.filter((b) => b.totalOutstanding > 0).length ?? 0
-  const owedWithoutBank = data?.beaters.filter((b) => b.totalOutstanding > 0 && !(b.bankSortCode && b.bankAccountNumber)) ?? []
+  const owedWithoutBank = data?.beaters.filter((b) => b.totalOutstanding > 0 && !b.bankDetailsOnFile) ?? []
 
   return (
     <>
@@ -167,8 +200,8 @@ export default function Finances() {
                 What’s owed comes from completed shoot days: every beater marked Confirmed is owed their day rate.
               </p>
             </div>
-            <Button variant="secondary" onClick={exportForBank} disabled={owedCount === 0}>
-              Export for bank
+            <Button variant="secondary" onClick={() => void exportForBank()} disabled={owedCount === 0 || exporting}>
+              {exporting ? 'Preparing…' : 'Export for bank'}
             </Button>
           </div>
 
@@ -188,7 +221,8 @@ export default function Finances() {
               The export lists each beater, what they’re owed and their bank details, one row each, ready for
               your bank’s bulk payment page or to pay one by one. Banks differ in the file they accept, so check
               yours before uploading it as it is. Opening and re-saving it in Excel can strip leading zeros from
-              account numbers.
+              account numbers. Bank details are kept sealed: each export, and each time they’re shown, is recorded
+              in the syndicate’s activity log. Delete the file once you’ve paid.
               {owedWithoutBank.length > 0 &&
                 ` ${owedWithoutBank.map((b) => b.name).join(', ')} ${owedWithoutBank.length === 1 ? 'has' : 'have'} no bank details yet, so ${owedWithoutBank.length === 1 ? 'is' : 'are'} exported without them.`}
             </p>
@@ -234,9 +268,18 @@ export default function Finances() {
                     </p>
                   )}
                   <p className="mt-2 text-sm text-slate-400">
-                    {beater.bankSortCode || beater.bankAccountNumber
-                      ? `${beater.bankName ?? 'Bank'} · ${beater.bankSortCode ?? '—'} · ${beater.bankAccountNumber ?? '—'}`
-                      : 'No bank details yet'}
+                    {!beater.bankDetailsOnFile ? (
+                      'No bank details yet'
+                    ) : shown[beater.id] ? (
+                      `${beater.bankName ?? 'Bank'} · ${shown[beater.id].sortCode} · ${shown[beater.id].accountNumber}`
+                    ) : (
+                      <>
+                        {`${beater.bankName ?? 'Bank'} · account ending ${beater.bankAccountLast4 ?? '····'}`}{' '}
+                        <button type="button" onClick={() => void showBankDetails(beater)} className="underline text-slate-300 hover:text-white">
+                          Show
+                        </button>
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="text-right ml-auto">

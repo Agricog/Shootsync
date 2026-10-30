@@ -25,6 +25,9 @@ const syndicateFields = {
   subscriptionCurrentPeriodEnd: true,
   disputeOpenedAt: true,
   pastDueSince: true,
+  planEndedAt: true,
+  stripeSubscriptionId: true,
+  createdAt: true,
   defaultBeaterRate: true,
   pegRotationRule: true,
 } as const

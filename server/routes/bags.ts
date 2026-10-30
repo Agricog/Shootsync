@@ -2,6 +2,7 @@ import { Router } from 'express'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
+import { noteAuditTarget } from '../audit.js'
 import { lockShoot } from '../beaterPay.js'
 import {
   HttpError,
@@ -150,6 +151,7 @@ export function bagRoutes({ prisma }: Deps): Router {
       },
       })
     })
+    noteAuditTarget(res, bag.id)
     res.status(201).json(bag)
   }))
 

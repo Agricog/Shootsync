@@ -122,7 +122,7 @@ export function subscriptionRoutes({ prisma, stripe, config, now, alerts }: Deps
 
     const syndicate = await prisma.syndicate.findUnique({
       where: { id: req.params.syndicateId },
-      select: { stripeSubscriptionStatus: true, planTier: true, subscriptionCurrentPeriodEnd: true, disputeOpenedAt: true, pastDueSince: true },
+      select: { stripeSubscriptionStatus: true, planTier: true, subscriptionCurrentPeriodEnd: true, disputeOpenedAt: true, pastDueSince: true, planEndedAt: true, stripeSubscriptionId: true, createdAt: true },
     })
     if (!syndicate) throw notFound()
 

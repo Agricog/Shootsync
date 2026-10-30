@@ -42,6 +42,20 @@ const planEnded = (prisma: PrismaClient, x: Side) =>
 export const CASES: Case[] = [
   // Syndicates
   { name: 'read syndicate', method: 'GET', path: (x) => `/api/syndicates/${x.syndicate.id}`, level: 'member' },
+  { name: 'download everything', method: 'POST', path: (x) => `/api/syndicates/${x.syndicate.id}/export`, level: 'captain', allowLapsed: [null, 'INCOMPLETE', 'UNPAID', 'CANCELLED'] },
+  // Erasing on request is never held back by the plan. Each needs the person gone first (and, for
+  // a beater, nothing owed; for a guest, the day over): the lapsed matrix checks only that the
+  // plan itself never refuses it.
+  { name: 'erase a member', method: 'POST', path: (x) => `/api/members/${x.gun.id}/erase`, level: 'captain', allowLapsed: [],
+    prepare: (prisma, x) => prisma.member.update({ where: { id: x.gun.id }, data: { status: 'INACTIVE' } }) },
+  { name: 'erase a beater', method: 'POST', path: (x) => `/api/beaters/${x.beater.id}/erase`, level: 'captain', allowLapsed: [],
+    prepare: async (prisma, x) => {
+      await prisma.beaterPayment.updateMany({ where: { beaterId: x.beater.id }, data: { status: 'PAID', paidDate: new Date() } })
+      await prisma.beater.update({ where: { id: x.beater.id }, data: { status: 'INACTIVE' } })
+    } },
+  { name: 'erase a guest', method: 'POST', path: (x) => `/api/guests/${x.guest.id}/erase`, level: 'captain', allowLapsed: [],
+    prepare: (prisma, x) => prisma.shootDay.update({ where: { id: x.shoot.id }, data: { status: 'COMPLETED' } }) },
+  { name: 'syndicate activity log', method: 'GET', path: (x) => `/api/syndicates/${x.syndicate.id}/activity`, level: 'captain' },
   { name: 'update syndicate', method: 'PATCH', path: (x) => `/api/syndicates/${x.syndicate.id}`, body: () => ({ name: 'Renamed' }), level: 'captain' },
   { name: 'archive syndicate', method: 'DELETE', path: (x) => `/api/syndicates/${x.syndicate.id}`, level: 'captain', prepare: planEnded, allowLapsed: [null, 'CANCELLED'] },
   // Members
@@ -54,6 +68,9 @@ export const CASES: Case[] = [
   // Beaters
   { name: 'list beaters', method: 'GET', path: (x) => `/api/beaters?syndicateId=${x.syndicate.id}`, level: 'captain' },
   { name: 'beater payments summary', method: 'GET', path: (x) => `/api/beaters/payments/summary?syndicateId=${x.syndicate.id}`, level: 'captain' },
+  // Reading, not changing, so open whatever the plan: paying people already owed is never held back.
+  { name: 'bank details export for paying', method: 'POST', path: () => '/api/beaters/payments/bank-export', body: (x) => ({ syndicateId: x.syndicate.id }), level: 'captain', allowLapsed: [null, 'INCOMPLETE', 'UNPAID', 'CANCELLED'] },
+  { name: 'show a beater’s bank details', method: 'POST', path: (x) => `/api/beaters/${x.beater.id}/bank-details/reveal`, level: 'captain', allowLapsed: [null, 'INCOMPLETE', 'UNPAID', 'CANCELLED'] },
   { name: 'beaters owed total', method: 'GET', path: (x) => `/api/beaters/payments/owed?syndicateId=${x.syndicate.id}`, level: 'captain' },
   { name: 'read beater', method: 'GET', path: (x) => `/api/beaters/${x.beater.id}`, level: 'captain' },
   { name: 'add beater', method: 'POST', path: () => '/api/beaters', body: (x) => ({ syndicateId: x.syndicate.id, name: 'New Beater' }), level: 'captain' },

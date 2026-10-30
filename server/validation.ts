@@ -120,3 +120,21 @@ export function validationResponse(issues: readonly z.core.$ZodIssue[]) {
     details: issues.map((issue) => ({ path: issue.path.map(String), message: issue.message })),
   }
 }
+
+/**
+ * A date a person typed. It must be a real date, and a year a shoot could be in: 2000 to 2100.
+ * Without the year check, "28" for 2028 was saved as the year 28 (found in production, 29 Oct 2026).
+ */
+export const dateString = z
+  .string()
+  .trim()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter the date as a day, month and four-digit year')
+  // A real day: 31 February would otherwise roll on to 3 March.
+  .refine((s) => {
+    const day = new Date(`${s}T00:00:00Z`)
+    return !Number.isNaN(day.getTime()) && day.toISOString().slice(0, 10) === s
+  }, 'Enter a real date')
+  .refine((s) => {
+    const year = Number(s.slice(0, 4))
+    return year >= 2000 && year <= 2100
+  }, 'Enter the date with a four-digit year, like 2026')

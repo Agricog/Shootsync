@@ -29,6 +29,8 @@ export interface PlanState {
   currentPeriodEnd: string | null
   /** While a failed card is being retried: the day the syndicate becomes read-only. */
   readOnlyFrom: string | null
+  /** When everything is deleted if no plan is started first; null while a plan is live. */
+  deletionDate?: string | null
 }
 
 const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
@@ -70,6 +72,13 @@ export interface PlanNotice {
 
 /** What the captain needs to know about the plan of the syndicate on show, if anything. */
 export function planNotice(syndicate: Membership): PlanNotice | null {
+  const notice = basePlanNotice(syndicate)
+  const deletion = syndicate.subscription.deletionDate
+  if (!notice || notice.tone !== 'read-only' || !deletion) return notice
+  return { ...notice, text: `${notice.text} Unless a plan is started, everything is deleted on ${longDate(deletion)}: download it first under Settings, Your records.` }
+}
+
+function basePlanNotice(syndicate: Membership): PlanNotice | null {
   const { name, subscription } = syndicate
   if (subscription.reason === 'dispute') {
     return { tone: 'read-only', text: `A payment for ${name} has been disputed with the card issuer, so it’s read-only until that is settled and a payment has arrived. Everything is still here to view and export.`, action: 'Manage billing' }

@@ -191,6 +191,23 @@ export default function Beaters() {
     await load(syndicateId)
   }
 
+  // Erasing is permanent, so it takes a second, deliberate click.
+  const [confirmErase, setConfirmErase] = useState<string | null>(null)
+  const erase = async (beater: Beater) => {
+    setError(null)
+    setNotice(null)
+    const result = await send(`/api/beaters/${encodeURIComponent(beater.id)}/erase`, 'POST')
+    setConfirmErase(null)
+    if (!result.ok) {
+      setError(result.error)
+      return
+    }
+    setNotice((result.data as { message?: string })?.message ?? `${beater.name}’s details are erased.`)
+    await load(syndicateId)
+  }
+  // Nothing left to erase: no contact details, notes or bank details.
+  const isErased = (beater: Beater) => beater.status !== 'ACTIVE' && !beater.email && !beater.phone && !beater.notes && !beater.bankDetailsOnFile
+
   const setStatus = async (beater: Beater, status: Beater['status']) => {
     setError(null)
     const result = await send(`/api/beaters/${encodeURIComponent(beater.id)}`, 'PATCH', { status })
@@ -286,6 +303,23 @@ export default function Beaters() {
                             <Button size="sm" variant="ghost" onClick={() => setStatus(beater, 'ACTIVE')} disabled={editing !== null || !canWrite}>
                               Reactivate
                             </Button>
+                          )}
+                          {beater.status !== 'ACTIVE' && !isErased(beater) && (
+                            confirmErase === beater.id ? (
+                              <div className="flex flex-col gap-2 text-sm max-w-xs">
+                                <p className="text-amber-200">
+                                  Erase {beater.name}’s contact and bank details for good? They can’t be brought back.
+                                </p>
+                                <div className="flex gap-2">
+                                  <Button size="sm" variant="danger" onClick={() => void erase(beater)}>Erase for good</Button>
+                                  <Button size="sm" variant="ghost" onClick={() => setConfirmErase(null)}>Keep</Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <Button size="sm" variant="ghost" onClick={() => setConfirmErase(beater.id)} disabled={editing !== null}>
+                                Erase details…
+                              </Button>
+                            )
                           )}
                         </div>
                       </div>

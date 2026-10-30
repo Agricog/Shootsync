@@ -11,6 +11,9 @@ import {
   requireSyndicateAccess,
   syndicateOfBeater,
 } from '../access.js'
+import { BankDetailsUnreadable, openBankNumbers, last4, sealBankNumbers, type BankNumbers } from '../bankCrypto.js'
+import { noteAuditTarget, recordBeforeAnswering } from '../audit.js'
+import { FORMER_BEATER, anonymousBeater } from '../retention.js'
 import { HMRC_CASUAL_DAY_LIMIT, lockShoots, normaliseAccountNumber, normaliseSortCode, poundsToPence, taxYearOf } from '../beaterPay.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
@@ -92,8 +95,38 @@ const paySchema = z.object({
 const statusFilter = z.enum(['ACTIVE', 'INACTIVE']).optional()
 
 // Every beater route is captain only: beaters' contact and bank details are the captain's to manage.
-export function beaterRoutes({ prisma }: Deps): Router {
+export function beaterRoutes({ prisma, config, alerts }: Deps): Router {
   const router = Router()
+
+  function bankKey(): Buffer {
+    if (!config.bankKeys) throw new HttpError(503, 'Bank details can’t be saved on this server: it has no key to protect them with.')
+    return config.bankKeys.current
+  }
+
+  /** Sealed numbers for a beater: details are never stored readable. */
+  function sealFor(beaterId: string, sortCode: string, accountNumber: string) {
+    return {
+      bankDetailsSealed: sealBankNumbers({ sortCode, accountNumber }, beaterId, bankKey()),
+      bankAccountLast4: last4(accountNumber),
+      bankSortCode: null,
+      bankAccountNumber: null,
+    }
+  }
+
+  /** A beater's numbers, opened. Older rows not yet sealed at boot are read as they are. */
+  function numbersOf(beater: { id: string; bankDetailsSealed: string | null; bankSortCode: string | null; bankAccountNumber: string | null }): BankNumbers | null {
+    if (beater.bankDetailsSealed) {
+      if (!config.bankKeys) throw new HttpError(503, 'Bank details can’t be opened on this server: it has no key for them.')
+      try {
+        return openBankNumbers(beater.bankDetailsSealed, beater.id, config.bankKeys)
+      } catch (err) {
+        if (!(err instanceof BankDetailsUnreadable)) throw err
+        alerts.alert('config', 'A beater’s bank details could not be opened: sealed with a key this server lacks, or altered.', { beater: beater.id })
+        throw new HttpError(409, 'These bank details can’t be opened. Ask the beater for them again and enter them on their page.')
+      }
+    }
+    return beater.bankSortCode && beater.bankAccountNumber ? { sortCode: beater.bankSortCode, accountNumber: beater.bankAccountNumber } : null
+  }
 
   // GET /api/beaters?syndicateId= - bank details masked
   router.get('/', handle(async (req, res) => {
@@ -108,7 +141,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
     res.json(beaters.map(maskBankDetails))
   }))
 
-  // GET /api/beaters/payments/summary?syndicateId= - full bank details, needed to pay beaters.
+  // GET /api/beaters/payments/summary?syndicateId= - what each beater is owed. Bank details are
+  // shown as the last four digits; the numbers come only from the recorded export below.
   // Money is in pence. A day counts once the shoot is completed and the beater was confirmed
   // (server/beaterPay.ts). Inactive beaters still appear while they are owed money.
   router.get('/payments/summary', handle(async (req, res) => {
@@ -156,8 +190,8 @@ export function beaterRoutes({ prisma }: Deps): Router {
         phone: beater.phone,
         status: beater.status,
         bankName: beater.bankName,
-        bankSortCode: beater.bankSortCode,
-        bankAccountNumber: beater.bankAccountNumber,
+        bankDetailsOnFile: Boolean(beater.bankDetailsSealed || (beater.bankSortCode && beater.bankAccountNumber)),
+        bankAccountLast4: beater.bankAccountLast4 ?? (beater.bankAccountNumber ? last4(beater.bankAccountNumber) : null),
         dayRatePence: poundsToPence(beater.dayRate),
         daysWorked: new Set(beater.payments.map((p) => dayKey(p.shootDay.date))).size,
         daysThisTaxYear,
@@ -192,6 +226,64 @@ export function beaterRoutes({ prisma }: Deps): Router {
 
     res.set('Cache-Control', 'no-store')
     res.json({ beaters: summary, totals, taxYear, casualDayLimit: HMRC_CASUAL_DAY_LIMIT })
+  }))
+
+  // POST /api/beaters/payments/bank-export { syndicateId } - everyone owed, with their bank
+  // details, for paying them. The one route that sends many beaters' numbers, so it is a POST
+  // (never cached, never prefetched) and every use is in the audit trail with who was included.
+  router.post('/payments/bank-export', handle(async (req, res) => {
+    const { syndicateId } = z.object({ syndicateId: z.string().min(1).max(64) }).parse(req.body)
+    // Paying people already owed is never held back by the plan: reading, not changing.
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
+    const owing = await prisma.beater.findMany({
+      where: { syndicateId, payments: { some: { status: 'PENDING' } } },
+      include: { payments: { where: { status: 'PENDING' }, select: { amount: true } } },
+      orderBy: { name: 'asc' },
+    })
+    const rows = owing.map((beater) => {
+      // One beater's details that can't be opened never stop everyone else being paid: that row
+      // says so, and the page names them.
+      let numbers: BankNumbers | null = null
+      let unreadable = false
+      try {
+        numbers = numbersOf(beater)
+      } catch (err) {
+        if (!(err instanceof HttpError) || err.status !== 409) throw err
+        unreadable = true
+      }
+      return {
+        beaterId: beater.id,
+        name: beater.name,
+        bankName: beater.bankName,
+        sortCode: numbers?.sortCode ?? null,
+        accountNumber: numbers?.accountNumber ?? null,
+        unreadable,
+        owedPence: beater.payments.reduce((sum, p) => sum + p.amount, 0),
+        days: beater.payments.length,
+      }
+    })
+    // Recorded before a single number leaves the server; if it can't be recorded, nothing is sent.
+    await recordBeforeAnswering(prisma, res, {
+      beaters: rows.filter((r) => r.accountNumber).map((r) => r.beaterId),
+      withoutBankDetails: rows.filter((r) => !r.accountNumber).length,
+    })
+    res.set('Cache-Control', 'no-store')
+    res.json({ rows })
+  }))
+
+  // POST /api/beaters/:id/bank-details/reveal - one beater's numbers, shown on request. Recorded.
+  router.post('/:id/bank-details/reveal', handle(async (req, res) => {
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
+    const beater = await prisma.beater.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { id: true, bankName: true, bankDetailsSealed: true, bankSortCode: true, bankAccountNumber: true },
+    })
+    const numbers = numbersOf(beater)
+    if (!numbers) throw new HttpError(404, 'No bank details are on file for this beater.')
+    await recordBeforeAnswering(prisma, res)
+    res.set('Cache-Control', 'no-store')
+    res.json({ bankName: beater.bankName, ...numbers })
   }))
 
   // GET /api/beaters/payments/owed?syndicateId= - just the total owed, in pence, for the
@@ -235,9 +327,10 @@ export function beaterRoutes({ prisma }: Deps): Router {
     const data = createBeaterInput.parse(req.body)
     await requireSyndicateAccess(prisma, data.syndicateId, req, 'captain')
 
+    if (data.bankSortCode || data.bankAccountNumber) bankKey()
     const beater = await prisma.$transaction(async (tx) => {
       await assertRoomFor(tx, data.syndicateId, 'beaters')
-      return tx.beater.create({
+      const created = await tx.beater.create({
         data: {
           syndicateId: data.syndicateId,
           name: data.name,
@@ -245,12 +338,14 @@ export function beaterRoutes({ prisma }: Deps): Router {
           phone: data.phone,
           dayRate: data.dayRate ?? 40,
           bankName: data.bankName,
-          bankSortCode: data.bankSortCode,
-          bankAccountNumber: data.bankAccountNumber,
           notes: data.notes,
         },
       })
+      // Sealed to this beater's ID, so the row exists first; both in one transaction.
+      if (!data.bankSortCode || !data.bankAccountNumber) return created
+      return tx.beater.update({ where: { id: created.id }, data: sealFor(created.id, data.bankSortCode, data.bankAccountNumber) })
     })
+    noteAuditTarget(res, beater.id)
     res.status(201).json(maskBankDetails(beater))
   }))
 
@@ -258,18 +353,25 @@ export function beaterRoutes({ prisma }: Deps): Router {
   router.patch('/:id', handle(async (req, res) => {
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
-    const { clearBankDetails, ...data } = updateBeaterSchema.parse(req.body)
+    const { clearBankDetails, bankSortCode, bankAccountNumber, ...data } = updateBeaterSchema.parse(req.body)
+    const numbers = bankSortCode && bankAccountNumber ? sealFor(req.params.id, bankSortCode, bankAccountNumber) : {}
 
     const beater = await prisma.$transaction(async (tx) => {
       // Bringing an inactive beater back takes a place on the plan.
-      if (data.status === 'ACTIVE') {
-        await lockSyndicate(tx, syndicateId)
-        const current = await tx.beater.findUniqueOrThrow({ where: { id: req.params.id }, select: { status: true } })
-        if (current.status !== 'ACTIVE') await assertRoomFor(tx, syndicateId, 'beaters')
-      }
+      if (data.status === 'ACTIVE') await lockSyndicate(tx, syndicateId)
+      const current = await tx.beater.findUniqueOrThrow({ where: { id: req.params.id }, select: { status: true } })
+      if (data.status === 'ACTIVE' && current.status !== 'ACTIVE') await assertRoomFor(tx, syndicateId, 'beaters')
+      // Leaving starts the retention clock (claude/retention-policy-2026-10-30.md); coming back stops it.
+      const leaving =
+        data.status && data.status !== current.status ? { leftAt: data.status === 'INACTIVE' ? new Date() : null } : {}
       return tx.beater.update({
         where: { id: req.params.id },
-        data: { ...data, ...(clearBankDetails ? { bankSortCode: null, bankAccountNumber: null, bankName: null } : {}) },
+        data: {
+          ...data,
+          ...leaving,
+          ...numbers,
+          ...(clearBankDetails ? { bankSortCode: null, bankAccountNumber: null, bankName: null, bankDetailsSealed: null, bankAccountLast4: null } : {}),
+        },
       })
     })
     res.json(maskBankDetails(beater))
@@ -280,9 +382,10 @@ export function beaterRoutes({ prisma }: Deps): Router {
     const syndicateId = await syndicateOfBeater(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
+    const current = await prisma.beater.findUniqueOrThrow({ where: { id: req.params.id }, select: { status: true } })
     const beater = await prisma.beater.update({
       where: { id: req.params.id },
-      data: { status: 'INACTIVE' },
+      data: { status: 'INACTIVE', ...(current.status === 'ACTIVE' ? { leftAt: new Date() } : {}) },
     })
     res.json(maskBankDetails(beater))
   }))
@@ -317,6 +420,30 @@ export function beaterRoutes({ prisma }: Deps): Router {
       return { updated: updated.count, total: owed.reduce((sum, p) => sum + p.amount, 0) }
     })
     res.json(result)
+  }))
+
+  // POST /api/beaters/:id/erase - the beater asked for their details to be erased (UK GDPR
+  // Article 17). Captain only, once they have been removed and nothing is owed to them. Contact
+  // and bank details go now. The name stays only on payment records the law makes the syndicate
+  // keep (HMRC), and goes when those do.
+  router.post('/:id/erase', handle(async (req, res) => {
+    const syndicateId = await syndicateOfBeater(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
+    const beater = await prisma.beater.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { status: true, _count: { select: { payments: true } }, payments: { where: { status: 'PENDING' }, select: { id: true }, take: 1 } },
+    })
+    if (beater.status !== 'INACTIVE') throw new HttpError(409, 'Remove this beater first, then erase their details.')
+    if (beater.payments.length > 0) throw new HttpError(409, 'This beater is still owed money. Pay them and mark it paid first: their bank details are needed for that.')
+    const keepsName = beater._count.payments > 0
+    await prisma.beater.update({ where: { id: req.params.id }, data: { ...anonymousBeater(), ...(keepsName ? {} : { name: FORMER_BEATER }) } })
+    res.json({
+      erased: true,
+      nameKept: keepsName,
+      message: keepsName
+        ? 'Their contact and bank details are erased. Their name stays on the payment records the syndicate must keep for HMRC, and goes when those reach the end of their retention period.'
+        : 'Their details are erased.',
+    })
   }))
 
   return router

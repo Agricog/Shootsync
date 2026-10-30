@@ -107,6 +107,24 @@ export default function Members() {
 
   const count = (status: Member['status']) => members.filter((m) => m.status === status).length
 
+  // Erasing is permanent, so it takes a second, deliberate click.
+  const [confirmErase, setConfirmErase] = useState<string | null>(null)
+  const [erasedNote, setErasedNote] = useState<{ id: string; message: string } | null>(null)
+  const erase = async (member: Member) => {
+    setUpdating(member.id)
+    setRowError(null)
+    const result = await apiRequest<{ message: string }>(`/api/members/${encodeURIComponent(member.id)}/erase`, { method: 'POST' })
+    setUpdating(null)
+    setConfirmErase(null)
+    if (!result.ok) {
+      setRowError({ id: member.id, message: result.error })
+      return
+    }
+    setErasedNote({ id: member.id, message: result.data.message })
+    await load()
+  }
+  const isErased = (member: Member) => member.email.endsWith('@removed.invalid')
+
   return (
     <DashboardLayout>
       <Helmet>
@@ -179,7 +197,11 @@ export default function Members() {
                   <div className="flex flex-col sm:flex-row justify-between sm:items-start gap-3">
                     <div className="min-w-0">
                       <h2 className="text-lg font-semibold text-white">{member.name}</h2>
-                      <p className="text-slate-300 break-words">{member.email}</p>
+                      {isErased(member) ? (
+                        <p className="text-slate-400 text-sm">Details erased</p>
+                      ) : (
+                        <p className="text-slate-300 break-words">{member.email}</p>
+                      )}
                       {member.phone && <p className="text-slate-400 text-sm">{member.phone}</p>}
                     </div>
                     <div className="flex flex-col sm:items-end gap-2">
@@ -192,13 +214,34 @@ export default function Members() {
                         <Button variant="ghost" size="sm" onClick={() => void setStatus(member, 'INACTIVE')}>
                           Make inactive
                         </Button>
-                      ) : (
+                      ) : isErased(member) ? null : (
                         <Button variant="ghost" size="sm" onClick={() => void setStatus(member, 'ACTIVE')}>
                           {member.status === 'PENDING' ? 'Make active' : 'Make active again'}
                         </Button>
                       )}
+                      {member.status === 'INACTIVE' && !isErased(member) && updating !== member.id && (
+                        confirmErase === member.id ? (
+                          <div className="flex flex-col sm:items-end gap-2 text-sm">
+                            <p className="text-amber-200 sm:text-right max-w-xs">
+                              Erase {member.name}’s details for good? Their contact details, emergency contact, BASC number
+                              and insurance go now and can’t be brought back.
+                            </p>
+                            <div className="flex gap-2">
+                              <Button variant="danger" size="sm" onClick={() => void erase(member)}>Erase for good</Button>
+                              <Button variant="ghost" size="sm" onClick={() => setConfirmErase(null)}>Keep</Button>
+                            </div>
+                          </div>
+                        ) : (
+                          <Button variant="ghost" size="sm" onClick={() => setConfirmErase(member.id)}>Erase details…</Button>
+                        )
+                      )}
                     </div>
                   </div>
+                  {erasedNote?.id === member.id && (
+                    <p role="status" className="mt-3 rounded-lg px-3 py-2 bg-green-900/40 text-green-200 border border-green-800 text-sm">
+                      {erasedNote.message}
+                    </p>
+                  )}
                   {rowError?.id === member.id && (
                     <p role="alert" className="mt-3 rounded-lg px-3 py-2 bg-red-900/40 text-red-200 border border-red-800 text-sm">
                       {rowError.message}

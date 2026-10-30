@@ -9,7 +9,7 @@ import LegalPage from '../../components/public/LegalPage'
 import { BILLING_TERMS } from '../../config/plans'
 import { SITE } from '../../config/site'
 
-const UPDATED = '29 October 2026'
+const UPDATED = '30 October 2026'
 const { operator, email } = SITE
 
 export default function Terms() {
@@ -102,8 +102,10 @@ export default function Terms() {
                 </p>
                 <p>
                   We handle that information only to provide ShootSync to you, as set out in the{' '}
-                  <Link to="/privacy">privacy notice</Link>. When you leave, ask us and we will delete your
-                  syndicate’s records within 30 days.
+                  <Link to="/privacy">privacy notice</Link>, which also says how long each kind of record is kept.
+                  You can download everything at any time under Settings, Your records. When your plan ends, your
+                  syndicate’s records are kept for 90 days, so you can download them or come back, and then deleted.
+                  Keeping records you need for tax after that is your syndicate’s responsibility.
                 </p>
               </>
             ),

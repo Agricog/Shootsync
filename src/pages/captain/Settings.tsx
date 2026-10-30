@@ -55,6 +55,27 @@ export default function Settings() {
   const subscription = useSubscription(saved?.id ?? null)
   const [billingError, setBillingError] = useState<string | null>(null)
   const [openingBilling, setOpeningBilling] = useState(false)
+  const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState<string | null>(null)
+
+  /** Everything held for the syndicate, as one file. Recorded in the activity log. */
+  const downloadEverything = async () => {
+    setExporting(true)
+    setExportError(null)
+    const result = await apiRequest<unknown>(`/api/syndicates/${encodeURIComponent(current.id)}/export`, { method: 'POST' })
+    setExporting(false)
+    if (!result.ok) {
+      setExportError(`Couldn’t prepare the download. ${result.error}`)
+      return
+    }
+    const url = URL.createObjectURL(new Blob([JSON.stringify(result.data, null, 2)], { type: 'application/json' }))
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `${current.name.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'syndicate'}-records-${new Date().toISOString().slice(0, 10)}.json`
+    link.click()
+    // Some browsers cancel a download whose address is withdrawn at once.
+    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+  }
 
   useEffect(() => {
     let stale = false
@@ -257,6 +278,33 @@ export default function Settings() {
                 )}
               </div>
             </form>
+          )}
+
+          {saved && (
+            <Card>
+              <h2 className="text-lg font-semibold text-white mb-1">Your records</h2>
+              <p className="text-slate-300">
+                Download everything ShootSync holds for {current.name} in one file: members, beaters with their bank
+                details, shoot days, bags, guests and their signed acknowledgements, payments and the activity log.
+                Keep it somewhere safe, and delete it when you no longer need it.
+              </p>
+              {subscription.deletionDate && (
+                <p className="mt-2 text-amber-200">
+                  Unless a plan is started, everything for this syndicate is deleted on{' '}
+                  {new Date(subscription.deletionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. Download it before then.
+                </p>
+              )}
+              <p className="mt-2 text-sm text-slate-400">
+                How long each kind of record is kept is in the <a href="/privacy#retention" className="underline">privacy notice</a>.
+              </p>
+              {exportError && <p role="alert" className="mt-3 text-red-300">{exportError}</p>}
+              <div className="mt-4 flex flex-wrap gap-3">
+                <Button variant="secondary" onClick={() => void downloadEverything()} disabled={exporting}>
+                  {exporting ? 'Preparing…' : 'Download everything'}
+                </Button>
+                <ButtonLink to="/settings/activity" variant="secondary">Activity log</ButtonLink>
+              </div>
+            </Card>
           )}
 
           {saved && (

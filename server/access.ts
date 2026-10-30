@@ -14,6 +14,8 @@ import { Prisma, type PrismaClient } from '@prisma/client'
 import { ZodError } from 'zod'
 import { validationResponse } from './validation.js'
 import { errorReference, type Alerts } from './alerts.js'
+import { noteAuditContext } from './audit.js'
+import { syndicateDeletionDate } from './retention.js'
 import { SUPPORT_EMAIL } from './site.js'
 
 export class HttpError extends Error {
@@ -32,7 +34,10 @@ export function handle(
   return (req: Request, res: Response, next: NextFunction) => {
     // The route pattern (never the IDs in the URL) is noted here, while the router still knows it,
     // for the error report.
-    const route = `${req.method} ${req.baseUrl}${req.route?.path ?? ''}`
+    const route = `${req.method} ${req.baseUrl}${req.route?.path ?? ''}`.replace(/(.)\/$/, '$1')
+    // For the audit trail (server/audit.ts), which writes after the response has gone.
+    res.locals.routePattern = route
+    res.locals.routeParams = { ...req.params }
     fn(req, res).catch((err) => {
       // A frozen error object can't take the note; the report then names no route, nothing worse.
       try { if (err instanceof Object) (err as { route?: string }).route = route } catch { /* frozen */ }
@@ -135,9 +140,14 @@ export function planAccess(plan: PlanFields, now: Date): PlanAccess {
 }
 
 /** What the browser is told about a plan: the same rule, with the dates it needs to explain itself. */
-export function planSummary(plan: PlanFields & { planTier: string | null }, now: Date) {
+export function planSummary(
+  plan: PlanFields & { planTier: string | null; planEndedAt: Date | null; stripeSubscriptionId: string | null; createdAt: Date },
+  now: Date,
+) {
   const access = planAccess(plan, now)
   return {
+    /** When everything is deleted if no plan is started before then (server/retention.ts); null while a plan is live. */
+    deletionDate: access.live ? null : syndicateDeletionDate(plan),
     status: plan.stripeSubscriptionStatus,
     planTier: plan.planTier,
     isActive: access.live,
@@ -218,6 +228,7 @@ export async function requireSyndicateAccess(
     if (!plan.live && plan.reason) throw new HttpError(402, PLAN_MESSAGES[isCaptain ? 'captain' : 'member'][plan.reason])
   }
 
+  noteAuditContext(req.res, { syndicateId, actorUserId: userId, actorMemberId: member?.id ?? null, actorRole: isCaptain ? 'captain' : 'gun' })
   return { syndicateId, isCaptain, memberId: member?.id ?? null }
 }
 
@@ -294,18 +305,21 @@ interface BankFields {
   bankName: string | null
   bankSortCode: string | null
   bankAccountNumber: string | null
+  bankDetailsSealed: string | null
+  bankAccountLast4: string | null
 }
 
 /**
- * Replace full bank details with a masked summary. Full details are only
- * returned by the captain-only payments summary, where they are needed to pay.
+ * A beater as the browser sees them: whether bank details are on file and the last four digits,
+ * never the numbers. The numbers leave the server only through the two recorded routes that
+ * need them (one beater shown, or the export for paying), server/routes/beaters.ts.
  */
 export function maskBankDetails<T extends BankFields>(beater: T) {
-  const { bankSortCode, bankAccountNumber, ...rest } = beater
+  const { bankSortCode, bankAccountNumber, bankDetailsSealed, bankAccountLast4, ...rest } = beater
   return {
     ...rest,
-    bankDetailsOnFile: Boolean(bankSortCode && bankAccountNumber),
-    bankAccountLast4: bankAccountNumber ? bankAccountNumber.replace(/\s/g, '').slice(-4) : null,
+    bankDetailsOnFile: Boolean(bankDetailsSealed || (bankSortCode && bankAccountNumber)),
+    bankAccountLast4: bankAccountLast4 ?? (bankAccountNumber ? bankAccountNumber.replace(/\D/g, '').slice(-4) : null),
   }
 }
 

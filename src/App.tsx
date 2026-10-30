@@ -38,6 +38,7 @@ import Finances from './pages/captain/Finances'
 import ShootDetail from './pages/captain/ShootDetail'
 import PegAllocation from './pages/captain/PegAllocation'
 import Settings from './pages/captain/Settings'
+import Activity from './pages/captain/Activity'
 import Subscribe from './pages/captain/Subscribe'
 import SubscriptionSuccess from './pages/captain/SubscriptionSuccess'
 
@@ -195,6 +196,16 @@ export default function App() {
                   <ProtectedRoute>
                     <CaptainRoute>
                       <Settings />
+                    </CaptainRoute>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/settings/activity"
+                element={
+                  <ProtectedRoute>
+                    <CaptainRoute>
+                      <Activity />
                     </CaptainRoute>
                   </ProtectedRoute>
                 }

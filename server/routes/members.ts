@@ -2,9 +2,13 @@ import { Router } from 'express'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
+import { noteAuditTarget } from '../audit.js'
+import { dateString } from '../validation.js'
+import { FORMER_MEMBER, anonymousMember } from '../retention.js'
 import { assertRoomFor, lockSyndicate } from '../planLimits.js'
 import {
   GUN_ROLES,
+  HttpError,
   handle,
   notFound,
   queryString,
@@ -13,7 +17,6 @@ import {
 } from '../access.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
-const dateString = z.string().min(1).refine((s) => !Number.isNaN(Date.parse(s)), 'Invalid date')
 
 // clerkUserId is never taken from the browser: a member added by the captain gets a
 // server-generated placeholder, which no sign-in can ever match.
@@ -103,6 +106,7 @@ export function memberRoutes({ prisma }: Deps): Router {
         },
       })
     })
+    noteAuditTarget(res, member.id)
     res.status(201).json(member)
   }))
 
@@ -145,6 +149,8 @@ export function memberRoutes({ prisma }: Deps): Router {
         data: {
           status,
           ...(status === 'ACTIVE' && !existing.acceptedAt ? { acceptedAt: new Date() } : {}),
+          // Leaving starts the retention clock (claude/retention-policy-2026-10-30.md); coming back stops it.
+          ...(status !== existing.status ? { leftAt: status === 'INACTIVE' ? new Date() : null } : {}),
         },
       })
     })
@@ -156,11 +162,39 @@ export function memberRoutes({ prisma }: Deps): Router {
     const syndicateId = await syndicateOfMember(prisma, req.params.id)
     await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
 
+    const current = await prisma.member.findUniqueOrThrow({ where: { id: req.params.id }, select: { status: true } })
     const member = await prisma.member.update({
       where: { id: req.params.id },
-      data: { status: 'INACTIVE' },
+      data: { status: 'INACTIVE', ...(current.status !== 'INACTIVE' ? { leftAt: new Date() } : {}) },
     })
     res.json(member)
+  }))
+
+  // POST /api/members/:id/erase - the member asked for their details to be erased (UK GDPR
+  // Article 17). Captain only, once they have been removed. Contact details, emergency contact,
+  // BASC number, insurance and notes go now. The name stays only on records the law makes the
+  // syndicate keep (subscription payments, guests they invited), and goes when those do.
+  router.post('/:id/erase', handle(async (req, res) => {
+    const syndicateId = await syndicateOfMember(prisma, req.params.id)
+    const access = await requireSyndicateAccess(prisma, syndicateId, req, 'captain', { allowLapsed: true })
+    const member = await prisma.member.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { status: true, clerkUserId: true, _count: { select: { memberPayments: true, guestsInvited: true } } },
+    })
+    if (member.status !== 'INACTIVE') throw new HttpError(409, 'Remove this member first, then erase their details.')
+    if (access.memberId === req.params.id) throw new HttpError(409, 'You can’t erase your own details while you captain this syndicate.')
+    const keepsName = member._count.memberPayments > 0 || member._count.guestsInvited > 0
+    await prisma.member.update({
+      where: { id: req.params.id },
+      data: { ...anonymousMember(req.params.id), ...(keepsName ? {} : { name: FORMER_MEMBER }) },
+    })
+    res.json({
+      erased: true,
+      nameKept: keepsName,
+      message: keepsName
+        ? 'Their details are erased. Their name stays on the payment records and guest invitations the syndicate must keep, and goes when those reach the end of their retention period.'
+        : 'Their details are erased.',
+    })
   }))
 
   return router

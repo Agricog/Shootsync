@@ -19,6 +19,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import type { PrismaClient } from '@prisma/client'
 import { call, createTestPrisma, createTestStripe, databaseUrlFor, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
+import { deleteSyndicate } from '../server/retention.js'
 import { REQUIRED_MIGRATION, checkSchema, requireSchema, sqlStateOf } from '../server/schemaVersion.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -46,7 +47,12 @@ function statements(sql: string): string[] {
 const FIRST_TRANSACTIONAL = '0004_records_protected'
 
 /** The CHECK constraints production carries. Prisma can't express them, so this list is the record. */
+/** Triggers production carries. Prisma can't express them either. */
+const TRIGGERS = ['activity_logs.activity_logs_no_early_delete', 'activity_logs.activity_logs_no_update']
+
 const CHECKS = [
+  'syndicates.syndicates_season_years_check',
+  'shoot_days.shoot_days_date_check',
   'syndicates.syndicates_season_check',
   'syndicates.syndicates_amounts_check',
   'beaters.beaters_day_rate_check',
@@ -75,7 +81,11 @@ async function catalog(db: PrismaClient): Promise<string[]> {
     UNION ALL
     SELECT 'enum ' || t.typname || ' ' || string_agg(e.enumlabel, ',' ORDER BY e.enumsortorder)
     FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid JOIN pg_namespace n ON n.oid = t.typnamespace
-    WHERE n.nspname = 'public' GROUP BY t.typname`)
+    WHERE n.nspname = 'public' GROUP BY t.typname
+    UNION ALL
+    SELECT 'trigger ' || cl.relname || '.' || tg.tgname || ' ' || pg_get_triggerdef(tg.oid)
+    FROM pg_trigger tg JOIN pg_class cl ON cl.oid = tg.tgrelid JOIN pg_namespace n ON n.oid = cl.relnamespace
+    WHERE n.nspname = 'public' AND NOT tg.tgisinternal`)
   return rows.map((r) => r.line).sort()
 }
 
@@ -175,12 +185,12 @@ describe('migrations', () => {
     assert.deepEqual(await checkSchema(built), { ready: true })
   })
 
-  it('the migrations match schema.prisma, apart from the CHECK constraints Prisma cannot express', async () => {
+  it('the migrations match schema.prisma, apart from the CHECK constraints and triggers Prisma cannot express', async () => {
     const schemaUrl = process.env.SCHEMA_DATABASE_URL
     assert.ok(schemaUrl, 'SCHEMA_DATABASE_URL must point at a database built from prisma/schema.prisma (prisma db push)')
     const fromSchema = createTestPrisma(schemaUrl)
     try {
-      const isCheck = (line: string) => / c CHECK /.test(line)
+      const isCheck = (line: string) => / c CHECK /.test(line) || line.startsWith('trigger ')
       const migrated = (await catalog(main)).filter((l) => !isCheck(l))
       const declared = (await catalog(fromSchema)).filter((l) => !isCheck(l))
       assert.deepEqual(
@@ -195,6 +205,43 @@ describe('migrations', () => {
   it('every CHECK constraint on the record is there, and nothing else of that kind', async () => {
     const found = (await catalog(main)).filter((l) => / c CHECK /.test(l)).map((l) => l.split(' ')[1]).sort()
     assert.deepEqual(found, [...CHECKS].sort())
+  })
+
+  it('every trigger on the record is there, and nothing else of that kind', async () => {
+    const found = (await catalog(main)).filter((l) => l.startsWith('trigger ')).map((l) => l.split(' ')[1]).sort()
+    assert.deepEqual(found, [...TRIGGERS].sort())
+  })
+
+  it('an audit entry can never be changed, nor removed before its 6 years, except with its whole syndicate', async () => {
+    await resetDatabase(main)
+    const seeded = await seed(main)
+    const entry = await main.activityLog.create({ data: { syndicateId: seeded.a.syndicate.id, action: 'Test entry', actorMemberId: seeded.a.gun.id } })
+    await assert.rejects(main.activityLog.update({ where: { id: entry.id }, data: { action: 'Rewritten' } }), /activity_logs entries cannot be changed/)
+    await assert.rejects(main.activityLog.delete({ where: { id: entry.id } }), /cannot be removed before their retention period ends/)
+    const old = await main.activityLog.create({ data: { syndicateId: seeded.a.syndicate.id, action: 'Old entry', timestamp: new Date(Date.now() - 6 * 366 * 86_400_000) } })
+    await main.activityLog.delete({ where: { id: old.id } })
+    // Deleting the whole syndicate takes its trail with it, actor links and all.
+    await main.$transaction(async (tx) => deleteSyndicate(tx, seeded.a.syndicate.id))
+    assert.equal(await main.activityLog.count({ where: { syndicateId: seeded.a.syndicate.id } }), 0)
+  })
+
+  it('0006 starts every unplanned syndicate’s clock on the day it runs, so the first clean-up deletes nobody', async () => {
+    const at = migrationIds.indexOf('0006_records_lifecycle')
+    const before = await freshDatabase(migrationIds.slice(0, at))
+    // Set up a year ago, never paid; and one cancelled long ago: neither had a deletion clock.
+    await before.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, created_at, updated_at) VALUES ('old-unpaid', 'Old', 'u', '2025-10-01', '2026-02-01', now() - interval '365 days', now())`)
+    await before.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, stripe_subscription_status, created_at, updated_at) VALUES ('old-cancelled', 'Gone', 'u', '2025-10-01', '2026-02-01', 'CANCELLED', now() - interval '365 days', now())`)
+    await before.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, stripe_subscription_status, updated_at) VALUES ('live', 'Live', 'u', '2026-10-01', '2027-02-01', 'ACTIVE', now())`)
+    for (const statement of statements(migrationSql('0006_records_lifecycle'))) await before.$executeRawUnsafe(statement)
+    const rows = await before.$queryRawUnsafe<Array<{ id: string; recent: boolean | null }>>(`SELECT id, plan_ended_at > now() - interval '1 minute' AS recent FROM syndicates ORDER BY id`)
+    assert.deepEqual(rows, [{ id: 'live', recent: null }, { id: 'old-cancelled', recent: true }, { id: 'old-unpaid', recent: true }])
+  })
+
+  it('a season or shoot date outside 2000 to 2100 is refused by the database itself', async () => {
+    await resetDatabase(main)
+    const seeded = await seed(main)
+    await assert.rejects(main.syndicate.update({ where: { id: seeded.a.syndicate.id }, data: { seasonStart: new Date('0028-02-28') } }), /syndicates_season_years_check/)
+    await assert.rejects(main.shootDay.update({ where: { id: seeded.a.shoot.id }, data: { date: new Date('2201-01-01') } }), /shoot_days_date_check/)
   })
 
   it('the checks hold: a negative amount, a peg of 0 and a season ending before it starts are all refused', async () => {
