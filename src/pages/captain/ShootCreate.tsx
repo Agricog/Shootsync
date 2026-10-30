@@ -4,6 +4,7 @@ import { Helmet } from 'react-helmet-async'
 import { useCanWrite, useCaptainSyndicate } from '../../context/SyndicateContext'
 import { apiRequest } from '../../lib/api'
 import { emptyShootDraft, newShootPayload, validateShoot, type ShootDraft } from '../../utils/shootForm'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -17,6 +18,8 @@ export default function ShootCreate() {
   const [showErrors, setShowErrors] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Anything typed that hasn't been saved: the page asks before it is left.
+  useUnsavedWork(JSON.stringify(draft) !== JSON.stringify(emptyShootDraft()), 'new-shoot')
 
   const problems = validateShoot(draft)
 

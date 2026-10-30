@@ -20,6 +20,8 @@ import { SESSION_ENDED_EVENT, apiRequest } from '../lib/api'
 import { clearLocalAccountData } from '../lib/session'
 import { LAST_ACTIVITY_KEY } from '../lib/storageKeys'
 import { SESSION_CLOCK, SIGNED_OUT_PARAM, sessionClock, shouldPing, type SessionClockState, type SessionEndReason } from '../lib/sessionClock'
+import { signInPath } from '../lib/returnTo'
+import { DISCARD_UNSAVED_EVENT } from '../lib/unsavedWork'
 
 const ACTIVITY_EVENTS = ['keydown', 'pointerdown', 'touchstart', 'scroll', 'wheel'] as const
 const TICK_MS = 1000
@@ -69,7 +71,10 @@ export function useSessionTimeout(): { warning: SessionWarning | null; stayActiv
   const signOut = useCallback((reason: SessionEndReason) => {
     if (signingOut.current) return
     signingOut.current = true
-    const destination = `/login?${SIGNED_OUT_PARAM}=${reason}`
+    // Back to this page once they sign in again.
+    const destination = signInPath(`${window.location.pathname}${window.location.search}`, { [SIGNED_OUT_PARAM]: reason })
+    // The session is over whatever is unsaved: don't let the browser's "leave site?" prompt hold the sign-out up.
+    window.dispatchEvent(new Event(DISCARD_UNSAVED_EVENT))
     clerk.signOut({ redirectUrl: destination }).catch(() => {
       // No signal, say: clear what this browser holds and leave the app anyway. The server
       // refuses the session whatever happens here.

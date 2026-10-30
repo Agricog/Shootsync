@@ -17,6 +17,8 @@ import ts from 'typescript'
 import { stripComments } from './sourceText.js'
 import { reachableFiles, repoRoot as root } from './sourceGraph.js'
 import { LOCAL_STORAGE_KEYS } from '../src/lib/storageKeys.js'
+import { APP_PATHS, isAppPath } from '../server/app.js'
+import { PUBLIC_ROUTES } from '../src/config/site.js'
 
 const read = (path: string) => readFileSync(join(root, path), 'utf8')
 const parse = (path: string) => ts.createSourceFile(path, read(path), ts.ScriptTarget.Latest, true, path.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
@@ -103,6 +105,23 @@ describe('the signed-in app', () => {
     for (const [name, file] of imports()) {
       assert.doesNotMatch(file, /^\.\/pages\/(gun|beater)\//, `${name} is imported from ${file}`)
     }
+  })
+
+  it('the server knows every app route, so only a page nobody has gets a 404', () => {
+    // Public pages are served prerendered, so they are not the app's to answer for.
+    const publicPaths = new Set<string>(PUBLIC_ROUTES.map((r) => r.path))
+    const table = routes().map((r) => r.path).filter((p) => p !== '*' && !publicPaths.has(p))
+    assert.ok(table.length >= 15, `only ${table.length} routes read`)
+    // Each route, with any parameter or splat filled in the way a real address would have it.
+    const example = (p: string) => p.replace(/:[A-Za-z]+/g, 'abc123').replace(/\/\*$/, '/factor-one')
+    for (const p of table) {
+      assert.ok(isAppPath(example(p)), `${p} (${example(p)}) is not in APP_PATHS`)
+      if (p.endsWith('/*')) assert.ok(isAppPath(p.slice(0, -2)), `${p} without its splat`)
+    }
+    // And nothing more: every pattern answers for a route in the table (or a public page, which the server serves prerendered).
+    const everything = [...table.map(example), ...table.filter((p) => p.endsWith('/*')).map((p) => p.slice(0, -2))]
+    for (const pattern of APP_PATHS) assert.ok(everything.some((p) => pattern.test(p)), `${pattern} matches no route`)
+    for (const stray of ['/dashboard/', '/dashboard/anything', '/shoots/a/b', '/members/abc', '/nope', '/guides/nope', '/pegs/1']) assert.equal(isAppPath(stray), false, stray)
   })
 
   it('every routed page exists', () => {

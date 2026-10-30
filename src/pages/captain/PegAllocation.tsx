@@ -19,6 +19,7 @@ import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
+import { formatShortDate } from '../../utils/dateHelpers'
 
 interface ShootOption {
   id: string
@@ -45,8 +46,6 @@ interface PegSheet {
   saved: Allocation[]
 }
 
-const shortDate = (iso: string) =>
-  new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })
 
 const text = 'text-white'
 const muted = 'text-slate-400'
@@ -258,7 +257,7 @@ export default function PegAllocation() {
               <option value="">Choose a shoot day</option>
               {shoots.map((shoot) => (
                 <option key={shoot.id} value={shoot.id}>
-                  {shortDate(shoot.date)} · {shoot.locationName}
+                  {formatShortDate(shoot.date)} · {shoot.locationName}
                   {shoot.status === 'COMPLETED' ? ' (completed)' : ''}
                 </option>
               ))}

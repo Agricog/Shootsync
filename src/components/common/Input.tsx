@@ -54,7 +54,7 @@ const Input = forwardRef<HTMLInputElement, InputProps>(
         </label>
 
         {hint && (
-          <p id={hintId} className="text-sm text-slate-500">
+          <p id={hintId} className="text-sm text-slate-400">
             {hint}
           </p>
         )}

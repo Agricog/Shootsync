@@ -12,6 +12,7 @@ import { apiRequest } from '../../lib/api'
 import { londonDate } from '../../utils/beaterPayCalculator'
 import { newSyndicateForm, newSyndicatePayload, validateSettings, type SettingsForm } from '../../utils/syndicateSettings'
 import { minimumWageNote, parseDayRate } from '../../utils/dayRate'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -27,6 +28,7 @@ export default function CreateSyndicate() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [created, setCreated] = useState(false)
+  useUnsavedWork(!created && form.name.trim() !== '')
 
   const problems = useMemo(() => validateSettings(form), [form])
   const problem = (key: keyof SettingsForm) => (showErrors ? problems[key] : undefined)

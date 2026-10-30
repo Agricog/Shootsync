@@ -7,6 +7,7 @@
 import type { ReactNode } from 'react'
 import { Link, NavLink } from 'react-router-dom'
 import { SITE, TOOLS } from '../../config/site'
+import BrandLogo from '../common/Logo'
 
 const NAV = [
   { to: '/features', label: 'Features' },
@@ -17,16 +18,7 @@ const NAV = [
 
 const focusRing = 'focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500 rounded'
 
-function Logo() {
-  return (
-    <Link to="/" className={`flex items-center gap-2 ${focusRing}`} aria-label="ShootSync home">
-      <span className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center" aria-hidden="true">
-        <span className="text-white font-bold text-sm">SS</span>
-      </span>
-      <span className="text-white font-semibold text-base sm:text-lg">ShootSync</span>
-    </Link>
-  )
-}
+const Logo = () => <BrandLogo to="/" />
 
 export default function PublicLayout({ children }: { children: ReactNode }) {
   return (

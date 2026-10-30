@@ -3,6 +3,8 @@
  * Accessible loading indicator
  */
 
+import { useEffect, useState } from 'react'
+
 type SpinnerSize = 'sm' | 'md' | 'lg' | 'xl'
 
 interface LoadingSpinnerProps {
@@ -70,10 +72,33 @@ export default function LoadingSpinner({
   return spinner
 }
 
+/** How long the whole-page loader waits before admitting something may be wrong. */
+export const SLOW_LOAD_AFTER_MS = 8_000
+
+/**
+ * The whole-page loader, shown while the sign-in service is starting. If it goes on too long
+ * (no signal, or the sign-in service can't be reached) it says so and offers a reload, instead
+ * of spinning forever.
+ */
 export function PageLoader() {
+  const [slow, setSlow] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setSlow(true), SLOW_LOAD_AFTER_MS)
+    return () => clearTimeout(timer)
+  }, [])
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-      <LoadingSpinner size="lg" label="Loading ShootSync" />
+    <div className="min-h-screen bg-slate-900 flex items-center justify-center px-4">
+      <div className="text-center">
+        <LoadingSpinner size="lg" label="Loading ShootSync" />
+        {slow && (
+          <div role="alert" className="mt-6 max-w-sm mx-auto">
+            <p className="text-slate-300">This is taking longer than it should. Check your signal, then try again.</p>
+            <button type="button" onClick={() => window.location.reload()} className="mt-3 text-green-400 hover:text-green-300 underline underline-offset-2">
+              Reload the page
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

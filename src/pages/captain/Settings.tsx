@@ -21,7 +21,9 @@ import { PLANS } from '../../config/plans'
 import { SITE } from '../../config/site'
 import { settingsPayload, toForm, validateSettings, type SettingsForm as Form, type SyndicateSettings as Syndicate } from '../../utils/syndicateSettings'
 import { minimumWageNote, parseDayRate } from '../../utils/dayRate'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 import { londonDate } from '../../utils/beaterPayCalculator'
+import { formatLongDate } from '../../utils/dateHelpers'
 
 
 const label = 'block text-sm font-medium text-slate-300 mb-1'
@@ -101,6 +103,7 @@ export default function Settings() {
 
   const problems = useMemo(() => (form ? validateSettings(form) : {}), [form])
   const dirty = useMemo(() => (form && saved ? JSON.stringify(form) !== JSON.stringify(toForm(saved)) : false), [form, saved])
+  useUnsavedWork(dirty)
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) => {
     setForm((f) => (f ? { ...f, [key]: value } : f))
@@ -141,10 +144,10 @@ export default function Settings() {
 
   const plan = PLANS.find((p) => p.tier === subscription.planTier)
   const readOnlyFrom = subscription.readOnlyFrom
-    ? new Date(subscription.readOnlyFrom).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? formatLongDate(subscription.readOnlyFrom)
     : null
   const renews = subscription.currentPeriodEnd
-    ? new Date(subscription.currentPeriodEnd).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    ? formatLongDate(subscription.currentPeriodEnd)
     : null
   const err = (key: keyof Form) => (showErrors ? problems[key] : undefined)
   const rateNote = form ? minimumWageNote(parseDayRate(form.defaultBeaterRate) ?? 0, londonDate(new Date())) : null
@@ -283,7 +286,7 @@ export default function Settings() {
               {subscription.deletionDate && (
                 <p className="mt-2 text-amber-200">
                   Unless a plan is started, everything for this syndicate is deleted on{' '}
-                  {new Date(subscription.deletionDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}. Download it before then.
+                  {formatLongDate(subscription.deletionDate)}. Download it before then.
                 </p>
               )}
               <p className="mt-2 text-sm text-slate-400">

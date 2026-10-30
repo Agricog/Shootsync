@@ -17,12 +17,13 @@ import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
+import { LogoMark } from '../../components/common/Logo'
 import { apiRequest } from '../../lib/api'
 import { sha256Hex } from '../../lib/hash'
 import { formatCurrency } from '../../config/stripe'
-import { formatLongDate, formatTime } from '../../utils/dateHelpers'
+import { formatLongDate, formatShootDate, formatTime } from '../../utils/dateHelpers'
 
-type Step = 'loading' | 'details' | 'waiver' | 'confirmed' | 'declined' | 'closed' | 'error'
+type Step = 'loading' | 'details' | 'waiver' | 'confirmDecline' | 'confirmed' | 'declined' | 'closed' | 'error'
 
 interface GuestInvite {
   name: string
@@ -76,7 +77,7 @@ function DayDetails({ invite }: { invite: GuestInvite }) {
       </div>
       <div>
         <dt className="text-slate-400 text-sm">Date</dt>
-        <dd className="text-white font-medium">{formatLongDate(shootDay.date)}</dd>
+        <dd className="text-white font-medium">{formatShootDate(shootDay.date)}</dd>
       </div>
       <div>
         <dt className="text-slate-400 text-sm">Meet time</dt>
@@ -194,10 +195,8 @@ export default function GuestAccept() {
 
       <div className="min-h-screen bg-slate-900 py-12 px-4">
         <div className="max-w-lg mx-auto">
-          <div className="flex items-center justify-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">SS</span>
-            </div>
+          <div className="flex items-center justify-center gap-2 mb-8" aria-hidden="true">
+            <LogoMark size={40} />
             <span className="text-white font-semibold text-xl">ShootSync</span>
           </div>
 
@@ -244,11 +243,34 @@ export default function GuestAccept() {
                 {actionError && <Problem message={actionError} />}
                 <div className="space-y-3">
                   <Button onClick={() => { setActionError(null); setStep('waiver') }} fullWidth>Accept the invitation</Button>
-                  <Button variant="ghost" onClick={() => void decline()} isLoading={working} disabled={working} fullWidth>
+                  <Button variant="ghost" onClick={() => { setActionError(null); setStep('confirmDecline') }} disabled={working} fullWidth>
                     Decline
                   </Button>
                 </div>
               </div>
+            </Card>
+          )}
+
+          {step === 'confirmDecline' && invite && (
+            <Card>
+              <section className="p-6 space-y-6" aria-labelledby="decline-title">
+                <div>
+                  <h1 id="decline-title" className="text-2xl font-bold text-white mb-2">Decline the invitation?</h1>
+                  <p id="decline-text" className="text-slate-300">
+                    {invite.invitedByMember?.name ?? 'Your host'} will see that you’re not coming to {invite.shootDay.locationName} on {formatShootDate(invite.shootDay.date)}.
+                    This can’t be undone from here: if you change your mind, you’ll need to ask them to invite you again.
+                  </p>
+                </div>
+                {actionError && <Problem message={actionError} />}
+                <div className="space-y-3">
+                  <Button variant="danger" onClick={() => void decline()} isLoading={working} disabled={working} fullWidth>
+                    Yes, decline the invitation
+                  </Button>
+                  <Button variant="ghost" onClick={() => { setActionError(null); setStep('details') }} disabled={working} fullWidth autoFocus>
+                    Go back
+                  </Button>
+                </div>
+              </section>
             </Card>
           )}
 

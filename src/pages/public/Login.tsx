@@ -5,12 +5,16 @@
 
 import { SignIn } from '@clerk/clerk-react'
 import { Helmet } from 'react-helmet-async'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
 import { SESSION_ENDED_TEXT, SIGNED_OUT_PARAM, signedOutReason } from '../../lib/sessionClock'
+import { DEFAULT_AFTER_SIGN_IN, RETURN_TO_PARAM, safeReturnPath } from '../../lib/returnTo'
+import Logo from '../../components/common/Logo'
 
 export default function Login() {
   const [searchParams] = useSearchParams()
   const signedOut = signedOutReason(searchParams.get(SIGNED_OUT_PARAM))
+  // Back to the page they were on, if the address says which; the dashboard otherwise.
+  const returnTo = safeReturnPath(searchParams.get(RETURN_TO_PARAM))
   return (
     <>
       <Helmet>
@@ -20,12 +24,9 @@ export default function Login() {
 
       <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 px-4">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
-          <Link to="/" className="flex items-center justify-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">SS</span>
-            </div>
-            <span className="text-white font-semibold text-xl">ShootSync</span>
-          </Link>
+          <div className="flex justify-center mb-8">
+            <Logo size="lg" />
+          </div>
 
           {signedOut && (
             <p role="status" className="mb-6 rounded-lg px-4 py-3 bg-amber-500/10 border border-amber-500/30 text-amber-100 text-sm text-center">
@@ -55,8 +56,8 @@ export default function Login() {
               }}
               routing="path"
               path="/login"
-              signUpUrl="/signup"
-              afterSignInUrl="/dashboard"
+              signUpUrl={returnTo === DEFAULT_AFTER_SIGN_IN ? '/signup' : `/signup?${RETURN_TO_PARAM}=${encodeURIComponent(returnTo)}`}
+              forceRedirectUrl={returnTo}
             />
           </div>
         </div>

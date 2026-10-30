@@ -15,6 +15,7 @@ import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
+import { formatDateTime } from '../../utils/dateHelpers'
 
 interface Entry {
   id: string
@@ -40,8 +41,7 @@ const FIELD_NAMES: Record<string, string> = {
   insuranceExpiry: 'insurance expiry',
 }
 
-const when = (iso: string) =>
-  new Date(iso).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' })
+const when = formatDateTime
 
 export default function Activity() {
   const { id: syndicateId, name } = useCaptainSyndicate()

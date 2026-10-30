@@ -18,6 +18,7 @@ import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { formatCurrency } from '../../config/stripe'
 import { toCsv } from '../../utils/csv'
+import { formatDayMonth } from '../../utils/dateHelpers'
 
 interface Owed {
   paymentId: string
@@ -64,7 +65,6 @@ interface PaySummary {
   casualDayLimit: number
 }
 
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 const taxYearLabel = (start: string) => {
   const y = new Date(start).getUTCFullYear()
   return `${y}/${String((y + 1) % 100).padStart(2, '0')}`
@@ -294,7 +294,7 @@ export default function Finances() {
                     {beater.owed.map((o) => (
                       <li key={o.paymentId} className="flex justify-between py-2 text-slate-300">
                         <span>
-                          {shortDate(o.shootDate)} · {o.locationName}
+                          {formatDayMonth(o.shootDate)} · {o.locationName}
                         </span>
                         <span>{formatCurrency(o.amount)}</span>
                       </li>

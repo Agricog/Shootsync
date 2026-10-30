@@ -20,6 +20,7 @@ import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { draftFrom, emptyDraft, payloadFrom, type BeaterDraft as Draft } from '../../utils/beaterForm'
 import { formatDayRate, minimumWageNote, parseDayRate } from '../../utils/dayRate'
 import { londonDate } from '../../utils/beaterPayCalculator'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 
 interface Beater {
   id: string
@@ -85,7 +86,7 @@ function BeaterForm({ draft, onChange, existing, saving, error, onSubmit, onCanc
         {field('bankSortCode', 'Sort code', { inputMode: 'numeric', placeholder: existing?.bankDetailsOnFile ? 'Unchanged' : '12-34-56', autoComplete: 'off' })}
         {field('bankAccountNumber', 'Account number', { inputMode: 'numeric', placeholder: existing?.bankDetailsOnFile ? 'Unchanged' : '8 digits', autoComplete: 'off' })}
         {keepHint && (
-          <p className="text-sm text-slate-500 sm:col-span-3 -mt-2">
+          <p className="text-sm text-slate-400 sm:col-span-3 -mt-2">
             {keepHint}{' '}
             {onClearBank && (
               <button type="button" className="underline text-red-300 hover:text-red-200" disabled={saving}
@@ -131,6 +132,9 @@ export default function Beaters() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  // A form that is open with something typed in it that differs from what is saved.
+  const saved = editing && editing !== 'new' ? beaters.find((b) => b.id === editing) : null
+  useUnsavedWork(editing === 'new' ? JSON.stringify(draft) !== JSON.stringify(emptyDraft(defaultRate)) : saved ? JSON.stringify(draft) !== JSON.stringify(draftFrom(saved)) : false)
 
   const load = useCallback(async (id: string) => {
     const result = await send(`/api/beaters?syndicateId=${encodeURIComponent(id)}`, 'GET')
@@ -293,7 +297,7 @@ export default function Beaters() {
                           <p className="text-sm text-slate-400">{formatDayRate(beater.dayRatePence)} a day</p>
                           {beater.phone && <a href={`tel:${beater.phone}`} className="block text-sm text-slate-300 hover:text-white">{beater.phone}</a>}
                           {beater.email && <p className="text-sm text-slate-300">{beater.email}</p>}
-                          <p className="text-sm text-slate-500 mt-1">
+                          <p className="text-sm text-slate-400 mt-1">
                             {beater.bankDetailsOnFile ? `Bank details on file, account ending ${beater.bankAccountLast4}` : 'No bank details yet'}
                           </p>
                         </div>

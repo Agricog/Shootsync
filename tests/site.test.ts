@@ -120,8 +120,21 @@ describe('serving the built site', () => {
     assert.equal(res.headers.get('location'), '/guides/peg-draw-explained')
   })
 
-  it('serves the app shell for app pages', async () => {
-    assert.equal(await (await get('/dashboard')).text(), 'APP SHELL')
+  it('serves the app shell for app pages, with a 200', async () => {
+    for (const p of ['/dashboard', '/shoots/abc123', '/guest/accept/' + 'a'.repeat(64), '/login/factor-one', '/settings/activity']) {
+      const res = await get(p)
+      assert.equal(res.status, 200, p)
+      assert.equal(await res.text(), 'APP SHELL', p)
+    }
+  })
+
+  it('serves the app shell for a page nobody has, with a 404, so the page says so and crawlers are told', async () => {
+    for (const p of ['/no-such-page', '/shoots/abc/extra', '/dashboard/x', '/guides/not-a-guide', '/api-docs']) {
+      const res = await get(p)
+      assert.equal(res.status, 404, p)
+      assert.equal(await res.text(), 'APP SHELL', p)
+      assert.equal(res.headers.get('cache-control'), 'no-cache')
+    }
   })
 
   it('never serves the compiled server or a second copy of the pages', async () => {

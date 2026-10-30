@@ -25,6 +25,7 @@ import TippingTheKeeper from './pages/public/guides/TippingTheKeeper'
 import ShootingSyndicates from './pages/public/guides/ShootingSyndicates'
 import ShootingGameBook from './pages/public/guides/ShootingGameBook'
 import BeaterPayCalculator from './pages/public/tools/BeaterPayCalculator'
+import NotFound from './pages/public/NotFound'
 
 // Captain pages
 import CaptainDashboard from './pages/captain/Dashboard'
@@ -50,12 +51,14 @@ import ProtectedRoute from './components/auth/ProtectedRoute'
 import { PublicOnlyRoute } from './components/auth/ProtectedRoute'
 import CaptainRoute from './components/auth/CaptainRoute'
 import { SyndicateProvider } from './context/SyndicateContext'
+import { UnsavedWorkProvider } from './lib/unsavedWork'
 
 export default function App() {
   return (
     <ErrorBoundary>
       <HelmetProvider>
         <BrowserRouter>
+          <UnsavedWorkProvider>
           <SyndicateProvider>
             <Routes>
               {/* Public routes */}
@@ -241,22 +244,9 @@ export default function App() {
               <Route path="*" element={<NotFound />} />
             </Routes>
           </SyndicateProvider>
+          </UnsavedWorkProvider>
         </BrowserRouter>
       </HelmetProvider>
     </ErrorBoundary>
-  )
-}
-
-function NotFound() {
-  return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-4">404</h1>
-        <p className="text-slate-400 mb-6">Page not found</p>
-        <a href="/" className="text-green-500 hover:text-green-400">
-          Return home
-        </a>
-      </div>
-    </div>
   )
 }

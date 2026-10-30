@@ -9,11 +9,14 @@ import Card from '../../components/common/Card'
 import Button, { ButtonLink } from '../../components/common/Button'
 import Input from '../../components/common/Input'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
-import { formatLongDate } from '../../utils/dateHelpers'
+import { formatShootDate, formatTime, what3wordsLink } from '../../utils/dateHelpers'
 import { formatCurrency } from '../../config/stripe'
 import { generateShootBriefingPDF } from '../../utils/pdfGenerator'
 import ShootBeaters, { type Booking, type PaymentLine } from '../../components/shoots/ShootBeaters'
 import ShootDayEditor from '../../components/shoots/ShootDayEditor'
+import ConfirmDialog from '../../components/common/ConfirmDialog'
+import GuestEditor, { type EditableGuest } from '../../components/guests/GuestEditor'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 
 interface Member {
   id: string
@@ -57,6 +60,8 @@ interface ShootDay {
     /** Set when the fee was paid by card through Stripe; null when the captain marked it paid. */
     stripePaymentId?: string | null
     pegNumber?: number | null
+    phone?: string | null
+    notes?: string | null
     invitedByMember?: { id: string; name: string } | null
   }>
   beaterBookings: Booking[]
@@ -114,6 +119,12 @@ export default function ShootDetail() {
 
   const navigate = useNavigate()
   const [editingDay, setEditingDay] = useState(false)
+  const [editingGuest, setEditingGuest] = useState<string | null>(null)
+  // Removing or erasing a guest asks first, in a dialog of the app's own.
+  const [confirming, setConfirming] = useState<{ kind: 'remove' | 'erase'; guest: { id: string; name: string } } | null>(null)
+  const [confirmBusy, setConfirmBusy] = useState(false)
+  // Anything typed into the add-a-guest form that hasn't been sent.
+  useUnsavedWork(showInviteForm && (inviteData.name.trim() !== '' || inviteData.email.trim() !== '' || inviteData.phone.trim() !== ''), 'add-guest')
 
   // Completing the day
   const [confirmingComplete, setConfirmingComplete] = useState(false)
@@ -220,21 +231,20 @@ export default function ShootDetail() {
     setGuestNotice(`A new invite link for ${guest.name} is below. Any link you sent them before no longer works.`)
   }
 
-  const handleRemoveGuest = async (guestId: string) => {
-    if (!confirm('Remove this guest from the day?')) return
+  const removeGuest = async (guestId: string) => {
     setGuestError(null)
     setGuestNotice(null)
-    const result = await apiRequest<unknown>(`/api/guests/${encodeURIComponent(guestId)}`, { method: 'DELETE' })
+    const result = await apiRequest<{ withdrawn?: boolean }>(`/api/guests/${encodeURIComponent(guestId)}`, { method: 'DELETE' })
     if (!result.ok) {
       setGuestError(result.error)
       return
     }
+    if (result.data.withdrawn) setGuestNotice('They signed the acknowledgement, so they are shown as withdrawn rather than removed: the signed record stays.')
     await refreshShoot()
   }
 
   // A guest asked for their details to be erased (UK GDPR Article 17): only once the day is over.
-  const handleEraseGuest = async (guestId: string, name: string) => {
-    if (!confirm(`Erase ${name}’s details for good? Their phone, email and emergency contact go now and can’t be brought back. If they signed the acknowledgement or paid, their name and the signed acknowledgement stay on the record for its retention period.`)) return
+  const eraseGuest = async (guestId: string) => {
     setGuestError(null)
     setGuestNotice(null)
     const result = await apiRequest<{ message: string }>(`/api/guests/${encodeURIComponent(guestId)}/erase`, { method: 'POST' })
@@ -244,6 +254,15 @@ export default function ShootDetail() {
     }
     setGuestNotice(result.data.message)
     await refreshShoot()
+  }
+
+  const confirmed = async () => {
+    if (!confirming) return
+    setConfirmBusy(true)
+    if (confirming.kind === 'remove') await removeGuest(confirming.guest.id)
+    else await eraseGuest(confirming.guest.id)
+    setConfirmBusy(false)
+    setConfirming(null)
   }
 
   // A guest's peg, set by the captain on this page (the draw places the guns; guests are placed by hand).
@@ -318,7 +337,7 @@ export default function ShootDetail() {
 
     generateShootBriefingPDF({
       syndicateName: shoot.syndicate.name,
-      shootDate: formatLongDate(shoot.date),
+      shootDate: formatShootDate(shoot.date),
       locationName: shoot.locationName,
       locationAddress: shoot.locationAddress,
       locationPostcode: shoot.locationPostcode,
@@ -389,7 +408,7 @@ export default function ShootDetail() {
         <div className="flex flex-wrap justify-between items-start gap-4">
           <div>
             <h1 className="text-2xl font-bold text-white">{shoot.locationName}</h1>
-            <p className="text-amber-500">{formatLongDate(shoot.date)} • Meet {shoot.meetTime}</p>
+            <p className="text-amber-500">{formatShootDate(shoot.date)} · Meet {formatTime(shoot.meetTime)}</p>
           </div>
           <div className="flex flex-wrap gap-3">
             <Button onClick={handleGenerateBriefing}>
@@ -466,15 +485,22 @@ export default function ShootDetail() {
               <p className="text-white"><span className="text-amber-500">Name:</span> {shoot.locationName}</p>
               {shoot.locationAddress && <p className="text-white"><span className="text-amber-500">Address:</span> {shoot.locationAddress}</p>}
               {shoot.locationPostcode && <p className="text-white"><span className="text-amber-500">Postcode:</span> {shoot.locationPostcode}</p>}
+              {shoot.locationWhat3Words && (
+                <p className="text-white">
+                  <span className="text-amber-500">what3words:</span>{' '}
+                  <a href={what3wordsLink(shoot.locationWhat3Words)} target="_blank" rel="noopener noreferrer" className="text-green-400 hover:text-green-300 underline">///{shoot.locationWhat3Words}</a>
+                </p>
+              )}
             </div>
           </Card>
 
           {/* Shoot Info Card */}
           <Card>
-            <h2 className="text-lg font-semibold text-green-500 mb-4">Shoot Details</h2>
+            <h2 className="text-lg font-semibold text-green-500 mb-4">Shoot details</h2>
             <div className="space-y-2">
-              <p className="text-white"><span className="text-amber-500">Drives Planned:</span> {shoot.drivesPlanned}</p>
-              {shoot.expectedBag != null && <p className="text-white"><span className="text-amber-500">Expected Bag:</span> {shoot.expectedBag}</p>}
+              <p className="text-white"><span className="text-amber-500">Meet:</span> {formatTime(shoot.meetTime)}</p>
+              <p className="text-white"><span className="text-amber-500">Drives planned:</span> {shoot.drivesPlanned}</p>
+              {shoot.expectedBag != null && <p className="text-white"><span className="text-amber-500">Expected bag:</span> {shoot.expectedBag}</p>}
             </div>
           </Card>
         </div>
@@ -482,7 +508,7 @@ export default function ShootDetail() {
         {/* Captain's Notes */}
         {shoot.captainNotes && (
           <Card>
-            <h2 className="text-lg font-semibold text-green-500 mb-4">Captain's Notes</h2>
+            <h2 className="text-lg font-semibold text-green-500 mb-4">Captain’s notes</h2>
             <p className="text-white whitespace-pre-wrap">{shoot.captainNotes}</p>
           </Card>
         )}
@@ -617,10 +643,10 @@ export default function ShootDetail() {
             <div className="space-y-3">
               {shoot.guestGuns.map((guest) => (
                 <div key={guest.id} className="p-4 bg-slate-800 rounded-lg">
-                  <div className="flex justify-between items-start mb-2">
-                    <div>
+                  <div className="flex flex-wrap justify-between items-start gap-2 mb-2">
+                    <div className="min-w-0">
                       <p className="text-white font-medium">{guest.name}</p>
-                      <p className="text-slate-400 text-sm">{guest.email.endsWith('@removed.invalid') ? 'Details erased' : guest.email}</p>
+                      <p className="text-slate-400 text-sm break-words">{guest.email.endsWith('@removed.invalid') ? 'Details erased' : guest.email}</p>
                       {guest.invitedByMember && <p className="text-slate-400 text-sm">{guest.invitedByMember.name}’s guest</p>}
                       {guest.emergencyContactName && (
                         <p className="text-slate-300 text-sm mt-1">
@@ -629,7 +655,7 @@ export default function ShootDetail() {
                         </p>
                       )}
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className={`px-2 py-1 rounded text-xs font-medium ${getRsvpStatusColor(guest.rsvpStatus)}`}>
                         {RSVP_LABEL[guest.rsvpStatus] ?? guest.rsvpStatus}
                       </span>
@@ -675,8 +701,13 @@ export default function ShootDetail() {
                       <span className="text-sm text-slate-400">Acknowledgement signed ✓</span>
                     )}
                     {dayOver && !guest.email.endsWith('@removed.invalid') && (
-                      <button type="button" onClick={() => void handleEraseGuest(guest.id, guest.name)} className="text-sm text-slate-300 hover:text-white underline">
+                      <button type="button" onClick={() => setConfirming({ kind: 'erase', guest })} className="text-sm text-slate-300 hover:text-white underline">
                         Erase details…
+                      </button>
+                    )}
+                    {canWrite && !guest.email.endsWith('@removed.invalid') && guest.rsvpStatus !== 'DECLINED' && editingGuest !== guest.id && (
+                      <button type="button" onClick={() => { setEditingGuest(guest.id); setGuestError(null); setGuestNotice(null) }} className="text-sm text-green-400 hover:text-green-300">
+                        Edit
                       </button>
                     )}
                     {guest.rsvpStatus !== 'DECLINED' && (
@@ -726,13 +757,20 @@ export default function ShootDetail() {
                     ) : !canWrite ? null : (
                       <button
                         type="button"
-                        onClick={() => void handleRemoveGuest(guest.id)}
+                        onClick={() => setConfirming({ kind: 'remove', guest })}
                         className="text-sm text-red-400 hover:text-red-300 ml-auto"
                       >
                         Remove
                       </button>
                     )}
                   </div>
+                  {editingGuest === guest.id && (
+                    <GuestEditor
+                      guest={guest as EditableGuest}
+                      onSaved={async () => { setEditingGuest(null); setGuestNotice(`${guest.name}’s details saved.`); await refreshShoot() }}
+                      onClose={() => setEditingGuest(null)}
+                    />
+                  )}
                 </div>
               ))}
             </div>
@@ -751,6 +789,24 @@ export default function ShootDetail() {
           payments={shoot.beaterPayments ?? []}
           onChanged={refreshShoot}
         />
+
+        <ConfirmDialog
+          open={confirming !== null}
+          title={confirming?.kind === 'erase' ? `Erase ${confirming.guest.name}’s details for good?` : `Remove ${confirming?.guest.name ?? 'this guest'} from the day?`}
+          confirmLabel={confirming?.kind === 'erase' ? 'Erase their details' : 'Remove the guest'}
+          busy={confirmBusy}
+          onConfirm={() => void confirmed()}
+          onCancel={() => { if (!confirmBusy) setConfirming(null) }}
+        >
+          {confirming?.kind === 'erase' ? (
+            <>
+              <p>Their phone, email and emergency contact go now and can’t be brought back.</p>
+              <p>If they signed the acknowledgement or paid, their name and the signed acknowledgement stay on the record for its retention period.</p>
+            </>
+          ) : (
+            <p>Their invitation link stops working. If they have already signed the acknowledgement they are shown as withdrawn instead, so the signed record stays.</p>
+          )}
+        </ConfirmDialog>
 
         {/* Bag Totals */}
         <Card>

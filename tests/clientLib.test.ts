@@ -14,6 +14,9 @@ import { newSyndicateForm, newSyndicatePayload, suggestedSeason, validateSetting
 import { emptyShootDraft, newShootPayload, validateShoot } from '../src/utils/shootForm.js'
 import { DAY_RATE_MESSAGE, dayRateField, formatDayRate, minimumWageNote, parseDayRate } from '../src/utils/dayRate.js'
 import { MINIMUM_WAGE } from '../src/data/payRules.js'
+import { DEFAULT_AFTER_SIGN_IN, safeReturnPath, signInPath } from '../src/lib/returnTo.js'
+import { inAppNavigation } from '../src/lib/navigationGuard.js'
+import { formatDateTime, formatDayMonth, formatLongDate, formatShootDate, formatShortDate, what3wordsLink } from '../src/utils/dateHelpers.js'
 import { fieldLabel, friendlyMessage } from '../server/validation.js'
 
 describe('API client', () => {
@@ -273,6 +276,69 @@ describe('day rates in the app', () => {
     // Once the rates are due for review, no note rather than a stale one.
     assert.equal(minimumWageNote(4000, MINIMUM_WAGE.reviewBy), null)
     assert.ok(minimumWageNote(4000, '2027-03-31'))
+  })
+})
+
+describe('back to where they were after signing in', () => {
+  it('keeps a path inside the app, with its query', () => {
+    assert.equal(safeReturnPath('/shoots/abc?tab=guests'), '/shoots/abc?tab=guests')
+    assert.equal(safeReturnPath('/settings/activity'), '/settings/activity')
+  })
+
+  it('never leaves the site, and never loops back to the sign-in page', () => {
+    for (const bad of ['//evil.example/x', '/\\evil.example', 'https://evil.example', 'javascript:alert(1)', '/login', '/login/factor-one', '/signup', '/', '', null, undefined, 42, '/x y', '/x\u0000']) {
+      assert.equal(safeReturnPath(bad), DEFAULT_AFTER_SIGN_IN, String(bad))
+    }
+  })
+
+  it('builds the sign-in address, remembering the page and why they were signed out', () => {
+    assert.equal(signInPath('/shoots/abc'), '/login?next=%2Fshoots%2Fabc')
+    assert.equal(signInPath('/dashboard'), '/login')
+    assert.equal(signInPath('/finances', { signed_out: 'idle' }), '/login?signed_out=idle&next=%2Ffinances')
+    assert.equal(signInPath('//evil.example', { signed_out: 'idle' }), '/login?signed_out=idle')
+  })
+})
+
+describe('leaving a page with unsaved work', () => {
+  const here = { origin: 'https://shootsync.co.uk', pathname: '/settings', search: '' }
+  const link = (href: string, extra: Partial<{ target: string; download: string }> = {}) => {
+    const url = new URL(href, here.origin)
+    return { href: url.href, origin: url.origin, pathname: url.pathname, search: url.search, hash: url.hash, ...extra }
+  }
+  const click = { button: 0 }
+
+  it('a plain click on a link to another page in the app is a navigation to stop and ask about', () => {
+    assert.equal(inAppNavigation(click, link('/shoots'), here), '/shoots')
+    assert.equal(inAppNavigation(click, link('/shoots/abc?x=1#top'), here), '/shoots/abc?x=1#top')
+  })
+
+  it('anything that does not leave this page, or leaves the site, is left to the browser', () => {
+    assert.equal(inAppNavigation(click, link('/settings'), here), null, 'the same page')
+    assert.equal(inAppNavigation(click, link('/settings#records'), here), null, 'an anchor on the page')
+    assert.equal(inAppNavigation(click, link('https://what3words.com/a.b.c'), here), null, 'another site')
+    assert.equal(inAppNavigation(click, link('/shoots', { target: '_blank' }), here), null, 'a new tab')
+    assert.equal(inAppNavigation(click, link('/export.json', { download: 'x.json' }), here), null, 'a download')
+    assert.equal(inAppNavigation({ button: 1 }, link('/shoots'), here), null, 'middle click')
+    assert.equal(inAppNavigation({ button: 0, metaKey: true }, link('/shoots'), here), null, 'cmd-click')
+    assert.equal(inAppNavigation({ button: 0, defaultPrevented: true }, link('/shoots'), here), null, 'already handled')
+  })
+})
+
+describe('dates, one way everywhere', () => {
+  const day = '2026-11-14T00:00:00.000Z'
+  it('shoot days are shown in UTC, so the day never slips', () => {
+    assert.equal(formatLongDate(day), '14 November 2026')
+    assert.equal(formatShootDate(day), 'Saturday 14 November 2026')
+    assert.equal(formatShortDate(day), 'Sat 14 Nov 2026')
+    assert.equal(formatDayMonth(day), '14 Nov')
+  })
+  it('moments are shown in UK time', () => {
+    assert.equal(formatDateTime('2026-07-01T08:15:00.000Z'), '1 Jul 2026, 09:15')
+    assert.equal(formatDateTime('2026-11-14T09:15:00.000Z'), '14 Nov 2026, 09:15')
+  })
+  it('what3words opens on their site, slashes or not', () => {
+    assert.equal(what3wordsLink('///filled.count.soap'), 'https://what3words.com/filled.count.soap')
+    assert.equal(what3wordsLink('filled.count.soap'), 'https://what3words.com/filled.count.soap')
   })
 })
 

@@ -7,6 +7,7 @@
  */
 
 import { useState } from 'react'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 import Card from '../common/Card'
 import Button from '../common/Button'
 import ShootDayFields from './ShootDayFields'
@@ -33,6 +34,7 @@ export default function ShootDayEditor({ shoot, paidGuests, onSaved, onClose, on
   const [busy, setBusy] = useState<'save' | 'cancel' | 'delete' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<'cancel' | 'delete' | null>(null)
+  useUnsavedWork(JSON.stringify(draft) !== JSON.stringify(shootDraftFrom(shoot)), 'edit-shoot')
 
   const problems = validateShoot(draft)
   const path = `/api/shoots/${encodeURIComponent(shoot.id)}`

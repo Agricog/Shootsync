@@ -15,13 +15,12 @@ import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import Input from '../../components/common/Input'
+import { formatLongDate } from '../../utils/dateHelpers'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
+import MemberEditor, { type EditableMember } from '../../components/members/MemberEditor'
+import { useUnsavedWork } from '../../lib/unsavedWork'
 
-interface Member {
-  id: string
-  name: string
-  email: string
-  phone?: string | null
+interface Member extends EditableMember {
   role: string
   status: 'ACTIVE' | 'PENDING' | 'INACTIVE'
 }
@@ -56,6 +55,9 @@ export default function Members() {
 
   const [updating, setUpdating] = useState<string | null>(null)
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
+  const [savedNote, setSavedNote] = useState<{ id: string; message: string } | null>(null)
+  useUnsavedWork(adding && (draft.name.trim() !== '' || draft.email.trim() !== '' || draft.phone.trim() !== ''), 'add-member')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -203,11 +205,25 @@ export default function Members() {
                         <p className="text-slate-300 break-words">{member.email}</p>
                       )}
                       {member.phone && <p className="text-slate-400 text-sm">{member.phone}</p>}
+                      {!isErased(member) && (member.emergencyContactName || member.bascNumber || member.insuranceExpiry) && (
+                        <p className="text-slate-400 text-sm mt-1">
+                          {[
+                            member.emergencyContactName ? `Emergency contact: ${member.emergencyContactName}${member.emergencyContactPhone ? `, ${member.emergencyContactPhone}` : ''}` : null,
+                            member.bascNumber ? `Insurance no. ${member.bascNumber}` : null,
+                            member.insuranceExpiry ? `Insurance to ${formatLongDate(member.insuranceExpiry)}` : null,
+                          ].filter(Boolean).join(' · ')}
+                        </p>
+                      )}
                     </div>
                     <div className="flex flex-col sm:items-end gap-2">
                       <span className={`self-start sm:self-auto px-3 py-1 rounded-full text-sm font-medium ${statusColour(member.status)}`}>
                         {STATUS_LABEL[member.status] ?? member.status}
                       </span>
+                      {canWrite && !isErased(member) && editing !== member.id && updating !== member.id && (
+                        <Button variant="secondary" size="sm" onClick={() => { setEditing(member.id); setRowError(null); setSavedNote(null) }}>
+                          Edit
+                        </Button>
+                      )}
                       {updating === member.id ? (
                         <LoadingSpinner size="sm" />
                       ) : !canWrite ? null : member.status === 'ACTIVE' ? (
@@ -237,6 +253,16 @@ export default function Members() {
                       )}
                     </div>
                   </div>
+                  {editing === member.id && (
+                    <MemberEditor
+                      member={member}
+                      onSaved={async () => { setEditing(null); setSavedNote({ id: member.id, message: 'Saved.' }); await load() }}
+                      onClose={() => setEditing(null)}
+                    />
+                  )}
+                  {savedNote?.id === member.id && (
+                    <p role="status" className="mt-3 rounded-lg px-3 py-2 bg-green-900/40 text-green-200 border border-green-800 text-sm">{savedNote.message}</p>
+                  )}
                   {erasedNote?.id === member.id && (
                     <p role="status" className="mt-3 rounded-lg px-3 py-2 bg-green-900/40 text-green-200 border border-green-800 text-sm">
                       {erasedNote.message}

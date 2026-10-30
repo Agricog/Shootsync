@@ -9,6 +9,7 @@ import { UserButton, useUser } from '@clerk/clerk-react'
 import { useAuth } from '../../hooks/useAuth'
 import { useSyndicates } from '../../context/SyndicateContext'
 import Button from '../common/Button'
+import Logo from '../common/Logo'
 
 const CAPTAIN_LINKS = [
   { path: '/dashboard', label: 'Dashboard' },
@@ -50,13 +51,8 @@ export default function Navigation() {
     <header className="bg-slate-900 border-b border-slate-800 sticky top-0 z-50">
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
-          <div className="flex items-center gap-8">
-            <Link to={isSignedIn ? '/dashboard' : '/'} className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">SS</span>
-              </div>
-              <span className="text-white font-semibold text-lg hidden sm:block">ShootSync</span>
-            </Link>
+          <div className="flex items-center gap-4 lg:gap-8 min-w-0">
+            <Logo to={isSignedIn ? '/dashboard' : '/'} wordFrom="sm" />
 
             {navItems.length > 0 && (
               <div className="hidden xl:flex items-center gap-1">
@@ -78,18 +74,18 @@ export default function Navigation() {
             )}
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 sm:gap-4">
             {!isLoaded ? (
               <div className="w-8 h-8 bg-slate-700 rounded-full animate-pulse" />
             ) : isSignedIn ? (
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 sm:gap-3">
                 {memberships.length > 1 && current && (
                   <label className="flex items-center">
                     <span className="sr-only">Syndicate</span>
                     <select
                       value={current.id}
                       onChange={(e) => switchTo(e.target.value)}
-                      className="max-w-[10rem] sm:max-w-[14rem] truncate rounded-lg bg-slate-800 border border-slate-700 px-2 py-2 text-sm text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                      className="max-w-[6.5rem] sm:max-w-[14rem] truncate rounded-lg bg-slate-800 border border-slate-700 px-2 py-2 text-sm text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                     >
                       {memberships.map((m) => (
                         <option key={m.id} value={m.id}>{m.name}</option>
@@ -100,7 +96,7 @@ export default function Navigation() {
                 {navItems.length > 0 && (
                   <button
                     type="button"
-                    className="xl:hidden px-3 py-2 rounded-lg text-sm font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
+                    className="xl:hidden px-2.5 py-2 rounded-lg text-sm font-medium text-slate-200 bg-slate-800 hover:bg-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-green-500"
                     aria-expanded={menuOpen}
                     aria-controls={menuOpen ? 'app-menu' : undefined}
                     onClick={() => setMenuOpen((open) => !open)}

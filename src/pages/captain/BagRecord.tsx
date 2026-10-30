@@ -21,6 +21,7 @@ import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { BAG_SPECIES, parseBagSpeech, type BagSpecies } from '../../utils/bagSpeech'
 import { toCsv } from '../../utils/csv'
+import { formatDayMonth, formatShortDate } from '../../utils/dateHelpers'
 
 interface ShootDay {
   id: string
@@ -100,8 +101,6 @@ function defaultShoot(shoots: ShootDay[]): string | null {
 
 const total = (b: Record<BagSpecies, number>) => BAG_SPECIES.reduce((sum, s) => sum + b[s], 0)
 const field = 'w-full px-3 py-2 bg-slate-900 border border-slate-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-green-500'
-const shortDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-const fullDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 
 function BagForm({ draft, onChange, onSubmit, saving, submitLabel, onCancel, voice }: {
   draft: Draft
@@ -359,7 +358,7 @@ export default function BagRecord() {
               <option value="">Choose a shoot day</option>
               {shoots.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {new Date(s.date).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })} · {s.locationName}
+                  {formatShortDate(s.date)} · {s.locationName}
                 </option>
               ))}
             </select>
@@ -443,7 +442,7 @@ export default function BagRecord() {
               <div>
                 <h2 className="text-lg font-semibold text-white">Season so far: {season.total} head</h2>
                 <p className="text-sm text-slate-400">
-                  {fullDate(season.season.start)} to {fullDate(season.season.end)} · {season.days.length} {season.days.length === 1 ? 'day' : 'days'} in the book ·{' '}
+                  {formatShortDate(season.season.start)} to {formatShortDate(season.season.end)} · {season.days.length} {season.days.length === 1 ? 'day' : 'days'} in the book ·{' '}
                   {season.shootsCompleted} completed
                 </p>
               </div>
@@ -480,7 +479,7 @@ export default function BagRecord() {
                   <tbody className="text-slate-200">
                     {season.days.map((d) => (
                       <tr key={d.shootId} className="border-t border-slate-700">
-                        <th scope="row" className="py-2 pr-3 font-normal whitespace-nowrap">{shortDate(d.date)} · {d.locationName}</th>
+                        <th scope="row" className="py-2 pr-3 font-normal whitespace-nowrap">{formatDayMonth(d.date)} · {d.locationName}</th>
                         {BAG_SPECIES.map((s) => <td key={s} className="py-2 px-2 text-right">{d[s]}</td>)}
                         <td className="py-2 pl-2 text-right font-semibold">{d.total}</td>
                       </tr>

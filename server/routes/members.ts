@@ -33,7 +33,20 @@ const createMemberSchema = z.object({
   emergencyContactPhone: optionalText(30),
 })
 
-const updateMemberSchema = createMemberSchema.omit({ syndicateId: true }).partial()
+// Editing: a blank text field clears what was there; a null insurance date removes it.
+const clearable = (max: number) =>
+  z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v))
+
+const updateMemberSchema = createMemberSchema
+  .omit({ syndicateId: true, phone: true, bascNumber: true, insuranceExpiry: true, emergencyContactName: true, emergencyContactPhone: true })
+  .partial()
+  .extend({
+    phone: clearable(30),
+    bascNumber: clearable(30),
+    insuranceExpiry: dateString.transform((s) => new Date(s)).nullable().optional(),
+    emergencyContactName: clearable(100),
+    emergencyContactPhone: clearable(30),
+  })
 
 const updateStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'PENDING', 'INACTIVE']),

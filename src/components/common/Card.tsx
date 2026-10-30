@@ -115,7 +115,7 @@ export function StatCard({
           <p className="text-sm text-slate-400 mb-1">{displayTitle}</p>
           <p className="text-2xl font-bold text-white">{value}</p>
           {subtitle && (
-            <p className="text-sm text-slate-500 mt-1">{subtitle}</p>
+            <p className="text-sm text-slate-400 mt-1">{subtitle}</p>
           )}
         </div>
         {icon && <div className="text-slate-500">{icon}</div>}

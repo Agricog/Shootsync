@@ -3,6 +3,8 @@
  * Pure functions: the React side is src/context/SyndicateContext.tsx.
  */
 
+import { formatLongDate } from '../utils/dateHelpers.js'
+
 export type MembershipRole = 'CAPTAIN' | 'GUN'
 
 export interface Membership {
@@ -33,7 +35,7 @@ export interface PlanState {
   deletionDate?: string | null
 }
 
-const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+const longDate = formatLongDate
 
 /**
  * The syndicate to show: the one chosen last time on this device if the user still belongs

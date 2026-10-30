@@ -86,6 +86,35 @@ export function londonToday(now: Date = new Date()): string {
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
+/**
+ * The pages the browser app itself draws (the route table in src/App.tsx), as patterns. A path
+ * that is neither one of these nor a prerendered public page is answered with the app shell and
+ * a 404 status, so the page says "not found" and a crawler or link checker is told the truth.
+ * Matched without regard to case, as the router matches. tests/appShell.test.ts keeps this list
+ * and the route table in step.
+ */
+export const APP_PATHS: readonly RegExp[] = [
+  /^\/dashboard$/,
+  /^\/pegs$/,
+  /^\/syndicate\/create$/,
+  /^\/members$/,
+  /^\/beaters$/,
+  /^\/shoots$/,
+  /^\/shoots\/[^/]+$/,
+  /^\/bags\/record$/,
+  /^\/finances$/,
+  /^\/settings$/,
+  /^\/settings\/activity$/,
+  /^\/guest\/accept$/,
+  /^\/guest\/accept\/[^/]+$/,
+  /^\/subscribe$/,
+  /^\/subscription\/success$/,
+  /^\/login(\/.*)?$/,
+  /^\/signup(\/.*)?$/,
+]
+
+export const isAppPath = (path: string): boolean => APP_PATHS.some((pattern) => pattern.test(path))
+
 /** One prerendered copy of a page, served from `from` (inclusive) until the next copy's date. */
 export interface PrerenderedCopy {
   from: string
@@ -250,7 +279,10 @@ export function createApp(options: AppOptions) {
     app.get('*', (req, res) => {
       res.set('Cache-Control', 'no-cache')
       const copies = prerendered[req.path]
-      res.sendFile(copies ? path.join(staticDir, 'prerendered', currentCopy(copies, today()).file) : path.join(staticDir, 'index.html'))
+      if (copies) return res.sendFile(path.join(staticDir, 'prerendered', currentCopy(copies, today()).file))
+      // The app shell draws the page; a path the app doesn't know is a 404 in the status too.
+      if (!isAppPath(req.path)) res.status(404)
+      res.sendFile(path.join(staticDir, 'index.html'))
     })
   }
 

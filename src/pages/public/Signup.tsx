@@ -5,9 +5,14 @@
 
 import { SignUp } from '@clerk/clerk-react'
 import { Helmet } from 'react-helmet-async'
-import { Link } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import Logo from '../../components/common/Logo'
+import { DEFAULT_AFTER_SIGN_IN, RETURN_TO_PARAM, safeReturnPath } from '../../lib/returnTo'
 
 export default function Signup() {
+  const [searchParams] = useSearchParams()
+  // Someone sent here from a page they wanted goes back to it once signed up.
+  const returnTo = safeReturnPath(searchParams.get(RETURN_TO_PARAM))
   return (
     <>
       <Helmet>
@@ -17,12 +22,9 @@ export default function Signup() {
 
       <div className="min-h-screen bg-slate-900 flex flex-col justify-center py-12 px-4">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
-          <Link to="/" className="flex items-center justify-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-green-600 rounded-lg flex items-center justify-center">
-              <span className="text-white font-bold">SS</span>
-            </div>
-            <span className="text-white font-semibold text-xl">ShootSync</span>
-          </Link>
+          <div className="flex justify-center mb-8">
+            <Logo size="lg" />
+          </div>
 
           <div className="flex justify-center">
             <SignUp
@@ -44,8 +46,8 @@ export default function Signup() {
               }}
               routing="path"
               path="/signup"
-              signInUrl="/login"
-              afterSignUpUrl="/dashboard"
+              signInUrl={returnTo === DEFAULT_AFTER_SIGN_IN ? '/login' : `/login?${RETURN_TO_PARAM}=${encodeURIComponent(returnTo)}`}
+              forceRedirectUrl={returnTo}
             />
           </div>
         </div>

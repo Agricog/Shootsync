@@ -9,6 +9,7 @@ import { formatCurrency } from '../../config/stripe'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card, { StatCard } from '../../components/common/Card'
 import Button, { ButtonLink } from '../../components/common/Button'
+import { formatDayMonth, formatShortDate } from '../../utils/dateHelpers'
 
 interface Member {
   id: string
@@ -82,10 +83,9 @@ export default function CaptainDashboard() {
       ? { value: dash, subtitle: 'Couldn’t load shoot days' }
       : next === null
         ? { value: 'None', subtitle: 'No shoot days scheduled' }
-        : { value: new Date(next.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' }), subtitle: next.locationName }
+        : { value: formatDayMonth(next.date), subtitle: next.locationName }
 
   const show = (value: string) => (loading ? '…' : value)
-  const seasonDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })
 
   return (
     <DashboardLayout>
@@ -98,7 +98,7 @@ export default function CaptainDashboard() {
           <div>
             <h1 className="text-2xl font-bold mb-2 text-white">{syndicate.name}</h1>
             <p className="text-slate-300">
-              Season: {seasonDate(syndicate.seasonStart)} to {seasonDate(syndicate.seasonEnd)}
+              Season: {formatShortDate(syndicate.seasonStart)} to {formatShortDate(syndicate.seasonEnd)}
             </p>
           </div>
           <ButtonLink to="/settings" variant="secondary">Settings</ButtonLink>

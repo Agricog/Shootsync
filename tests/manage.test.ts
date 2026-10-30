@@ -9,6 +9,8 @@ import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
 import { settingsPayload, toForm, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyDraft, payloadFrom } from '../src/utils/beaterForm.js'
+import { draftFromMember, memberPayload, validateMemberDraft } from '../src/utils/memberForm.js'
+import { draftFromGuest, guestPayload, validateGuestDraft } from '../src/utils/guestForm.js'
 import { normaliseWhat3Words, shootPayload, validateShoot, type ShootDraft } from '../src/utils/shootForm.js'
 import { CAPTAIN_A, INVITE_TOKEN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testConfig, type TestServer, acceptBody } from './helpers.js'
 import { openBankNumbers } from '../server/bankCrypto.js'
@@ -66,6 +68,29 @@ describe('form checks', () => {
     assert.equal('body' in penny ? penny.body?.dayRatePence : null, 4250)
     assert.ok('error' in payloadFrom({ ...draft, dayRate: '40.5.1' }, true))
     assert.ok('error' in payloadFrom({ ...draft, dayRate: '1000.01' }, true))
+  })
+
+  it('members: the edit form sends only what changed, clears a blanked field, and wants both halves of an emergency contact', () => {
+    const member = { id: 'm', name: 'Dai', email: 'dai@example.com', phone: '0770', emergencyContactName: 'Jo', emergencyContactPhone: '0771', bascNumber: null, insuranceExpiry: '2027-03-01T00:00:00.000Z' }
+    const draft = draftFromMember(member)
+    assert.equal(draft.insuranceExpiry, '2027-03-01')
+    assert.deepEqual(validateMemberDraft(draft), {})
+    assert.deepEqual(memberPayload(draft, member), {})
+    assert.deepEqual(memberPayload({ ...draft, phone: '', bascNumber: ' B123 ', insuranceExpiry: '' }, member), { phone: '', bascNumber: 'B123', insuranceExpiry: null })
+    assert.ok(validateMemberDraft({ ...draft, emergencyContactPhone: '' }).emergencyContactPhone)
+    assert.ok(validateMemberDraft({ ...draft, email: 'not-an-email' }).email)
+    assert.ok(validateMemberDraft({ ...draft, name: ' ' }).name)
+  })
+
+  it('guests: the edit form sends only what changed, with the fee in pence', () => {
+    const guest = { id: 'g', name: 'Guest', email: 'g@example.com', phone: null, dayFee: 5000, paymentStatus: 'PENDING', waiverAccepted: false, emergencyContactName: null, emergencyContactPhone: null, notes: null }
+    const draft = draftFromGuest(guest)
+    assert.equal(draft.dayFee, '50')
+    assert.deepEqual(validateGuestDraft(draft), {})
+    assert.deepEqual(guestPayload(draft, guest), {})
+    assert.deepEqual(guestPayload({ ...draft, dayFee: '42.50', notes: 'Left-handed' }, guest), { dayFee: 4250, notes: 'Left-handed' })
+    assert.ok(validateGuestDraft({ ...draft, dayFee: '1000.01' }).dayFee)
+    assert.ok(validateGuestDraft({ ...draft, emergencyContactName: 'Jo' }).emergencyContactPhone)
   })
 
   it('shoot days: what3words is tidied, the meet time must be a real time, blanks clear', () => {
@@ -132,6 +157,18 @@ describe('managing the syndicate (API)', () => {
     const booked = await as('POST', `/api/shoots/${data.a.shoot.id}/beaters`, { beaterIds: [other.id] })
     assert.equal(booked.status, 201)
     for (const b of booked.json) assert.ok(typeof b.dayRatePence === 'number' && !('dayRate' in b), 'booked list')
+  })
+
+  it('editing a member: fields change, a blank clears, the insurance date can be set and removed', async () => {
+    const id = data.a.gun.id
+    const first = await as('PATCH', `/api/members/${id}`, { phone: '07700 900222', emergencyContactName: 'Jo', emergencyContactPhone: '07700 900333', bascNumber: 'B1', insuranceExpiry: '2027-03-01' })
+    assert.equal(first.status, 200)
+    assert.deepEqual([first.json.phone, first.json.emergencyContactName, first.json.bascNumber, first.json.insuranceExpiry], ['07700 900222', 'Jo', 'B1', '2027-03-01T00:00:00.000Z'])
+    const cleared = await as('PATCH', `/api/members/${id}`, { phone: '', bascNumber: '', insuranceExpiry: null })
+    assert.equal(cleared.status, 200)
+    assert.deepEqual([cleared.json.phone, cleared.json.bascNumber, cleared.json.insuranceExpiry, cleared.json.emergencyContactName], [null, null, null, 'Jo'])
+    assert.equal((await as('PATCH', `/api/members/${id}`, { insuranceExpiry: '28' })).status, 400)
+    assert.equal((await as('PATCH', `/api/members/${id}`, { email: 'nope' })).status, 400)
   })
 
   it('the members’ subscription setting is gone: not sent, and ignored if an old page still sends it', async () => {

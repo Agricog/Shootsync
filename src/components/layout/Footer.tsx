@@ -4,6 +4,7 @@
  */
 
 import { Link } from 'react-router-dom'
+import Logo from '../common/Logo'
 
 export default function Footer() {
   const currentYear = new Date().getFullYear()
@@ -13,11 +14,8 @@ export default function Footer() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
           <div className="col-span-1 md:col-span-2">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="w-8 h-8 bg-green-600 rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">SS</span>
-              </div>
-              <span className="text-white font-semibold text-lg">ShootSync</span>
+            <div className="mb-4">
+              <Logo to="/dashboard" />
             </div>
             <p className="text-slate-400 text-sm max-w-md">
               Professional shooting syndicate management for UK syndicates. 
@@ -44,10 +42,10 @@ export default function Footer() {
         </div>
 
         <div className="mt-8 pt-8 border-t border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-400 text-sm">
             © {currentYear} ShootSync. All rights reserved.
           </p>
-          <p className="text-slate-500 text-sm">
+          <p className="text-slate-400 text-sm">
             hello@shootsync.co.uk
           </p>
         </div>
