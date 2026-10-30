@@ -35,7 +35,7 @@
     "react-dom": "18.3.1",
     "react-helmet-async": "2.0.5",
     "react-router-dom": "7.18.5",
-    "stripe": "14.25.0",
+    "stripe": "23.0.1",
     "zod": "4.6.7"
   },
   "devDependencies": {
