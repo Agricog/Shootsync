@@ -1,6 +1,10 @@
 # ShootSync gate (Autaimate Build Standard §19.3)
 # Runs on every push to main and every pull request. Railway's "Wait for CI"
 # setting holds each deploy until this passes.
+#
+# Every push gets its own full run, never cancelled by the next one: Railway treats a
+# cancelled run as "no verdict" and deploys, so on 29 Oct 2026 an untested commit went live
+# for two minutes between two uploads. A verdict for every commit closes that.
 
 name: CI
 
@@ -11,10 +15,6 @@ on:
 
 permissions:
   contents: read
-
-concurrency:
-  group: ci-${{ github.ref }}
-  cancel-in-progress: true
 
 jobs:
   gate:
@@ -40,6 +40,7 @@ jobs:
     env:
       # Disposable database inside this job only. Never a real one.
       DATABASE_URL: postgresql://shootsync:shootsync@localhost:5432/shootsync_test
+      SCHEMA_DATABASE_URL: postgresql://shootsync:shootsync@localhost:5432/shootsync_schema
 
     steps:
       - name: Check out
@@ -65,8 +66,16 @@ jobs:
       - name: Typecheck (client, server and tests)
         run: npm run typecheck
 
-      - name: Create test database schema
-        run: npx prisma db push --skip-generate
+      # The test database is built from prisma/migrations, in order: the tests run against exactly
+      # what production has, CHECK constraints included. A second database is built from
+      # schema.prisma, and a test keeps the two in step (tests/migrations.test.ts).
+      - name: Build the test database from the migrations
+        run: bash scripts/apply-migrations.sh "$DATABASE_URL"
+
+      - name: Build a second database from schema.prisma
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE shootsync_schema'
+          DATABASE_URL="$SCHEMA_DATABASE_URL" npx prisma db push --skip-generate
 
       - name: Run test suite
         run: npm test
