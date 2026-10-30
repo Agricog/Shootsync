@@ -1,9 +1,9 @@
 import { Router } from 'express'
-import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
 import { WAIVER_VERSION, waiverHash, waiverText } from '../waiver.js'
-import { noteAuditTarget, noteGuestAction } from '../audit.js'
+import { addAuditDetails, noteAuditTarget, noteGuestAction } from '../audit.js'
+import { INVITE_TOKEN_PATTERN, hashInviteToken, inviteLinkPath, newInviteToken } from '../inviteTokens.js'
 import {
   GUN_ROLES,
   HttpError,
@@ -39,16 +39,26 @@ const createGuestSchema = z.object({
   dayFee: dayFeePence.default(DEFAULT_GUEST_DAY_FEE),
 })
 
-const updateGuestSchema = z.object({
-  name: z.string().trim().min(1).max(100).optional(),
-  email: z.string().trim().email().max(254).optional(),
-  phone: optionalText(30),
-  emergencyContactName: optionalText(100),
-  emergencyContactPhone: optionalText(30),
-  pegNumber: z.number().int().min(1).max(MAX_PEGS).nullable().optional(),
-  dayFee: dayFeePence.optional(),
-  notes: optionalText(2000),
-})
+// Editing: a blank or null text field clears it; a field not sent is kept.
+const clearable = (max: number) =>
+  z.string().trim().max(max).nullable().optional().transform((v) => (v === '' ? null : v))
+
+const updateGuestSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    email: z.string().trim().email().max(254).optional(),
+    phone: clearable(30),
+    emergencyContactName: clearable(100),
+    emergencyContactPhone: clearable(30),
+    pegNumber: z.number().int().min(1).max(MAX_PEGS).nullable().optional(),
+    dayFee: dayFeePence.optional(),
+    notes: clearable(2000),
+  })
+  // An emergency contact is a name and a number: clearing one half would leave half a contact on the sheet.
+  .refine((d) => (d.emergencyContactName === null) === (d.emergencyContactPhone === null), {
+    message: 'Give both the emergency contact’s name and their phone number, or clear both.',
+    path: ['emergencyContactPhone'],
+  })
 
 const acceptGuestSchema = z.object({
   emergencyContactName: z.string().trim().min(1).max(100),
@@ -57,8 +67,6 @@ const acceptGuestSchema = z.object({
   /** SHA-256 of the acknowledgement text the guest was shown (from GET /token/:token). */
   waiverTextHash: z.string().regex(/^[a-f0-9]{64}$/, 'The acknowledgement text is missing. Reload the page.'),
 })
-
-export const INVITE_TOKEN_PATTERN = /^[a-f0-9]{64}$/
 
 const markPaidSchema = z.object({ paid: z.boolean() })
 
@@ -130,6 +138,15 @@ const guestListInclude = {
   shootDay: { select: { date: true, locationName: true } },
 } as const
 
+/**
+ * A guest as the captain sees them. The stored invite token is a hash: no use to anyone, and
+ * not the link, so it never travels. The link is given once, when made or renewed (`inviteLink`).
+ */
+export function withoutInviteToken<T extends { inviteToken: string | null }>(guest: T): Omit<T, 'inviteToken'> {
+  const { inviteToken: _hash, ...rest } = guest
+  return rest
+}
+
 export function guestRoutes({ prisma, today }: Deps): Router {
   const router = Router()
 
@@ -137,8 +154,9 @@ export function guestRoutes({ prisma, today }: Deps): Router {
 
   async function guestByToken(token: string) {
     if (!INVITE_TOKEN_PATTERN.test(token)) throw notFound('This invitation is invalid or has expired.')
+    // The table holds the hash of the token, never the token (server/inviteTokens.ts).
     const guest = await prisma.guestGun.findUnique({
-      where: { inviteToken: token },
+      where: { inviteToken: hashInviteToken(token) },
       select: { id: true, rsvpStatus: true, shootDay: { select: { status: true, date: true, syndicateId: true, syndicate: { select: { status: true } } } } },
     })
     // An archived syndicate is gone from the app, its guest links with it; and every link
@@ -228,7 +246,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       include: guestListInclude,
       orderBy: { createdAt: 'desc' },
     })
-    res.json(guests)
+    res.json(guests.map(withoutInviteToken))
   }))
 
   // GET /api/guests/:id - captain only
@@ -253,7 +271,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       },
     })
     if (!guest) throw notFound('That guest could not be found. It may have been removed.')
-    res.json(guest)
+    res.json(withoutInviteToken(guest))
   }))
 
   // POST /api/guests - invite a guest
@@ -277,6 +295,8 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       throw new HttpError(409, 'Guests can only be invited to a day that is still scheduled and hasn’t happened yet.')
     }
 
+    // The link's token is made here and sent back this once; only its hash is kept.
+    const link = newInviteToken()
     const guest = await prisma.guestGun.create({
       data: {
         shootId: data.shootId,
@@ -286,7 +306,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
         phone: data.phone,
         // Only the captain sets fees. A gun's invite always carries the standard fee.
         dayFee: access.isCaptain ? data.dayFee : DEFAULT_GUEST_DAY_FEE,
-        inviteToken: randomBytes(32).toString('hex'),
+        inviteToken: link.hash,
         rsvpStatus: 'PENDING',
         paymentStatus: 'PENDING',
         waiverAccepted: false,
@@ -294,7 +314,30 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       include: { shootDay: { select: { date: true, locationName: true } } },
     })
     noteAuditTarget(res, guest.id)
-    res.status(201).json(guest)
+    res.set('Cache-Control', 'no-store')
+    res.status(201).json({ ...withoutInviteToken(guest), inviteLink: inviteLinkPath(link.token) })
+  }))
+
+  // POST /api/guests/:id/invite-link - a new link for the guest, captain only. The old one stops
+  // working at once: this is how a link that went astray is withdrawn, and how a captain gets a
+  // link again (the link is never stored, so it can't be shown twice). Not for a guest who has
+  // declined or been withdrawn, or whose details are erased, or once the day is closed.
+  router.post('/:id/invite-link', handle(async (req, res) => {
+    const syndicateId = await syndicateOfGuest(prisma, req.params.id)
+    await requireSyndicateAccess(prisma, syndicateId, req, 'captain')
+    const guest = await prisma.guestGun.findUniqueOrThrow({
+      where: { id: req.params.id },
+      select: { rsvpStatus: true, email: true, inviteToken: true, shootDay: { select: { status: true, date: true } } },
+    })
+    const closed = guestDayClosed(guest.shootDay, today())
+    if (closed) throw new HttpError(409, 'This day is over, so there is nothing for a link to open.')
+    if (guest.rsvpStatus === 'DECLINED') throw new HttpError(409, 'This guest has declined or been withdrawn. Add them again if they are coming after all.')
+    if (guest.email.endsWith('@removed.invalid')) throw new HttpError(409, 'This guest’s details have been erased, so no new link can be made for them.')
+    const link = newInviteToken()
+    await prisma.guestGun.update({ where: { id: req.params.id }, data: { inviteToken: link.hash } })
+    addAuditDetails(res, { previousLinkWithdrawn: guest.inviteToken !== null })
+    res.set('Cache-Control', 'no-store')
+    res.json({ inviteLink: inviteLinkPath(link.token) })
   }))
 
   // PATCH /api/guests/:id - captain only
@@ -340,7 +383,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       }
       return tx.guestGun.update({ where: { id: req.params.id }, data })
     })
-    res.json(guest)
+    res.json(withoutInviteToken(guest))
   }))
 
   // PATCH /api/guests/:id/payment { paid } - captain only. Guests pay the syndicate directly;
@@ -364,7 +407,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
       const guest = await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id }, select: { paymentStatus: true, dayFee: true, rsvpStatus: true, stripePaymentId: true } })
       throw new HttpError(409, paid ? whyNotPaid(guest) : whyNotUnpaid(guest))
     }
-    res.json(await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id } }))
+    res.json(withoutInviteToken(await prisma.guestGun.findUniqueOrThrow({ where: { id: req.params.id } })))
   }))
 
   // DELETE /api/guests/:id - captain only

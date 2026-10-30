@@ -6,7 +6,7 @@
 import { after, before, beforeEach, describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import type { PrismaClient } from '@prisma/client'
-import { HMRC_CASUAL_DAY_LIMIT, normaliseAccountNumber, normaliseSortCode, poundsToPence, syncBeaterPayments, taxYearOf } from '../server/beaterPay.js'
+import { HMRC_CASUAL_DAY_LIMIT, MAX_DAY_RATE_PENCE, dayRatePence, normaliseAccountNumber, normaliseSortCode, syncBeaterPayments, taxYearOf } from '../server/beaterPay.js'
 import { csvCell, toCsv } from '../src/utils/csv.js'
 import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testConfig, testVerifier, type TestServer } from './helpers.js'
 import { openBankNumbers } from '../server/bankCrypto.js'
@@ -26,9 +26,13 @@ describe('beater pay rules', () => {
     assert.equal(normaliseAccountNumber('1234567'), null)
   })
 
-  it('day rates in pounds become pence exactly', () => {
-    assert.equal(poundsToPence(40), 4000)
-    assert.equal(poundsToPence(0), 0)
+  it('a day rate is whole pence from £0 to £1,000, and the refusal is worded in pounds', () => {
+    assert.equal(dayRatePence.parse(4250), 4250)
+    assert.equal(dayRatePence.parse(0), 0)
+    assert.equal(dayRatePence.parse(MAX_DAY_RATE_PENCE), 100_000)
+    assert.equal(dayRatePence.safeParse(100_001).error?.issues[0]?.message, 'Day rate must be £1,000 or less.')
+    assert.equal(dayRatePence.safeParse(-1).error?.issues[0]?.message, 'Day rate can’t be less than £0.')
+    assert.equal(dayRatePence.safeParse(42.5).error?.issues[0]?.message, 'Day rate must be whole pence.')
   })
 
   it('the export can never smuggle a spreadsheet formula, and quotes are escaped', () => {
@@ -65,7 +69,8 @@ describe('beater pay API', () => {
   })
 
   const as = (method: string, path: string, body?: unknown) => call(server, path, { method, as: CAPTAIN_A, body })
-  const addBeater = (name: string, dayRate: number) => prisma.beater.create({ data: { syndicateId: data.a.syndicate.id, name, dayRate } })
+  /** A beater on a day rate given in pounds and pence. */
+  const addBeater = (name: string, pounds: number) => prisma.beater.create({ data: { syndicateId: data.a.syndicate.id, name, dayRatePence: Math.round(pounds * 100) } })
   const book = (ids: string[], id = shootId) => as('POST', `/api/shoots/${id}/beaters`, { beaterIds: ids })
   const bookingOf = (beaterId: string, id = shootId) => prisma.beaterBooking.findUniqueOrThrow({ where: { beaterId_shootId: { beaterId, shootId: id } } })
   const setStatus = async (beaterId: string, status: string, id = shootId) =>
@@ -79,7 +84,7 @@ describe('beater pay API', () => {
     assert.equal((await book([dai.id])).status, 201)
     const bookings = await prisma.beaterBooking.findMany({ where: { shootId } })
     assert.equal(bookings.length, 1)
-    assert.equal(bookings[0].dayRate, 45)
+    assert.equal(bookings[0].dayRatePence, 4500)
     assert.equal(bookings[0].status, 'INVITED')
   })
 
@@ -121,7 +126,7 @@ describe('beater pay API', () => {
     for (let round = 0; round < 6; round++) {
       const day = await prisma.shootDay.create({ data: { syndicateId: data.a.syndicate.id, date: new Date('2026-12-12'), locationName: `Race ${round}` } })
       await prisma.beaterBooking.createMany({
-        data: beaters.map((b) => ({ syndicateId: data.a.syndicate.id, beaterId: b.id, shootId: day.id, dayRate: 40, status: 'CONFIRMED' as const })),
+        data: beaters.map((b) => ({ syndicateId: data.a.syndicate.id, beaterId: b.id, shootId: day.id, dayRatePence: 4000, status: 'CONFIRMED' as const })),
       })
       await Promise.all(Array.from({ length: 8 }, () => complete(day.id)))
       assert.equal((await paymentsOn(day.id)).length, 3, `round ${round}`)
@@ -133,7 +138,7 @@ describe('beater pay API', () => {
     for (let round = 0; round < 6; round++) {
       const day = await prisma.shootDay.create({ data: { syndicateId: data.a.syndicate.id, date: new Date('2026-12-19'), locationName: `Busy ${round}`, status: 'COMPLETED' } })
       await prisma.beaterBooking.createMany({
-        data: beaters.map((b) => ({ syndicateId: data.a.syndicate.id, beaterId: b.id, shootId: day.id, dayRate: 40 })),
+        data: beaters.map((b) => ({ syndicateId: data.a.syndicate.id, beaterId: b.id, shootId: day.id, dayRatePence: 4000 })),
       })
       await Promise.all(beaters.map((b) => setStatus(b.id, 'CONFIRMED', day.id)))
       assert.equal((await paymentsOn(day.id)).length, 4, `round ${round}`)
@@ -157,15 +162,15 @@ describe('beater pay API', () => {
     await setStatus(dai.id, 'CONFIRMED')
     await complete()
 
-    await as('PATCH', `/api/shoots/${shootId}/beaters/${(await bookingOf(dai.id)).id}`, { dayRate: 50 })
-    assert.deepEqual((await paymentsOn()).map((p) => p.amount), [5000], 'rate change')
+    await as('PATCH', `/api/shoots/${shootId}/beaters/${(await bookingOf(dai.id)).id}`, { dayRatePence: 5050 })
+    assert.deepEqual((await paymentsOn()).map((p) => p.amount), [5050], 'rate change, to the penny')
 
     await book([bob.id])
     await setStatus(bob.id, 'CONFIRMED')
-    assert.deepEqual((await paymentsOn()).map((p) => p.amount), [4000, 5000], 'added late')
+    assert.deepEqual((await paymentsOn()).map((p) => p.amount), [4000, 5050], 'added late')
 
     await setStatus(bob.id, 'NO_SHOW')
-    assert.deepEqual((await paymentsOn()).map((p) => p.amount), [5000], 'marked no-show')
+    assert.deepEqual((await paymentsOn()).map((p) => p.amount), [5050], 'marked no-show')
 
     await as('DELETE', `/api/shoots/${shootId}/beaters/${(await bookingOf(dai.id)).id}`)
     assert.equal((await paymentsOn()).length, 0, 'removed')
@@ -181,7 +186,7 @@ describe('beater pay API', () => {
 
     const booking = await bookingOf(dai.id)
     assert.equal((await as('PATCH', `/api/shoots/${shootId}/beaters/${booking.id}`, { status: 'NO_SHOW' })).status, 409)
-    assert.equal((await as('PATCH', `/api/shoots/${shootId}/beaters/${booking.id}`, { dayRate: 99 })).status, 409)
+    assert.equal((await as('PATCH', `/api/shoots/${shootId}/beaters/${booking.id}`, { dayRatePence: 9900 })).status, 409)
     assert.equal((await as('DELETE', `/api/shoots/${shootId}/beaters/${booking.id}`)).status, 409)
     assert.equal((await as('POST', `/api/shoots/${shootId}/cancel`)).status, 409)
     assert.equal((await as('DELETE', `/api/shoots/${shootId}`)).status, 409, 'completed days are never deleted')
@@ -199,7 +204,7 @@ describe('beater pay API', () => {
       as('POST', `/api/beaters/${dai.id}/pay`, { payments: [{ paymentId: payment.id, amount }], paymentReference: reference })
 
     // The rate went up after the captain loaded the page: £45 on screen, £50 owed now.
-    await as('PATCH', `/api/shoots/${shootId}/beaters/${(await bookingOf(dai.id)).id}`, { dayRate: 50 })
+    await as('PATCH', `/api/shoots/${shootId}/beaters/${(await bookingOf(dai.id)).id}`, { dayRatePence: 5000 })
     assert.equal((await pay(4500)).status, 409)
     assert.equal((await paymentsOn())[0].status, 'PENDING', 'nothing marked paid on a mismatch')
 
@@ -295,7 +300,7 @@ describe('beater pay API', () => {
     await workDays(booked.id, HMRC_CASUAL_DAY_LIMIT)
     const { end } = taxYearOf(new Date())
     const upcoming = await prisma.shootDay.create({ data: { syndicateId: data.a.syndicate.id, date: new Date(end.getTime() - 2 * 86_400_000), locationName: 'Later' } })
-    await prisma.beaterBooking.create({ data: { syndicateId: data.a.syndicate.id, beaterId: booked.id, shootId: upcoming.id, dayRate: 40, status: 'CONFIRMED' } })
+    await prisma.beaterBooking.create({ data: { syndicateId: data.a.syndicate.id, beaterId: booked.id, shootId: upcoming.id, dayRatePence: 4000, status: 'CONFIRMED' } })
 
     assert.equal((await payRow(under.id)).casualLimit, 'under')
     assert.equal((await payRow(at.id)).casualLimit, 'atLimit')

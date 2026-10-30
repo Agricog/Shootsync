@@ -29,7 +29,7 @@ interface Entry {
 const FIELD_NAMES: Record<string, string> = {
   name: 'name', email: 'email', phone: 'phone', dayRate: 'day rate', bankName: 'bank', bankSortCode: 'bank details',
   bankAccountNumber: 'bank details', clearBankDetails: 'bank details removed', notes: 'notes', status: 'status', role: 'role',
-  seasonStart: 'season start', seasonEnd: 'season end', defaultBeaterRate: 'default beater rate', pegRotationRule: 'peg rule',
+  seasonStart: 'season start', seasonEnd: 'season end', defaultBeaterRate: 'default beater rate', defaultBeaterRatePence: 'usual day rate', dayRatePence: 'day rate', previousLinkWithdrawn: 'previous link withdrawn', pegRotationRule: 'peg rule',
   waiverExtra: 'guest clauses', subscriptionAmount: 'subscription', subscriptionType: 'subscription type', locationName: 'location',
   locationAddress: 'address', locationPostcode: 'postcode', locationWhat3words: 'what3words', meetTime: 'meet time',
   drivesPlanned: 'drives', expectedBag: 'expected bag', captainNotes: 'captain’s notes', weatherNotes: 'weather notes', date: 'date',

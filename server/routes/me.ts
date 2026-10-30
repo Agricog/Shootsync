@@ -28,7 +28,7 @@ const syndicateFields = {
   planEndedAt: true,
   stripeSubscriptionId: true,
   createdAt: true,
-  defaultBeaterRate: true,
+  defaultBeaterRatePence: true,
   pegRotationRule: true,
 } as const
 
@@ -68,7 +68,7 @@ export function meRoutes({ prisma, now }: Deps): Router {
       memberId,
       seasonStart: s.seasonStart,
       seasonEnd: s.seasonEnd,
-      defaultBeaterRate: s.defaultBeaterRate,
+      defaultBeaterRatePence: s.defaultBeaterRatePence,
       pegRotationRule: s.pegRotationRule,
       subscription: planSummary(s, now()),
     })

@@ -93,6 +93,7 @@ export const ACTIONS: Record<string, { action: string; target: string | null }> 
   'POST /api/guests': { action: 'Guest invited', target: 'guest' },
   'PATCH /api/guests/:id': { action: 'Guest details changed', target: 'guest' },
   'PATCH /api/guests/:id/payment': { action: 'Guest payment recorded', target: 'guest' },
+  'POST /api/guests/:id/invite-link': { action: 'Guest invitation link renewed', target: 'guest' },
   'DELETE /api/guests/:id': { action: 'Guest removed', target: 'guest' },
   'POST /api/guests/token/:token/accept': { action: 'Guest accepted the invitation', target: 'guest' },
   'POST /api/guests/token/:token/decline': { action: 'Guest declined the invitation', target: 'guest' },
@@ -112,7 +113,7 @@ export const AUDIT_FIELDS = new Set([
   'expectedBag', 'captainNotes', 'weatherNotes', 'date', 'pegNumber', 'dayFee', 'paid', 'allocations', 'payments',
   'paymentReference', 'emergencyContactName', 'emergencyContactPhone', 'waiverAccepted', 'pheasant', 'partridge', 'duck',
   'woodcock', 'other', 'otherDescription', 'driveNumber', 'beaterIds', 'memberId', 'shootId', 'planTier', 'bascNumber',
-  'insuranceExpiry', 'dayRatePence',
+  'insuranceExpiry', 'dayRatePence', 'defaultBeaterRatePence', 'previousLinkWithdrawn',
 ])
 
 /** Routes that change nothing kept on the record, so are deliberately not in the trail. */

@@ -14,7 +14,7 @@ import {
 import { BankDetailsUnreadable, openBankNumbers, last4, sealBankNumbers, type BankNumbers } from '../bankCrypto.js'
 import { noteAuditTarget, recordBeforeAnswering } from '../audit.js'
 import { FORMER_BEATER, anonymousBeater } from '../retention.js'
-import { HMRC_CASUAL_DAY_LIMIT, lockShoots, normaliseAccountNumber, normaliseSortCode, poundsToPence, taxYearOf } from '../beaterPay.js'
+import { HMRC_CASUAL_DAY_LIMIT, dayRatePence, lockShoots, normaliseAccountNumber, normaliseSortCode, taxYearOf } from '../beaterPay.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 
@@ -23,7 +23,7 @@ const createBeaterSchema = z.object({
   name: z.string().trim().min(1).max(100),
   email: z.string().trim().email().max(254).optional().or(z.literal('').transform(() => undefined)),
   phone: optionalText(30),
-  dayRate: z.number().int().min(0).max(1000).optional(),
+  dayRatePence: dayRatePence.optional(),
   bankName: optionalText(100),
   bankSortCode: z
     .string()
@@ -192,7 +192,7 @@ export function beaterRoutes({ prisma, config, alerts }: Deps): Router {
         bankName: beater.bankName,
         bankDetailsOnFile: Boolean(beater.bankDetailsSealed || (beater.bankSortCode && beater.bankAccountNumber)),
         bankAccountLast4: beater.bankAccountLast4 ?? (beater.bankAccountNumber ? last4(beater.bankAccountNumber) : null),
-        dayRatePence: poundsToPence(beater.dayRate),
+        dayRatePence: beater.dayRatePence,
         daysWorked: new Set(beater.payments.map((p) => dayKey(p.shootDay.date))).size,
         daysThisTaxYear,
         daysExpectedThisTaxYear,
@@ -336,7 +336,8 @@ export function beaterRoutes({ prisma, config, alerts }: Deps): Router {
           name: data.name,
           email: data.email,
           phone: data.phone,
-          dayRate: data.dayRate ?? 40,
+          // A new beater starts on the syndicate's usual rate unless one is given.
+          dayRatePence: data.dayRatePence ?? (await tx.syndicate.findUniqueOrThrow({ where: { id: data.syndicateId }, select: { defaultBeaterRatePence: true } })).defaultBeaterRatePence,
           bankName: data.bankName,
           notes: data.notes,
         },

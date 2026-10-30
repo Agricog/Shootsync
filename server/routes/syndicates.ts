@@ -5,6 +5,7 @@ import { dateString } from '../validation.js'
 import { HttpError, handle, notFound, requireSyndicateAccess, syndicateSelect, userIdOf, withoutCaptainOnlyFields } from '../access.js'
 import { addAuditDetails, noteAuditContext, noteAuditTarget } from '../audit.js'
 import { buildSyndicateExport } from '../syndicateExport.js'
+import { dayRatePence } from '../beaterPay.js'
 
 /** Plan states in which nothing more will be charged. */
 const SUBSCRIPTION_ENDED = new Set(['CANCELLED'])
@@ -15,9 +16,7 @@ const createSyndicateSchema = z.object({
   name: z.string().trim().min(1).max(100),
   seasonStart: dateString.transform((s) => new Date(s)),
   seasonEnd: dateString.transform((s) => new Date(s)),
-  subscriptionAmount: z.number().int().min(0).max(1_000_000).optional(),
-  subscriptionType: z.enum(['ANNUAL', 'PER_SHOOT', 'HYBRID']).optional(),
-  defaultBeaterRate: z.number().int().min(0).max(1000).optional(),
+  defaultBeaterRatePence: dayRatePence.optional(),
   pegRotationRule: z.enum(['FAIR_ROTATION', 'RANDOM', 'MANUAL']).optional(),
 })
 
@@ -126,7 +125,7 @@ export function syndicateRoutes({ prisma, config, now }: Deps): Router {
         },
         beaters: {
           where: { status: 'ACTIVE' },
-          select: { id: true, name: true, dayRate: true, status: true },
+          select: { id: true, name: true, dayRatePence: true, status: true },
         },
         shootDays: {
           where: { status: 'SCHEDULED' },
@@ -158,9 +157,7 @@ export function syndicateRoutes({ prisma, config, now }: Deps): Router {
         captainClerkId: userId,
         seasonStart: data.seasonStart,
         seasonEnd: data.seasonEnd,
-        subscriptionAmount: data.subscriptionAmount ?? 0,
-        subscriptionType: data.subscriptionType ?? 'ANNUAL',
-        defaultBeaterRate: data.defaultBeaterRate ?? 40,
+        defaultBeaterRatePence: data.defaultBeaterRatePence ?? 4000,
         pegRotationRule: data.pegRotationRule ?? 'FAIR_ROTATION',
       },
       select: syndicateSelect,

@@ -9,6 +9,8 @@
  * - The day fee is fixed once the guest has accepted the invitation at it.
  * - A card payment (from a page opened before online payment was switched off) for a different
  *   amount than the fee is still recorded, and said loudly.
+ * - A guest's link is stored only as a hash: it is given once, when made or renewed, and a new
+ *   link withdraws the old one.
  */
 
 import { after, before, beforeEach, describe, it } from 'node:test'
@@ -19,6 +21,7 @@ import {
   acceptBody,
 } from './helpers.js'
 import { GUEST_LINK_DAYS_AFTER_SHOOT, guestDayClosed, guestLinkExpired } from '../server/routes/guests.js'
+import { INVITE_TOKEN_PATTERN, hashInviteToken, inviteLinkPath, newInviteToken } from '../server/inviteTokens.js'
 
 type Seeded = Awaited<ReturnType<typeof seed>>
 
@@ -237,6 +240,83 @@ describe('guest guard rails, on the server', () => {
         assert.equal(server.alerts[0].kind, 'money')
         assert.match(server.alerts[0].message, /different amount from their day fee/)
         assert.deepEqual(server.alerts[0].details, { guest: data.a.guest.id, paid: amount, currency, dayFeePence: 5000, session: 'cs_test_amount' })
+      })
+    }
+  })
+
+  describe('the invitation link is never stored, only its hash', () => {
+    const asCaptain = (method: string, path: string, body?: unknown) => call(server, path, { method, as: CAPTAIN_A, body })
+    const asGun = (method: string, path: string, body?: unknown) => call(server, path, { method, as: GUN_A, body })
+    const tokenOf = (link: string) => link.slice('/guest/accept/'.length)
+
+    it('a token is 32 random bytes, and its hash is what the table holds', () => {
+      const made = newInviteToken()
+      assert.match(made.token, INVITE_TOKEN_PATTERN)
+      assert.equal(made.hash, hashInviteToken(made.token))
+      assert.notEqual(made.hash, made.token)
+      assert.notEqual(newInviteToken().token, made.token)
+      assert.equal(inviteLinkPath(made.token), `/guest/accept/${made.token}`)
+      // SHA-256 of the token's text, as hex: the same thing migration 0007 computes in SQL (tests/migrations.test.ts).
+      assert.equal(hashInviteToken('abc'), 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad')
+    })
+
+    it('adding a guest gives the link once; the table holds its hash, which no list or sheet sends', async () => {
+      const added = await asCaptain('POST', '/api/guests', { shootId: data.a.shoot.id, invitedByMemberId: data.a.gun.id, name: 'Once', email: 'once@example.com' })
+      assert.equal(added.status, 201)
+      assert.equal('inviteToken' in added.json, false)
+      const token = tokenOf(added.json.inviteLink)
+      assert.match(token, INVITE_TOKEN_PATTERN)
+      const row = await prisma.guestGun.findUniqueOrThrow({ where: { id: added.json.id } })
+      assert.equal(row.inviteToken, hashInviteToken(token))
+      // The link opens the guest's page; the hash itself does not.
+      assert.equal((await call(server, `/api/guests/token/${token}`)).status, 200)
+      assert.equal((await call(server, `/api/guests/token/${row.inviteToken}`)).status, 404)
+      // Nothing the captain reads or changes afterwards carries the hash.
+      const answers = [
+        ...(await Promise.all([`/api/guests/${added.json.id}`, `/api/guests?shootId=${data.a.shoot.id}`, `/api/shoots/${data.a.shoot.id}`].map(async (path) => [path, (await asCaptain('GET', path)).json] as const))),
+        ['PATCH guest', (await asCaptain('PATCH', `/api/guests/${added.json.id}`, { notes: 'left-handed' })).json] as const,
+        ['PATCH guest fee', (await asCaptain('PATCH', `/api/guests/${added.json.id}`, { dayFee: 4000 })).json] as const,
+        ['PATCH payment', (await asCaptain('PATCH', `/api/guests/${added.json.id}/payment`, { paid: true })).json] as const,
+      ]
+      for (const [path, body] of answers) {
+        const text = JSON.stringify(body)
+        assert.equal(text.includes(row.inviteToken!), false, path)
+        assert.equal(text.includes(token), false, path)
+      }
+    })
+
+    it('a new link works at once and the old one stops; the renewal is in the trail without the link', async () => {
+      const guestId = data.a.guest.id
+      assert.equal((await call(server, `/api/guests/token/${INVITE_TOKEN_A}`)).status, 200)
+      const renewed = await asCaptain('POST', `/api/guests/${guestId}/invite-link`)
+      assert.equal(renewed.status, 200)
+      const token = tokenOf(renewed.json.inviteLink)
+      assert.match(token, INVITE_TOKEN_PATTERN)
+      assert.notEqual(token, INVITE_TOKEN_A)
+      assert.equal((await call(server, `/api/guests/token/${INVITE_TOKEN_A}`)).status, 404, 'the old link')
+      assert.equal((await call(server, `/api/guests/token/${token}`)).status, 200, 'the new link')
+      const entry = await prisma.activityLog.findFirstOrThrow({ where: { syndicateId: data.a.syndicate.id, action: 'Guest invitation link renewed' } })
+      assert.deepEqual([entry.targetType, entry.targetId], ['guest', guestId])
+      assert.deepEqual(entry.details, { previousLinkWithdrawn: true })
+      assert.equal(JSON.stringify(entry).includes(token), false)
+      assert.equal(JSON.stringify(entry).includes(hashInviteToken(token)), false)
+    })
+
+    it('a gun cannot renew a link, even for their own guest', async () => {
+      assert.equal((await asGun('POST', `/api/guests/${data.a.guest.id}/invite-link`)).status, 404)
+    })
+
+    for (const [label, prepare] of [
+      ['the guest declined', async () => { await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { rsvpStatus: 'DECLINED' } }) }],
+      ['the day is over', async () => { today = '2026-11-15' }],
+      ['their details are erased', async () => { await prisma.guestGun.update({ where: { id: data.a.guest.id }, data: { email: `removed-${data.a.guest.id}@removed.invalid`, inviteToken: null } }) }],
+    ] as const) {
+      it(`no new link once ${label}, and the stored hash is left as it was`, async () => {
+        await prepare()
+        const before = (await guestRow()).inviteToken
+        const res = await asCaptain('POST', `/api/guests/${data.a.guest.id}/invite-link`)
+        assert.equal(res.status, 409)
+        assert.equal((await guestRow()).inviteToken, before)
       })
     }
   })

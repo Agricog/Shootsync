@@ -10,12 +10,12 @@ import type { PrismaClient } from '@prisma/client'
 import { settingsPayload, toForm, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyDraft, payloadFrom } from '../src/utils/beaterForm.js'
 import { normaliseWhat3Words, shootPayload, validateShoot, type ShootDraft } from '../src/utils/shootForm.js'
-import { CAPTAIN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testConfig, type TestServer, acceptBody } from './helpers.js'
+import { CAPTAIN_A, INVITE_TOKEN_A, call, createTestPrisma, createTestStripe, resetDatabase, seed, startTestServer, testConfig, type TestServer, acceptBody } from './helpers.js'
 import { openBankNumbers } from '../server/bankCrypto.js'
 
 const settings = {
   id: 's', name: 'Beatrice', seasonStart: '2026-10-01T00:00:00.000Z', seasonEnd: '2027-02-01T00:00:00.000Z',
-  subscriptionAmount: 800, subscriptionType: 'ANNUAL' as const, defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION' as const,
+  defaultBeaterRatePence: 4000, pegRotationRule: 'FAIR_ROTATION' as const,
 }
 
 const shootDraft: ShootDraft = {
@@ -24,13 +24,18 @@ const shootDraft: ShootDraft = {
 }
 
 describe('form checks', () => {
-  it('settings: a season must end after it starts, and money is whole pounds', () => {
+  it('settings: a season must end after it starts, and the day rate is pounds and pence up to £1,000', () => {
     assert.deepEqual(validateSettings(toForm(settings)), {})
     const form = toForm(settings)
+    assert.equal(form.defaultBeaterRate, '40')
     assert.ok(validateSettings({ ...form, seasonEnd: '2026-09-01' }).seasonEnd)
-    assert.ok(validateSettings({ ...form, subscriptionAmount: '800.50' }).subscriptionAmount)
-    assert.ok(validateSettings({ ...form, defaultBeaterRate: '1001' }).defaultBeaterRate)
+    assert.deepEqual(validateSettings({ ...form, defaultBeaterRate: '42.50' }), {})
+    assert.ok(validateSettings({ ...form, defaultBeaterRate: '1000.01' }).defaultBeaterRate)
+    assert.ok(validateSettings({ ...form, defaultBeaterRate: '42,50' }).defaultBeaterRate)
     assert.ok(validateSettings({ ...form, name: '  ' }).name)
+    // Sent in pence; a saved rate of £42.50 shows as "42.50" and sends nothing unless it changes.
+    assert.deepEqual(settingsPayload({ ...form, defaultBeaterRate: '42.50' }, settings), { defaultBeaterRatePence: 4250 })
+    assert.deepEqual(settingsPayload(toForm({ ...settings, defaultBeaterRatePence: 4250 }), { ...settings, defaultBeaterRatePence: 4250 }), {})
   })
 
   it('settings send only what changed, so a "manual" peg setting is kept unless changed here', () => {
@@ -42,19 +47,25 @@ describe('form checks', () => {
   })
 
   it('beaters: a sort code without an account number (or the reverse) is refused', () => {
-    assert.ok('error' in payloadFrom({ ...emptyDraft(40), name: 'Dai', bankSortCode: '123456' }, true))
-    assert.ok('error' in payloadFrom({ ...emptyDraft(40), name: 'Dai', bankAccountNumber: '12345678' }, false))
+    assert.ok('error' in payloadFrom({ ...emptyDraft(4000), name: 'Dai', bankSortCode: '123456' }, true))
+    assert.ok('error' in payloadFrom({ ...emptyDraft(4000), name: 'Dai', bankAccountNumber: '12345678' }, false))
   })
 
   it('beaters: blank bank fields on an edit keep what is saved; blank contact fields clear', () => {
-    const draft = { ...emptyDraft(40), name: 'Dai', phone: '', bankSortCode: '', bankAccountNumber: '' }
+    const draft = { ...emptyDraft(4000), name: 'Dai', phone: '', bankSortCode: '', bankAccountNumber: '' }
+    assert.equal(draft.dayRate, '40')
     const edit = payloadFrom(draft, true)
     const body = 'body' in edit ? edit.body : undefined
     assert.ok(body)
     assert.equal('bankSortCode' in body, false)
     assert.equal('bankAccountNumber' in body, false)
     assert.equal(body.phone, null)
-    assert.ok('error' in payloadFrom({ ...draft, dayRate: '40.5' }, true))
+    assert.equal(body.dayRatePence, 4000)
+    // Pounds and pence are accepted and sent in pence; anything else is refused in words.
+    const penny = payloadFrom({ ...draft, dayRate: '£42.50' }, true)
+    assert.equal('body' in penny ? penny.body?.dayRatePence : null, 4250)
+    assert.ok('error' in payloadFrom({ ...draft, dayRate: '40.5.1' }, true))
+    assert.ok('error' in payloadFrom({ ...draft, dayRate: '1000.01' }, true))
   })
 
   it('shoot days: what3words is tidied, the meet time must be a real time, blanks clear', () => {
@@ -93,10 +104,65 @@ describe('managing the syndicate (API)', () => {
 
   it('settings save, and are what the next load shows', async () => {
     const id = data.a.syndicate.id
-    const res = await as('PATCH', `/api/syndicates/${id}`, { name: 'Oakwood Guns', subscriptionAmount: 950, defaultBeaterRate: 45, pegRotationRule: 'RANDOM' })
+    const res = await as('PATCH', `/api/syndicates/${id}`, { name: 'Oakwood Guns', defaultBeaterRatePence: 4550, pegRotationRule: 'RANDOM' })
     assert.equal(res.status, 200)
     const [syndicate] = (await as('GET', '/api/syndicates')).json
-    assert.deepEqual([syndicate.name, syndicate.subscriptionAmount, syndicate.defaultBeaterRate, syndicate.pegRotationRule], ['Oakwood Guns', 950, 45, 'RANDOM'])
+    assert.deepEqual([syndicate.name, syndicate.defaultBeaterRatePence, syndicate.pegRotationRule], ['Oakwood Guns', 4550, 'RANDOM'])
+  })
+
+  it('editing a guest: a blank clears a field, an emergency contact goes as a pair, and the pounds column never travels with a booking', async () => {
+    const id = data.a.guest.id
+    const set = await as('PATCH', `/api/guests/${id}`, { phone: '07700 900444', emergencyContactName: 'Jo', emergencyContactPhone: '07700 900555', notes: 'Left-handed' })
+    assert.equal(set.status, 200)
+    assert.deepEqual([set.json.phone, set.json.emergencyContactName, set.json.notes], ['07700 900444', 'Jo', 'Left-handed'])
+    const half = await as('PATCH', `/api/guests/${id}`, { emergencyContactName: '' })
+    assert.equal(half.status, 400)
+    assert.match(half.json.error, /both/)
+    const cleared = await as('PATCH', `/api/guests/${id}`, { phone: '', emergencyContactName: '', emergencyContactPhone: '', notes: null })
+    assert.equal(cleared.status, 200)
+    assert.deepEqual([cleared.json.phone, cleared.json.emergencyContactName, cleared.json.emergencyContactPhone, cleared.json.notes], [null, null, null, null])
+    // Bookings: pence only, on every answer that carries one.
+    const sheet = (await as('GET', `/api/shoots/${data.a.shoot.id}`)).json
+    assert.ok(sheet.beaterBookings.length > 0)
+    for (const b of sheet.beaterBookings) assert.ok(typeof b.dayRatePence === 'number' && !('dayRate' in b), 'sheet booking')
+    const changed = await as('PATCH', `/api/shoots/${data.a.shoot.id}/beaters/${data.a.booking.id}`, { dayRatePence: 4150 })
+    assert.equal(changed.status, 200)
+    assert.ok(changed.json.dayRatePence === 4150 && !('dayRate' in changed.json), 'changed booking')
+    const other = await prisma.beater.create({ data: { syndicateId: data.a.syndicate.id, name: 'Second', dayRatePence: 3900 } })
+    const booked = await as('POST', `/api/shoots/${data.a.shoot.id}/beaters`, { beaterIds: [other.id] })
+    assert.equal(booked.status, 201)
+    for (const b of booked.json) assert.ok(typeof b.dayRatePence === 'number' && !('dayRate' in b), 'booked list')
+  })
+
+  it('the members’ subscription setting is gone: not sent, and ignored if an old page still sends it', async () => {
+    const id = data.a.syndicate.id
+    const res = await as('PATCH', `/api/syndicates/${id}`, { name: 'Still here', subscriptionAmount: 950, subscriptionType: 'PER_SHOOT' })
+    assert.equal(res.status, 200)
+    for (const key of ['subscriptionAmount', 'subscriptionType']) {
+      assert.equal(key in res.json, false, key)
+      assert.equal(key in (await as('GET', `/api/syndicates/${id}`)).json, false, key)
+      assert.equal(key in (await call(server, '/api/me', { as: CAPTAIN_A })).json.syndicates[0], false, key)
+    }
+    const row = await prisma.syndicate.findUniqueOrThrow({ where: { id } })
+    // The seed's values, untouched: the columns stay until a later migration drops them.
+    assert.deepEqual([row.name, row.subscriptionAmount, row.subscriptionType], ['Still here', data.a.syndicate.subscriptionAmount, data.a.syndicate.subscriptionType])
+  })
+
+  it('day rates travel in pence: a new beater starts on the syndicate’s usual rate, and a rate has pence', async () => {
+    const syndicateId = data.a.syndicate.id
+    await as('PATCH', `/api/syndicates/${syndicateId}`, { defaultBeaterRatePence: 4250 })
+    const added = await as('POST', '/api/beaters', { syndicateId, name: 'Newcomer' })
+    assert.equal(added.status, 201)
+    assert.equal(added.json.dayRatePence, 4250)
+    assert.equal('dayRate' in added.json, false, 'the whole-pound column never travels')
+    const given = await as('POST', '/api/beaters', { syndicateId, name: 'Agreed', dayRatePence: 3775 })
+    assert.equal(given.json.dayRatePence, 3775)
+    // Pounds sent as pounds, or more than £1,000, are refused in plain words.
+    assert.equal((await as('POST', '/api/beaters', { syndicateId, name: 'Wrong unit', dayRatePence: 42.5 })).json.error, 'Day rate must be whole pence.')
+    assert.equal((await as('PATCH', `/api/beaters/${added.json.id}`, { dayRatePence: 100_001 })).json.error, 'Day rate must be £1,000 or less.')
+    assert.equal((await as('PATCH', `/api/syndicates/${syndicateId}`, { defaultBeaterRatePence: -1 })).json.error, 'Day rate can’t be less than £0.')
+    const list = (await as('GET', `/api/beaters?syndicateId=${syndicateId}`)).json as Array<Record<string, unknown>>
+    assert.ok(list.every((b) => typeof b.dayRatePence === 'number' && !('dayRate' in b)))
   })
 
   it('moving only one end of the season still cannot put the end before the start', async () => {
@@ -108,13 +174,13 @@ describe('managing the syndicate (API)', () => {
 
   it('editing a beater keeps their bank details unless new ones are typed, and tidies them', async () => {
     const id = data.a.beater.id // seeded with 12-34-56 / 12345678
-    assert.equal((await as('PATCH', `/api/beaters/${id}`, { name: 'Dai Morgan', dayRate: 45, phone: '07700 900111' })).status, 200)
+    assert.equal((await as('PATCH', `/api/beaters/${id}`, { name: 'Dai Morgan', dayRatePence: 4550, phone: '07700 900111' })).status, 200)
     const numbers = async () => {
       const row = await prisma.beater.findUniqueOrThrow({ where: { id } })
       return { row, ...openBankNumbers(row.bankDetailsSealed!, id, testConfig.bankKeys!) }
     }
     let beater = await numbers()
-    assert.deepEqual([beater.row.name, beater.row.dayRate, beater.sortCode, beater.accountNumber], ['Dai Morgan', 45, '12-34-56', '12345678'])
+    assert.deepEqual([beater.row.name, beater.row.dayRatePence, beater.sortCode, beater.accountNumber], ['Dai Morgan', 4550, '12-34-56', '12345678'])
 
     assert.equal((await as('PATCH', `/api/beaters/${id}`, { bankSortCode: '30 90 12', bankAccountNumber: '0123-4567' })).status, 200)
     beater = await numbers()
@@ -192,7 +258,7 @@ describe('managing the syndicate (API)', () => {
     const withdrawn = await as('DELETE', `/api/guests/${guestId}`)
     assert.deepEqual([withdrawn.status, withdrawn.json.withdrawn], [200, true])
     assert.equal((await prisma.guestGun.findUniqueOrThrow({ where: { id: guestId } })).rsvpStatus, 'DECLINED')
-    const accept = await call(server, `/api/guests/token/${data.a.guest.inviteToken}/accept`, {
+    const accept = await call(server, `/api/guests/token/${INVITE_TOKEN_A}/accept`, {
       method: 'POST', body: acceptBody(),
     })
     assert.equal(accept.status, 409, 'a withdrawn guest cannot accept again')

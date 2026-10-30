@@ -13,10 +13,11 @@ import Card from '../common/Card'
 import Button from '../common/Button'
 import { formatCurrency } from '../../config/stripe'
 import { apiPath, apiRequest } from '../../lib/api'
+import { DAY_RATE_MESSAGE, dayRateField, formatDayRate, parseDayRate } from '../../utils/dayRate'
 
 export interface Booking {
   id: string
-  dayRate: number
+  dayRatePence: number
   status: 'INVITED' | 'CONFIRMED' | 'DECLINED' | 'NO_SHOW'
   beater: { id: string; name: string; phone?: string | null }
 }
@@ -30,7 +31,7 @@ export interface PaymentLine {
 interface BeaterOption {
   id: string
   name: string
-  dayRate: number
+  dayRatePence: number
 }
 
 interface Props {
@@ -163,7 +164,7 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, readOn
                       }}
                     />
                     <span className="text-white">{beater.name}</span>
-                    <span className="text-slate-400 text-sm ml-auto">£{beater.dayRate}</span>
+                    <span className="text-slate-400 text-sm ml-auto">{formatDayRate(beater.dayRatePence)}</span>
                   </label>
                 ))}
               </div>
@@ -207,24 +208,23 @@ export default function ShootBeaters({ shootId, syndicateId, shootStatus, readOn
                     <label className="flex items-center gap-1 text-sm text-slate-400">
                       £
                       <input
-                        key={`${booking.id}-${booking.dayRate}-${revision}`}
-                        type="number"
-                        inputMode="numeric"
-                        min={0}
-                        max={1000}
-                        defaultValue={booking.dayRate}
+                        key={`${booking.id}-${booking.dayRatePence}-${revision}`}
+                        type="text"
+                        inputMode="decimal"
+                        defaultValue={dayRateField(booking.dayRatePence)}
                         aria-label={`Day rate for ${booking.beater.name}`}
                         disabled={busy !== null || locked}
                         onBlur={(e) => {
-                          const value = Number(e.target.value)
-                          if (!Number.isInteger(value) || value < 0 || value > 1000) {
-                            setError('Day rate must be whole pounds, from £0 to £1,000.')
+                          const pence = parseDayRate(e.target.value)
+                          if (pence === null) {
+                            setError(DAY_RATE_MESSAGE)
                             setRevision((r) => r + 1)
-                          } else if (value !== booking.dayRate) {
-                            run(booking.id, bookingPath(booking.id), 'PATCH', { dayRate: value })
+                          } else if (pence !== booking.dayRatePence) {
+                            run(booking.id, bookingPath(booking.id), 'PATCH', { dayRatePence: pence })
                           }
                         }}
-                        className={`w-20 ${field}`}
+                        onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                        className={`w-24 ${field}`}
                       />
                     </label>
                     <select

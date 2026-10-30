@@ -5,7 +5,7 @@
  * browser on this page (the API masks them to "on file, ending 5678"); to change them the
  * captain types new ones, and leaving the fields blank keeps what is saved. Full details
  * appear only on the captain's Beaters' pay page, where they are needed to pay people.
- * Day rates are whole pounds.
+ * Day rates are typed in pounds and pence and saved in pence.
  */
 
 import { useCallback, useEffect, useState } from 'react'
@@ -18,13 +18,15 @@ import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { draftFrom, emptyDraft, payloadFrom, type BeaterDraft as Draft } from '../../utils/beaterForm'
+import { formatDayRate, minimumWageNote, parseDayRate } from '../../utils/dayRate'
+import { londonDate } from '../../utils/beaterPayCalculator'
 
 interface Beater {
   id: string
   name: string
   email?: string | null
   phone?: string | null
-  dayRate: number
+  dayRatePence: number
   status: 'ACTIVE' | 'INACTIVE'
   bankName?: string | null
   bankDetailsOnFile: boolean
@@ -51,6 +53,7 @@ function BeaterForm({ draft, onChange, existing, saving, error, onSubmit, onCanc
   onClearBank?: () => void
 }) {
   const [confirmClear, setConfirmClear] = useState(false)
+  const rateNote = minimumWageNote(parseDayRate(draft.dayRate) ?? 0, londonDate(new Date()))
   const field = (key: keyof Draft, title: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <label className="block">
       <span className="block text-sm font-medium text-slate-300 mb-1">{title}</span>
@@ -69,10 +72,13 @@ function BeaterForm({ draft, onChange, existing, saving, error, onSubmit, onCanc
     >
       <div className="grid sm:grid-cols-2 gap-4">
         {field('name', 'Name', { required: true, maxLength: 100, autoComplete: 'off', autoFocus: true })}
-        {field('dayRate', 'Day rate (£)', { inputMode: 'numeric', required: true })}
+        {field('dayRate', 'Day rate (£)', { inputMode: 'decimal', required: true, 'aria-describedby': 'day-rate-note' })}
         {field('phone', 'Phone', { type: 'tel', maxLength: 30 })}
         {field('email', 'Email', { type: 'email', maxLength: 254 })}
       </div>
+      <p id="day-rate-note" className="text-sm text-slate-400 -mt-2">
+        {rateNote ?? 'Pounds and pence, for example 42.50.'}
+      </p>
       <fieldset className="grid sm:grid-cols-3 gap-4">
         <legend className="text-sm font-medium text-slate-300 mb-2 sm:col-span-3">Bank details, for paying them</legend>
         {field('bankName', 'Bank', { maxLength: 100 })}
@@ -116,12 +122,12 @@ export default function Beaters() {
   const syndicate = useCaptainSyndicate()
   const canWrite = useCanWrite()
   const syndicateId = syndicate.id
-  const defaultRate = syndicate.defaultBeaterRate
+  const defaultRate = syndicate.defaultBeaterRatePence
   const [beaters, setBeaters] = useState<Beater[]>([])
   const [loading, setLoading] = useState(true)
   const [showInactive, setShowInactive] = useState(false)
   const [editing, setEditing] = useState<string | 'new' | null>(null)
-  const [draft, setDraft] = useState<Draft>(() => emptyDraft(syndicate.defaultBeaterRate))
+  const [draft, setDraft] = useState<Draft>(() => emptyDraft(syndicate.defaultBeaterRatePence))
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -284,7 +290,7 @@ export default function Beaters() {
                             {beater.name}
                             {beater.status !== 'ACTIVE' && <span className="ml-2 text-xs px-2 py-0.5 rounded bg-slate-700 text-slate-200">Inactive</span>}
                           </h2>
-                          <p className="text-sm text-slate-400">£{beater.dayRate} a day</p>
+                          <p className="text-sm text-slate-400">{formatDayRate(beater.dayRatePence)} a day</p>
                           {beater.phone && <a href={`tel:${beater.phone}`} className="block text-sm text-slate-300 hover:text-white">{beater.phone}</a>}
                           {beater.email && <p className="text-sm text-slate-300">{beater.email}</p>}
                           <p className="text-sm text-slate-500 mt-1">

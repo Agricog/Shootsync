@@ -33,6 +33,8 @@ const LABELS: Record<string, string> = {
   driveNumber: 'Drive number',
   otherDescription: 'Description of other game',
   dayRate: 'Day rate',
+  dayRatePence: 'Day rate',
+  defaultBeaterRatePence: 'Usual day rate',
   dayFee: 'Day fee',
   bankName: 'Bank name',
   bankSortCode: 'Sort code',

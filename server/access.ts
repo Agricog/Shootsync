@@ -288,12 +288,10 @@ export const syndicateSelect = {
   captainClerkId: true,
   seasonStart: true,
   seasonEnd: true,
-  subscriptionAmount: true,
-  subscriptionType: true,
   stripeSubscriptionStatus: true,
   subscriptionCurrentPeriodEnd: true,
   planTier: true,
-  defaultBeaterRate: true,
+  defaultBeaterRatePence: true,
   pegRotationRule: true,
   waiverExtra: true,
   status: true,
@@ -302,6 +300,8 @@ export const syndicateSelect = {
 } satisfies Prisma.SyndicateSelect
 
 interface BankFields {
+  /** The whole-pound column kept only for the deploy window (0007); the browser gets dayRatePence. */
+  dayRate?: number
   bankName: string | null
   bankSortCode: string | null
   bankAccountNumber: string | null
@@ -315,7 +315,7 @@ interface BankFields {
  * need them (one beater shown, or the export for paying), server/routes/beaters.ts.
  */
 export function maskBankDetails<T extends BankFields>(beater: T) {
-  const { bankSortCode, bankAccountNumber, bankDetailsSealed, bankAccountLast4, ...rest } = beater
+  const { bankSortCode, bankAccountNumber, bankDetailsSealed, bankAccountLast4, dayRate: _pounds, ...rest } = beater
   return {
     ...rest,
     bankDetailsOnFile: Boolean(bankDetailsSealed || (bankSortCode && bankAccountNumber)),

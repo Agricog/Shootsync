@@ -16,8 +16,8 @@ import {
   withoutCaptainOnlyFields,
 } from '../access.js'
 import { fairDraw, randomDraw } from '../pegDraw.js'
-import { lockShoot, syncBeaterPayments } from '../beaterPay.js'
-import { shootDateKey } from './guests.js'
+import { dayRatePence, lockShoot, syncBeaterPayments } from '../beaterPay.js'
+import { shootDateKey, withoutInviteToken } from './guests.js'
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
 
@@ -82,9 +82,9 @@ const bookBeatersSchema = z.object({
 const updateBookingSchema = z
   .object({
     status: z.enum(['INVITED', 'CONFIRMED', 'DECLINED', 'NO_SHOW']).optional(),
-    dayRate: z.number().int().min(0).max(1000).optional(),
+    dayRatePence: dayRatePence.optional(),
   })
-  .refine((d) => d.status !== undefined || d.dayRate !== undefined, 'Nothing to change')
+  .refine((d) => d.status !== undefined || d.dayRatePence !== undefined, 'Nothing to change')
 
 const savePegsSchema = z.object({
   allocations: z
@@ -93,6 +93,15 @@ const savePegsSchema = z.object({
     .refine((a) => new Set(a.map((x) => x.memberId)).size === a.length, 'A gun is listed twice')
     .refine((a) => new Set(a.map((x) => x.pegNumber)).size === a.length, 'Two guns are on the same peg'),
 })
+
+/**
+ * A booking as the browser sees it: the rate in pence only. The whole-pound column is kept in
+ * step by a database trigger for the deploy window (migration 0007) and never travels.
+ */
+function withoutPounds<T extends { dayRate: number }>(booking: T): Omit<T, 'dayRate'> {
+  const { dayRate: _pounds, ...rest } = booking
+  return rest
+}
 
 export function shootRoutes({ prisma, today }: Deps): Router {
   const router = Router()
@@ -129,7 +138,7 @@ export function shootRoutes({ prisma, today }: Deps): Router {
         attendances: { include: { member: true }, orderBy: { pegNumber: 'asc' } },
         guestGuns: { include: { invitedByMember: { select: { id: true, name: true } } } },
         beaterBookings: {
-          include: { beater: { select: { id: true, name: true, phone: true, email: true, dayRate: true } } },
+          include: { beater: { select: { id: true, name: true, phone: true, email: true, dayRatePence: true } } },
           orderBy: { beater: { name: 'asc' } },
         },
         beaterPayments: { select: { beaterId: true, amount: true, status: true } },
@@ -149,7 +158,7 @@ export function shootRoutes({ prisma, today }: Deps): Router {
       { pheasant: 0, partridge: 0, duck: 0, woodcock: 0, other: 0 }
     )
 
-    res.json({ ...shoot, bagTotals })
+    res.json({ ...shoot, guestGuns: shoot.guestGuns.map(withoutInviteToken), beaterBookings: shoot.beaterBookings.map(withoutPounds), bagTotals })
   }))
 
   // POST /api/shoots - captain only
@@ -266,11 +275,11 @@ export function shootRoutes({ prisma, today }: Deps): Router {
       if (shoot?.status === 'CANCELLED') throw new HttpError(400, 'This shoot day is cancelled')
       const beaters = await tx.beater.findMany({
         where: { id: { in: beaterIds }, syndicateId: syndicateId!, status: 'ACTIVE' },
-        select: { id: true, dayRate: true },
+        select: { id: true, dayRatePence: true },
       })
       if (beaters.length !== beaterIds.length) throw new HttpError(400, 'Every beater must be an active beater in this syndicate')
       await tx.beaterBooking.createMany({
-        data: beaters.map((b) => ({ syndicateId: syndicateId!, beaterId: b.id, shootId: req.params.id, dayRate: b.dayRate, status: 'INVITED' as const })),
+        data: beaters.map((b) => ({ syndicateId: syndicateId!, beaterId: b.id, shootId: req.params.id, dayRatePence: b.dayRatePence, status: 'INVITED' as const })),
         skipDuplicates: true,
       })
       await syncBeaterPayments(tx, req.params.id)
@@ -281,7 +290,7 @@ export function shootRoutes({ prisma, today }: Deps): Router {
       include: { beater: { select: { id: true, name: true, phone: true } } },
       orderBy: { beater: { name: 'asc' } },
     })
-    res.status(201).json(bookings)
+    res.status(201).json(bookings.map(withoutPounds))
   }))
 
   // PATCH /api/shoots/:id/beaters/:bookingId - status or day rate, captain only
@@ -304,7 +313,7 @@ export function shootRoutes({ prisma, today }: Deps): Router {
       await syncBeaterPayments(tx, req.params.id)
       return result
     })
-    res.json(updated)
+    res.json(withoutPounds(updated))
   }))
 
   // DELETE /api/shoots/:id/beaters/:bookingId - take a beater off the day, captain only

@@ -16,6 +16,7 @@ import { refusal, sessionFromClaims, type TokenVerifier } from '../server/auth.j
 import { waiverHash, waiverText } from '../server/waiver.js'
 import { sealBankNumbers } from '../server/bankCrypto.js'
 import { consoleAlerts, type AlertKind } from '../server/alerts.js'
+import { hashInviteToken } from '../server/inviteTokens.js'
 
 export const TEST_WEBHOOK_SECRET = 'whsec_test_shootsync'
 /** The key test bank details are sealed with. Never a real key. */
@@ -298,13 +299,14 @@ export async function seed(prisma: PrismaClient) {
     await prisma.shootAttendance.create({ data: { shootId: shoot.id, memberId: gun.id, pegNumber: 3 } })
     const bag = await prisma.bagRecord.create({ data: { shootId: shoot.id, driveNumber: 1, pheasant: 12, recordedByMemberId: gun.id } })
     const booking = await prisma.beaterBooking.create({
-      data: { syndicateId: syndicate.id, beaterId: beater.id, shootId: shoot.id, dayRate: 40, status: 'CONFIRMED' },
+      data: { syndicateId: syndicate.id, beaterId: beater.id, shootId: shoot.id, dayRatePence: 4000, status: 'CONFIRMED' },
     })
     const payment = await prisma.beaterPayment.create({
       data: { syndicateId: syndicate.id, beaterId: beater.id, shootId: shoot.id, amount: 4000 },
     })
     const guest = await prisma.guestGun.create({
-      data: { shootId: shoot.id, invitedByMemberId: gun.id, name: `${label} Guest`, email: `${label}guest@example.com`, dayFee: 5000, inviteToken },
+      // The link's token is what the tests use; the row holds its hash, as production does (0007).
+      data: { shootId: shoot.id, invitedByMemberId: gun.id, name: `${label} Guest`, email: `${label}guest@example.com`, dayFee: 5000, inviteToken: hashInviteToken(inviteToken) },
     })
     return { syndicate, captainMember, gun, beater, shoot, bag, booking, payment, guest }
   }

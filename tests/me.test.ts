@@ -61,7 +61,7 @@ describe('who am I, archiving and plain-English errors', () => {
       assert.equal(list[0].role, 'CAPTAIN')
       assert.equal(list[0].memberId, data.a.captainMember.id)
       assert.equal(list[0].name, 'A Syndicate')
-      assert.equal(list[0].defaultBeaterRate, 40)
+      assert.equal(list[0].defaultBeaterRatePence, 4000)
       assert.equal(list[0].pegRotationRule, 'FAIR_ROTATION')
     })
 

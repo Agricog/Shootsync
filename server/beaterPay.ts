@@ -1,9 +1,10 @@
 /**
  * Beater pay - ShootSync
  *
- * Units: day rates (Beater.dayRate, BeaterBooking.dayRate, Syndicate.defaultBeaterRate)
- * are whole pounds. Money owed and paid (BeaterPayment.amount) is pence, like every
- * other amount of money ShootSync stores. Convert only with poundsToPence.
+ * Units: every amount of money ShootSync stores is pence, day rates included (Beater.dayRatePence,
+ * BeaterBooking.dayRatePence, Syndicate.defaultBeaterRatePence; migration 0007). The old whole-pound
+ * columns (dayRate, defaultBeaterRate) are kept in step by database triggers until they are dropped,
+ * and nothing here reads them. A day rate is at most £1,000 (MAX_DAY_RATE_PENCE).
  *
  * The rule: once a shoot day is completed, every beater booked on it and marked
  * Confirmed is owed their booked day rate, once. Nobody else is owed anything for it.
@@ -13,8 +14,17 @@
  */
 
 import type { Prisma } from '@prisma/client'
+import { z } from 'zod'
 
-export const poundsToPence = (pounds: number) => Math.round(pounds * 100)
+/** The most a beater's day rate can be: £1,000, in pence. */
+export const MAX_DAY_RATE_PENCE = 100_000
+
+/** A day rate as the API takes it: whole pence, £0 to £1,000. The captain types pounds; the messages say pounds. */
+export const dayRatePence = z
+  .number()
+  .int('Day rate must be whole pence.')
+  .min(0, 'Day rate can’t be less than £0.')
+  .max(MAX_DAY_RATE_PENCE, 'Day rate must be £1,000 or less.')
 
 type Tx = Prisma.TransactionClient
 
@@ -23,14 +33,14 @@ export async function syncBeaterPayments(tx: Tx, shootId: string): Promise<void>
   if (!shoot) return
 
   const [bookings, payments] = await Promise.all([
-    tx.beaterBooking.findMany({ where: { shootId }, select: { beaterId: true, dayRate: true, status: true } }),
+    tx.beaterBooking.findMany({ where: { shootId }, select: { beaterId: true, dayRatePence: true, status: true } }),
     tx.beaterPayment.findMany({ where: { shootId }, select: { id: true, beaterId: true, amount: true, status: true } }),
   ])
 
   const owed = new Map<string, number>()
   if (shoot.status === 'COMPLETED') {
     for (const booking of bookings) {
-      if (booking.status === 'CONFIRMED') owed.set(booking.beaterId, poundsToPence(booking.dayRate))
+      if (booking.status === 'CONFIRMED') owed.set(booking.beaterId, booking.dayRatePence)
     }
   }
 

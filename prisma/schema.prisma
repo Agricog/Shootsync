@@ -36,7 +36,10 @@ model Syndicate {
   /// When the plan ended: everything is deleted 90 days later, after the captain is offered the export (0006).
   planEndedAt                DateTime? @map("plan_ended_at")
   
+  /// Whole pounds. Kept in step with the pence by a database trigger until a later migration drops it (0007).
   defaultBeaterRate   Int      @default(40) @map("default_beater_rate")
+  /// What a new beater starts on, in pence (0007). The column the code reads and writes.
+  defaultBeaterRatePence Int   @default(4000) @map("default_beater_rate_pence")
   pegRotationRule     PegRotationRule @default(FAIR_ROTATION) @map("peg_rotation_rule")
   status              SyndicateStatus @default(ACTIVE)
   createdAt           DateTime @default(now()) @map("created_at")
@@ -97,7 +100,10 @@ model Beater {
   name              String
   email             String?
   phone             String?
+  /// Whole pounds. Kept in step with the pence by a database trigger until a later migration drops it (0007).
   dayRate           Int      @default(40) @map("day_rate")
+  /// The beater's day rate in pence (0007). The column the code reads and writes.
+  dayRatePence      Int      @default(4000) @map("day_rate_pence")
   bankName          String?  @map("bank_name")
   bankSortCode      String?  @map("bank_sort_code")
   bankAccountNumber String?  @map("bank_account_number")
@@ -193,6 +199,7 @@ model GuestGun {
   /// The exact words accepted, kept whole: a hash alone can't be read back once a syndicate edits its clauses (migration 0005).
   waiverText            String?  @map("waiver_text")
   rsvpStatus            RsvpStatus @default(PENDING) @map("rsvp_status")
+  /// SHA-256 (hex) of the token in the guest's link (server/inviteTokens.ts), never the token itself (0007).
   inviteToken           String?  @unique @map("invite_token")
   notes                 String?
   createdAt             DateTime @default(now()) @map("created_at")
@@ -285,7 +292,10 @@ model BeaterBooking {
   syndicateId   String   @map("syndicate_id")
   beaterId      String   @map("beater_id")
   shootId       String   @map("shoot_id")
-  dayRate       Int      @map("day_rate")
+  /// Whole pounds. Kept in step with the pence by a database trigger until a later migration drops it (0007).
+  dayRate       Int      @default(0) @map("day_rate")
+  /// The rate agreed for this day, in pence (0007). The column the code reads and writes.
+  dayRatePence  Int      @default(0) @map("day_rate_pence")
   status        BookingStatus @default(INVITED)
   invitedAt     DateTime @default(now()) @map("invited_at")
   confirmedAt   DateTime? @map("confirmed_at")

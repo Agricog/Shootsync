@@ -56,7 +56,6 @@ interface ShootDay {
     emergencyContactPhone?: string | null
     /** Set when the fee was paid by card through Stripe; null when the captain marked it paid. */
     stripePaymentId?: string | null
-    inviteToken?: string
     pegNumber?: number | null
     invitedByMember?: { id: string; name: string } | null
   }>
@@ -106,7 +105,12 @@ export default function ShootDetail() {
   const [inviteError, setInviteError] = useState<string | null>(null)
   const [guestNotice, setGuestNotice] = useState<string | null>(null)
   const [guestError, setGuestError] = useState<string | null>(null)
-  const [copiedToken, setCopiedToken] = useState<string | null>(null)
+  // Invite links are shown once, when made: the server keeps only a hash of each one. A link made
+  // on this page stays here until the page is left; after that the captain makes a new one.
+  const [inviteLinks, setInviteLinks] = useState<Record<string, string>>({})
+  const [copiedGuest, setCopiedGuest] = useState<string | null>(null)
+  const [confirmNewLink, setConfirmNewLink] = useState<string | null>(null)
+  const [makingLink, setMakingLink] = useState<string | null>(null)
 
   const navigate = useNavigate()
   const [editingDay, setEditingDay] = useState(false)
@@ -178,7 +182,7 @@ export default function ShootDetail() {
 
     setInviting(true)
     setInviteError(null)
-    const result = await apiRequest<{ name: string }>('/api/guests', {
+    const result = await apiRequest<{ id: string; name: string; inviteLink: string }>('/api/guests', {
       method: 'POST',
       body: {
         shootId: shoot.id,
@@ -196,8 +200,24 @@ export default function ShootDetail() {
     }
     setInviteData(blankGuest())
     setShowInviteForm(false)
+    setInviteLinks((links) => ({ ...links, [result.data.id]: `${window.location.origin}${result.data.inviteLink}` }))
     setGuestNotice(`${result.data.name} added. ShootSync doesn’t email guests: copy their invite link below and send it to them yourself.`)
     await refreshShoot()
+  }
+
+  // A new link for a guest: the only way to get one again, and the way to withdraw one that went astray.
+  const makeNewLink = async (guest: { id: string; name: string }) => {
+    setConfirmNewLink(null)
+    setGuestError(null)
+    setMakingLink(guest.id)
+    const result = await apiRequest<{ inviteLink: string }>(`/api/guests/${encodeURIComponent(guest.id)}/invite-link`, { method: 'POST' })
+    setMakingLink(null)
+    if (!result.ok) {
+      setGuestError(result.error)
+      return
+    }
+    setInviteLinks((links) => ({ ...links, [guest.id]: `${window.location.origin}${result.data.inviteLink}` }))
+    setGuestNotice(`A new invite link for ${guest.name} is below. Any link you sent them before no longer works.`)
   }
 
   const handleRemoveGuest = async (guestId: string) => {
@@ -262,15 +282,14 @@ export default function ShootDetail() {
     await refreshShoot()
   }
 
-  const copyInviteLink = async (token: string) => {
-    const link = `${window.location.origin}/guest/accept/${token}`
+  const copyInviteLink = async (guestId: string, link: string) => {
     try {
       await navigator.clipboard.writeText(link)
-      setCopiedToken(token)
-      setTimeout(() => setCopiedToken(null), 2000)
+      setCopiedGuest(guestId)
+      setTimeout(() => setCopiedGuest(null), 2000)
     } catch {
-      // No clipboard (an old browser, or permission refused): show the link to copy by hand.
-      window.prompt('Copy this invite link and send it to your guest:', link)
+      // No clipboard (an old browser, or permission refused): the link is on the page to copy by hand.
+      setGuestError('Couldn’t copy to the clipboard. Select the link below and copy it.')
     }
   }
 
@@ -414,7 +433,7 @@ export default function ShootDetail() {
         {confirmingComplete && (() => {
           const confirmed = shoot.beaterBookings.filter((b) => b.status === 'CONFIRMED')
           const asked = shoot.beaterBookings.filter((b) => b.status === 'INVITED').length
-          const owed = confirmed.reduce((sum, b) => sum + b.dayRate * 100, 0)
+          const owed = confirmed.reduce((sum, b) => sum + b.dayRatePence, 0)
           return (
             <Card>
               <h2 className="text-lg font-semibold text-white">Mark this day complete?</h2>
@@ -622,16 +641,35 @@ export default function ShootDetail() {
                     </div>
                   </div>
 
+                  {/* The link is shown once, when made. The guest's page shows the day's details, so it stays useful after they say yes. */}
+                  {inviteLinks[guest.id] && guest.rsvpStatus !== 'DECLINED' && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <label className="sr-only" htmlFor={`invite-link-${guest.id}`}>Invite link for {guest.name}</label>
+                      <input id={`invite-link-${guest.id}`} readOnly value={inviteLinks[guest.id]} onFocus={(e) => e.target.select()}
+                        className="flex-1 min-w-0 px-2 py-1 bg-slate-900 border border-slate-600 rounded text-slate-200 text-sm" />
+                      <Button size="sm" variant="secondary" onClick={() => void copyInviteLink(guest.id, inviteLinks[guest.id])}>
+                        {copiedGuest === guest.id ? 'Copied ✓' : 'Copy link'}
+                      </Button>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3">
-                    {/* The guest's page shows the day's details, so the link stays useful after they say yes. */}
-                    {guest.inviteToken && guest.rsvpStatus !== 'DECLINED' && (
-                      <button
-                        type="button"
-                        onClick={() => void copyInviteLink(guest.inviteToken!)}
-                        className="text-sm text-green-400 hover:text-green-300"
-                      >
-                        {copiedToken === guest.inviteToken ? 'Copied ✓' : 'Copy invite link'}
-                      </button>
+                    {canWrite && !dayOver && guest.rsvpStatus !== 'DECLINED' && !guest.email.endsWith('@removed.invalid') && !inviteLinks[guest.id] && (
+                      confirmNewLink === guest.id ? (
+                        <span className="text-sm text-amber-200 flex flex-wrap items-center gap-2">
+                          A new link stops any link you sent before from working.
+                          <button type="button" onClick={() => void makeNewLink(guest)} className="underline text-white">Make a new link</button>
+                          <button type="button" onClick={() => setConfirmNewLink(null)} className="underline">Keep the old one</button>
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmNewLink(guest.id)}
+                          disabled={makingLink === guest.id}
+                          className="text-sm text-green-400 hover:text-green-300 disabled:opacity-50"
+                        >
+                          {makingLink === guest.id ? 'Making a link…' : 'Invite link…'}
+                        </button>
+                      )
                     )}
                     {guest.waiverAccepted && (
                       <span className="text-sm text-slate-400">Acknowledgement signed ✓</span>

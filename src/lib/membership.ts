@@ -13,8 +13,8 @@ export interface Membership {
   memberId: string | null
   seasonStart: string
   seasonEnd: string
-  /** Whole pounds: what a new beater starts on. */
-  defaultBeaterRate: number
+  /** In pence: what a new beater starts on. */
+  defaultBeaterRatePence: number
   pegRotationRule: 'FAIR_ROTATION' | 'RANDOM' | 'MANUAL'
   subscription: PlanState
 }

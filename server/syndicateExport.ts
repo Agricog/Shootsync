@@ -21,7 +21,7 @@ export async function buildSyndicateExport(prisma: PrismaClient, syndicateId: st
   const [syndicate, members, beaters, shootDays, attendance, bookings, bags, guests, beaterPayments, memberPayments, activity] = await Promise.all([
     prisma.syndicate.findUniqueOrThrow({
       where: { id: syndicateId },
-      select: { id: true, name: true, seasonStart: true, seasonEnd: true, subscriptionAmount: true, subscriptionType: true, defaultBeaterRate: true, pegRotationRule: true, waiverExtra: true, planTier: true, stripeSubscriptionStatus: true, createdAt: true },
+      select: { id: true, name: true, seasonStart: true, seasonEnd: true, defaultBeaterRatePence: true, pegRotationRule: true, waiverExtra: true, planTier: true, stripeSubscriptionStatus: true, createdAt: true },
     }),
     prisma.member.findMany({
       where: { syndicateId },
@@ -30,12 +30,12 @@ export async function buildSyndicateExport(prisma: PrismaClient, syndicateId: st
     }),
     prisma.beater.findMany({
       where: { syndicateId },
-      select: { id: true, name: true, email: true, phone: true, dayRate: true, status: true, bankName: true, bankSortCode: true, bankAccountNumber: true, bankDetailsSealed: true, leftAt: true, notes: true, createdAt: true },
+      select: { id: true, name: true, email: true, phone: true, dayRatePence: true, status: true, bankName: true, bankSortCode: true, bankAccountNumber: true, bankDetailsSealed: true, leftAt: true, notes: true, createdAt: true },
       orderBy: { name: 'asc' },
     }),
     prisma.shootDay.findMany({ where: { syndicateId }, orderBy: { date: 'asc' } }),
     prisma.shootAttendance.findMany({ where: shoots, select: { shootId: true, memberId: true, roleOnDay: true, pegNumber: true, confirmed: true, attended: true, checkedInAt: true, notes: true } }),
-    prisma.beaterBooking.findMany({ where: { syndicateId }, select: { shootId: true, beaterId: true, dayRate: true, status: true, invitedAt: true, confirmedAt: true, checkedIn: true, checkedInAt: true, notes: true } }),
+    prisma.beaterBooking.findMany({ where: { syndicateId }, select: { shootId: true, beaterId: true, dayRatePence: true, status: true, invitedAt: true, confirmedAt: true, checkedIn: true, checkedInAt: true, notes: true } }),
     prisma.bagRecord.findMany({ where: shoots, orderBy: [{ shootId: 'asc' }, { driveNumber: 'asc' }] }),
     prisma.guestGun.findMany({
       where: shoots,

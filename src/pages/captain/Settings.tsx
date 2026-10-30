@@ -3,7 +3,7 @@
  *
  * Loads the captain's syndicate from the API and saves changes with PATCH
  * /api/syndicates/:id. Nothing here is hard-coded: what you see is what is saved.
- * Money units: the members' subscription and the beaters' default day rate are whole pounds.
+ * The beaters' usual day rate is typed in pounds and pence and saved in pence.
  * Billing opens Stripe's customer portal, where the captain can update their card,
  * see invoices, or cancel.
  */
@@ -20,6 +20,8 @@ import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { PLANS } from '../../config/plans'
 import { SITE } from '../../config/site'
 import { settingsPayload, toForm, validateSettings, type SettingsForm as Form, type SyndicateSettings as Syndicate } from '../../utils/syndicateSettings'
+import { minimumWageNote, parseDayRate } from '../../utils/dayRate'
+import { londonDate } from '../../utils/beaterPayCalculator'
 
 
 const label = 'block text-sm font-medium text-slate-300 mb-1'
@@ -145,6 +147,7 @@ export default function Settings() {
     ? new Date(subscription.currentPeriodEnd).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : null
   const err = (key: keyof Form) => (showErrors ? problems[key] : undefined)
+  const rateNote = form ? minimumWageNote(parseDayRate(form.defaultBeaterRate) ?? 0, londonDate(new Date())) : null
 
   return (
     <>
@@ -197,25 +200,14 @@ export default function Settings() {
               </Card>
 
               <Card>
-                <h2 className="text-lg font-semibold text-white mb-4">Money</h2>
+                <h2 className="text-lg font-semibold text-white mb-4">Beaters’ pay</h2>
                 <div className="grid sm:grid-cols-2 gap-4">
-                  <Field id="subscriptionAmount" title="Members’ subscription (£)" hint="What each gun pays the syndicate." error={err('subscriptionAmount')}>
-                    <input id="subscriptionAmount" aria-describedby="subscriptionAmount-note" inputMode="numeric" className={input} value={form.subscriptionAmount} aria-invalid={Boolean(err('subscriptionAmount'))}
-                      onChange={(e) => set('subscriptionAmount', e.target.value)} />
-                  </Field>
-                  <Field id="subscriptionType" title="Paid">
-                    <select id="subscriptionType" className={input} value={form.subscriptionType}
-                      onChange={(e) => set('subscriptionType', e.target.value as Form['subscriptionType'])}>
-                      <option value="ANNUAL">For the season</option>
-                      <option value="PER_SHOOT">Per shoot day</option>
-                      <option value="HYBRID">Part season, part per day</option>
-                    </select>
-                  </Field>
-                  <Field id="defaultBeaterRate" title="Beaters’ usual day rate (£)" hint="New beaters start on this; change anyone’s under Beaters." error={err('defaultBeaterRate')}>
-                    <input id="defaultBeaterRate" aria-describedby="defaultBeaterRate-note" inputMode="numeric" className={input} value={form.defaultBeaterRate} aria-invalid={Boolean(err('defaultBeaterRate'))}
+                  <Field id="defaultBeaterRate" title="Beaters’ usual day rate (£)" hint="New beaters start on this; change anyone’s under Beaters. Pounds and pence, for example 42.50." error={err('defaultBeaterRate')}>
+                    <input id="defaultBeaterRate" aria-describedby="defaultBeaterRate-note" inputMode="decimal" className={input} value={form.defaultBeaterRate} aria-invalid={Boolean(err('defaultBeaterRate'))}
                       onChange={(e) => set('defaultBeaterRate', e.target.value)} />
                   </Field>
                 </div>
+                {rateNote && <p className="mt-3 text-sm text-amber-200">{rateNote}</p>}
               </Card>
 
               <Card>

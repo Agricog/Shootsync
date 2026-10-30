@@ -11,6 +11,7 @@ import { useSyndicates } from '../../context/SyndicateContext'
 import { apiRequest } from '../../lib/api'
 import { londonDate } from '../../utils/beaterPayCalculator'
 import { newSyndicateForm, newSyndicatePayload, validateSettings, type SettingsForm } from '../../utils/syndicateSettings'
+import { minimumWageNote, parseDayRate } from '../../utils/dayRate'
 import DashboardLayout from '../../components/layout/DashboardLayout'
 import Card from '../../components/common/Card'
 import Button from '../../components/common/Button'
@@ -30,7 +31,7 @@ export default function CreateSyndicate() {
   const problems = useMemo(() => validateSettings(form), [form])
   const problem = (key: keyof SettingsForm) => (showErrors ? problems[key] : undefined)
 
-  const field = (key: 'name' | 'seasonStart' | 'seasonEnd' | 'subscriptionAmount' | 'defaultBeaterRate', title: string, hint: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+  const field = (key: 'name' | 'seasonStart' | 'seasonEnd' | 'defaultBeaterRate', title: string, hint: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
     <div>
       <label htmlFor={`syndicate-${key}`} className="block text-sm font-medium text-slate-300 mb-1">{title}</label>
       <input
@@ -102,8 +103,7 @@ export default function CreateSyndicate() {
               </div>
 
               <div className="grid sm:grid-cols-2 gap-4">
-                {field('subscriptionAmount', 'Members’ subscription (£)', 'What each gun pays the syndicate for the season. 0 if you don’t track it.', { inputMode: 'numeric' })}
-                {field('defaultBeaterRate', 'Beaters’ usual day rate (£)', 'New beaters start on this.', { inputMode: 'numeric' })}
+                {field('defaultBeaterRate', 'Beaters’ usual day rate (£)', minimumWageNote(parseDayRate(form.defaultBeaterRate) ?? 0, londonDate(new Date())) ?? 'New beaters start on this. Pounds and pence, for example 42.50.', { inputMode: 'decimal' })}
               </div>
 
               {error && (

@@ -12,6 +12,8 @@ import { nextShootFrom } from '../src/lib/shootDays.js'
 import { SESSION_CLOCK, formatCountdown, sessionClock, shouldPing, signedOutReason } from '../src/lib/sessionClock.js'
 import { newSyndicateForm, newSyndicatePayload, suggestedSeason, validateSettings } from '../src/utils/syndicateSettings.js'
 import { emptyShootDraft, newShootPayload, validateShoot } from '../src/utils/shootForm.js'
+import { DAY_RATE_MESSAGE, dayRateField, formatDayRate, minimumWageNote, parseDayRate } from '../src/utils/dayRate.js'
+import { MINIMUM_WAGE } from '../src/data/payRules.js'
 import { fieldLabel, friendlyMessage } from '../server/validation.js'
 
 describe('API client', () => {
@@ -123,7 +125,7 @@ describe('API client', () => {
 describe('which syndicate is on show', () => {
   const m = (id: string, role: Membership['role']): Membership => ({
     id, name: id, role, memberId: null, seasonStart: '2026-10-01', seasonEnd: '2027-02-01',
-    defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
+    defaultBeaterRatePence: 4000, pegRotationRule: 'FAIR_ROTATION',
     subscription: { status: null, planTier: null, isActive: false, reason: 'lapsed', currentPeriodEnd: null, readOnlyFrom: null },
   })
 
@@ -151,7 +153,7 @@ describe('what the captain is told about the plan', () => {
     const isActive = ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(status ?? '') && !extra.reason
     return {
       id: 'a', name: 'Beatrice', role: 'CAPTAIN', memberId: null, seasonStart: '', seasonEnd: '',
-      defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
+      defaultBeaterRatePence: 4000, pegRotationRule: 'FAIR_ROTATION',
       subscription: { status, planTier: null, isActive, reason: isActive ? null : 'lapsed', currentPeriodEnd: null, readOnlyFrom: null, ...extra },
     }
   }
@@ -229,13 +231,48 @@ describe('a new syndicate', () => {
     assert.deepEqual(suggestedSeason('2027-07-01'), { seasonStart: '2027-10-01', seasonEnd: '2028-02-01' })
   })
 
-  it('needs only a name; sends whole pounds and the usual defaults', () => {
+  it('needs only a name; sends the usual defaults, the day rate in pence', () => {
     const form = newSyndicateForm('2026-10-29')
     assert.deepEqual(Object.keys(validateSettings(form)), ['name'])
     assert.deepEqual(newSyndicatePayload({ ...form, name: '  Beatrice  ' }), {
       name: 'Beatrice', seasonStart: '2026-10-01', seasonEnd: '2027-02-01',
-      subscriptionAmount: 0, subscriptionType: 'ANNUAL', defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
+      defaultBeaterRatePence: 4000, pegRotationRule: 'FAIR_ROTATION',
     })
+  })
+})
+
+describe('day rates in the app', () => {
+  it('reads pounds and pence, up to £1,000, and nothing else', () => {
+    assert.equal(parseDayRate('40'), 4000)
+    assert.equal(parseDayRate('42.50'), 4250)
+    assert.equal(parseDayRate(' £42.5 '), 4250)
+    assert.equal(parseDayRate('1,000'), 100_000)
+    assert.equal(parseDayRate('0'), 0)
+    for (const bad of ['1000.01', '42,50', '-5', 'forty', '', '42.505']) assert.equal(parseDayRate(bad), null, bad)
+    assert.match(DAY_RATE_MESSAGE, /£1,000/)
+  })
+
+  it('shows a saved rate the way it was typed: whole pounds plain, pence to two places', () => {
+    assert.equal(dayRateField(4000), '40')
+    assert.equal(dayRateField(4250), '42.50')
+    assert.equal(dayRateField(4205), '42.05')
+    assert.equal(dayRateField(0), '0')
+    assert.equal(formatDayRate(4250), '£42.50')
+  })
+
+  it('says how long a rate covers at the minimum wage for 21 and over, from the rules file, while they are in force', () => {
+    const band = MINIMUM_WAGE.bands.find((b) => b.id === 'age21Plus')!
+    const note = minimumWageNote(4000, '2026-11-14')
+    assert.ok(note)
+    // 4000 × 60 ÷ 1271 = 188.8 minutes: rounded down, because the floor must be met in full.
+    const minutes = Math.floor((4000 * 60) / band.hourlyPence)
+    assert.ok(note.includes(`${Math.floor(minutes / 60)} hours ${minutes % 60} minutes`), note)
+    assert.ok(note.includes(`£${(band.hourlyPence / 100).toFixed(2)}`), note)
+    assert.ok(note.includes(MINIMUM_WAGE.periodLabel), note)
+    assert.equal(minimumWageNote(0, '2026-11-14'), null)
+    // Once the rates are due for review, no note rather than a stale one.
+    assert.equal(minimumWageNote(4000, MINIMUM_WAGE.reviewBy), null)
+    assert.ok(minimumWageNote(4000, '2027-03-31'))
   })
 })
 

@@ -1,19 +1,18 @@
 /**
  * Syndicate settings form: shape and checks, shared by the Settings page, the new-syndicate
- * page and their tests. Money is whole pounds. The server checks everything again; these
- * checks are for the captain.
+ * page and their tests. The beaters' usual day rate is typed in pounds and pence and sent in
+ * pence. The server checks everything again; these checks are for the captain.
  */
 
 import { seasonDates, speciesById } from './seasonDates.js'
+import { DAY_RATE_MESSAGE, dayRateField, parseDayRate } from './dayRate.js'
 
 export interface SyndicateSettings {
   id: string
   name: string
   seasonStart: string
   seasonEnd: string
-  subscriptionAmount: number
-  subscriptionType: 'ANNUAL' | 'PER_SHOOT' | 'HYBRID'
-  defaultBeaterRate: number
+  defaultBeaterRatePence: number
   pegRotationRule: 'FAIR_ROTATION' | 'RANDOM' | 'MANUAL'
   /** Clauses added under the standard guest acknowledgement, or null. */
   waiverExtra?: string | null
@@ -23,8 +22,7 @@ export interface SettingsForm {
   name: string
   seasonStart: string
   seasonEnd: string
-  subscriptionAmount: string
-  subscriptionType: SyndicateSettings['subscriptionType']
+  /** Pounds and pence as typed, e.g. "42.50". */
   defaultBeaterRate: string
   pegRotationRule: 'FAIR_ROTATION' | 'RANDOM'
   waiverExtra: string
@@ -34,9 +32,7 @@ export const toForm = (s: SyndicateSettings): SettingsForm => ({
   name: s.name,
   seasonStart: s.seasonStart.slice(0, 10),
   seasonEnd: s.seasonEnd.slice(0, 10),
-  subscriptionAmount: String(s.subscriptionAmount),
-  subscriptionType: s.subscriptionType,
-  defaultBeaterRate: String(s.defaultBeaterRate),
+  defaultBeaterRate: dayRateField(s.defaultBeaterRatePence),
   pegRotationRule: s.pegRotationRule === 'RANDOM' ? 'RANDOM' : 'FAIR_ROTATION',
   waiverExtra: s.waiverExtra ?? '',
 })
@@ -49,9 +45,7 @@ export function validateSettings(form: SettingsForm): Partial<Record<keyof Setti
   if (!form.seasonStart) problems.seasonStart = 'Choose the first day of the season.'
   if (!form.seasonEnd) problems.seasonEnd = 'Choose the last day of the season.'
   if (form.seasonStart && form.seasonEnd && form.seasonEnd <= form.seasonStart) problems.seasonEnd = 'The season must end after it starts.'
-  const whole = (v: string, max: number) => /^\d+$/.test(v.trim()) && Number(v) <= max
-  if (!whole(form.subscriptionAmount, 1_000_000)) problems.subscriptionAmount = 'Whole pounds, for example 800.'
-  if (!whole(form.defaultBeaterRate, 1000)) problems.defaultBeaterRate = 'Whole pounds from £0 to £1,000.'
+  if (parseDayRate(form.defaultBeaterRate) === null) problems.defaultBeaterRate = DAY_RATE_MESSAGE
   if (form.waiverExtra.trim().length > 2000) problems.waiverExtra = 'Keep your own clauses to 2,000 characters.'
   return problems
 }
@@ -67,9 +61,7 @@ export function settingsPayload(form: SettingsForm, saved: SyndicateSettings): R
     name: form.name.trim(),
     seasonStart: form.seasonStart,
     seasonEnd: form.seasonEnd,
-    subscriptionAmount: Number(form.subscriptionAmount),
-    subscriptionType: form.subscriptionType,
-    defaultBeaterRate: Number(form.defaultBeaterRate),
+    defaultBeaterRatePence: parseDayRate(form.defaultBeaterRate),
     pegRotationRule: form.pegRotationRule,
     waiverExtra: form.waiverExtra.trim() || null,
   }
@@ -77,9 +69,7 @@ export function settingsPayload(form: SettingsForm, saved: SyndicateSettings): R
     name: before.name.trim(),
     seasonStart: before.seasonStart,
     seasonEnd: before.seasonEnd,
-    subscriptionAmount: Number(before.subscriptionAmount),
-    subscriptionType: before.subscriptionType,
-    defaultBeaterRate: Number(before.defaultBeaterRate),
+    defaultBeaterRatePence: saved.defaultBeaterRatePence,
     pegRotationRule: before.pegRotationRule,
     waiverExtra: before.waiverExtra.trim() || null,
   }
@@ -106,8 +96,6 @@ export function newSyndicateForm(today: string): SettingsForm {
   return {
     name: '',
     ...suggestedSeason(today),
-    subscriptionAmount: '0',
-    subscriptionType: 'ANNUAL',
     defaultBeaterRate: '40',
     pegRotationRule: 'FAIR_ROTATION',
     waiverExtra: '',
@@ -120,9 +108,7 @@ export function newSyndicatePayload(form: SettingsForm) {
     name: form.name.trim(),
     seasonStart: form.seasonStart,
     seasonEnd: form.seasonEnd,
-    subscriptionAmount: Number(form.subscriptionAmount),
-    subscriptionType: form.subscriptionType,
-    defaultBeaterRate: Number(form.defaultBeaterRate),
+    defaultBeaterRatePence: parseDayRate(form.defaultBeaterRate),
     pegRotationRule: form.pegRotationRule,
   }
 }

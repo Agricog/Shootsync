@@ -21,6 +21,7 @@ import type { PrismaClient } from '@prisma/client'
 import { call, createTestPrisma, createTestStripe, databaseUrlFor, resetDatabase, seed, startTestServer, type TestServer } from './helpers.js'
 import { deleteSyndicate } from '../server/retention.js'
 import { REQUIRED_MIGRATION, checkSchema, requireSchema, sqlStateOf } from '../server/schemaVersion.js'
+import { hashInviteToken } from '../server/inviteTokens.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const migrationIds = readdirSync(`${root}prisma/migrations`, { withFileTypes: true })
@@ -48,7 +49,13 @@ const FIRST_TRANSACTIONAL = '0004_records_protected'
 
 /** The CHECK constraints production carries. Prisma can't express them, so this list is the record. */
 /** Triggers production carries. Prisma can't express them either. */
-const TRIGGERS = ['activity_logs.activity_logs_no_early_delete', 'activity_logs.activity_logs_no_update']
+const TRIGGERS = [
+  'activity_logs.activity_logs_no_early_delete',
+  'activity_logs.activity_logs_no_update',
+  'beaters.beaters_day_rate_sync',
+  'beater_bookings.beater_bookings_day_rate_sync',
+  'syndicates.syndicates_default_beater_rate_sync',
+]
 
 const CHECKS = [
   'syndicates.syndicates_season_years_check',
@@ -64,6 +71,9 @@ const CHECKS = [
   'shoot_attendances.shoot_attendances_peg_number_check',
   'bag_records.bag_records_counts_check',
   'shoot_days.shoot_days_drives_check',
+  'beaters.beaters_day_rate_pence_check',
+  'beater_bookings.beater_bookings_day_rate_pence_check',
+  'syndicates.syndicates_default_beater_rate_pence_check',
 ]
 
 /** Every column, constraint, index and enum value in the public schema, as sortable lines. */
@@ -235,6 +245,97 @@ describe('migrations', () => {
     for (const statement of statements(migrationSql('0006_records_lifecycle'))) await before.$executeRawUnsafe(statement)
     const rows = await before.$queryRawUnsafe<Array<{ id: string; recent: boolean | null }>>(`SELECT id, plan_ended_at > now() - interval '1 minute' AS recent FROM syndicates ORDER BY id`)
     assert.deepEqual(rows, [{ id: 'live', recent: null }, { id: 'old-cancelled', recent: true }, { id: 'old-unpaid', recent: true }])
+  })
+
+  describe('0007: day rates in pence, invitation links hashed', () => {
+    const rates = (db: PrismaClient) => db.$queryRawUnsafe<Array<{ id: string; pounds: number; pence: number }>>(
+      `SELECT id, day_rate AS pounds, day_rate_pence AS pence FROM beaters UNION ALL SELECT id, day_rate, day_rate_pence FROM beater_bookings UNION ALL SELECT id, default_beater_rate, default_beater_rate_pence FROM syndicates ORDER BY id`
+    )
+
+    it('fills every pence column from the pounds, and hashes every link in place', async () => {
+      const at = migrationIds.indexOf('0007_day_rates_in_pence')
+      const before = await freshDatabase(migrationIds.slice(0, at))
+      const token = 'a'.repeat(64)
+      await before.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, default_beater_rate, updated_at) VALUES ('s1', 'S', 'u', '2026-10-01', '2027-02-01', 45, now())`)
+      await before.$executeRawUnsafe(`INSERT INTO beaters (id, syndicate_id, name, day_rate, updated_at) VALUES ('b1', 's1', 'Dai', 55, now()), ('b2', 's1', 'Bob', 0, now())`)
+      await before.$executeRawUnsafe(`INSERT INTO shoot_days (id, syndicate_id, date, location_name, updated_at) VALUES ('d1', 's1', '2026-11-14', 'Wood', now())`)
+      await before.$executeRawUnsafe(`INSERT INTO beater_bookings (id, syndicate_id, beater_id, shoot_id, day_rate, updated_at) VALUES ('k1', 's1', 'b1', 'd1', 50, now())`)
+      await before.$executeRawUnsafe(`INSERT INTO members (id, syndicate_id, clerk_user_id, email, name, updated_at) VALUES ('m1', 's1', 'u', 'g@example.com', 'Gun', now())`)
+      await before.$executeRawUnsafe(`INSERT INTO guest_guns (id, shoot_id, invited_by_member_id, name, email, invite_token, updated_at) VALUES ('g1', 'd1', 'm1', 'Guest', 'x@example.com', '${token}', now()), ('g2', 'd1', 'm1', 'Erased', 'y@example.com', NULL, now())`)
+      for (const statement of statements(migrationSql('0007_day_rates_in_pence'))) await before.$executeRawUnsafe(statement)
+
+      assert.deepEqual(await rates(before), [
+        { id: 'b1', pounds: 55, pence: 5500 },
+        { id: 'b2', pounds: 0, pence: 0 },
+        { id: 'k1', pounds: 50, pence: 5000 },
+        { id: 's1', pounds: 45, pence: 4500 },
+      ])
+      const links = await before.$queryRawUnsafe<Array<{ id: string; invite_token: string | null }>>(`SELECT id, invite_token FROM guest_guns ORDER BY id`)
+      assert.deepEqual(links, [{ id: 'g1', invite_token: hashInviteToken(token) }, { id: 'g2', invite_token: null }])
+    })
+
+    it('keeps pounds and pence in step whichever one is written, on insert and on update', async () => {
+      const at = migrationIds.indexOf('0007_day_rates_in_pence')
+      const db = await freshDatabase(migrationIds.slice(0, at + 1))
+      // Code that knows only pounds (the deploy window) and code that writes only pence, side by side.
+      await db.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, default_beater_rate, updated_at) VALUES ('old', 'Old', 'u', '2026-10-01', '2027-02-01', 35, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, default_beater_rate_pence, updated_at) VALUES ('new', 'New', 'u', '2026-10-01', '2027-02-01', 4250, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO syndicates (id, name, captain_clerk_id, season_start, season_end, updated_at) VALUES ('dft', 'Default', 'u', '2026-10-01', '2027-02-01', now())`)
+      await db.$executeRawUnsafe(`INSERT INTO beaters (id, syndicate_id, name, day_rate, updated_at) VALUES ('b-old', 'old', 'Old code', 55, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO beaters (id, syndicate_id, name, day_rate_pence, updated_at) VALUES ('b-new', 'old', 'New code', 4275, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO beaters (id, syndicate_id, name, updated_at) VALUES ('b-dft', 'old', 'Default', now())`)
+      // Old code writing the default rate explicitly: the one insert the rule can't tell from a pence write, and needn't.
+      await db.$executeRawUnsafe(`INSERT INTO beaters (id, syndicate_id, name, day_rate, updated_at) VALUES ('b-forty', 'old', 'Forty', 40, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO shoot_days (id, syndicate_id, date, location_name, updated_at) VALUES ('d1', 'old', '2026-11-14', 'Wood', now())`)
+      await db.$executeRawUnsafe(`INSERT INTO beater_bookings (id, syndicate_id, beater_id, shoot_id, day_rate, updated_at) VALUES ('k-old', 'old', 'b-old', 'd1', 45, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO beater_bookings (id, syndicate_id, beater_id, shoot_id, day_rate_pence, updated_at) VALUES ('k-new', 'old', 'b-new', 'd1', 4250, now())`)
+      await db.$executeRawUnsafe(`INSERT INTO beater_bookings (id, syndicate_id, beater_id, shoot_id, day_rate_pence, updated_at) VALUES ('k-nil', 'old', 'b-dft', 'd1', 0, now())`)
+      assert.deepEqual(await rates(db), [
+        { id: 'b-dft', pounds: 40, pence: 4000 },
+        { id: 'b-forty', pounds: 40, pence: 4000 },
+        { id: 'b-new', pounds: 43, pence: 4275 },
+        { id: 'b-old', pounds: 55, pence: 5500 },
+        { id: 'dft', pounds: 40, pence: 4000 },
+        { id: 'k-new', pounds: 43, pence: 4250 },
+        { id: 'k-nil', pounds: 0, pence: 0 },
+        { id: 'k-old', pounds: 45, pence: 4500 },
+        { id: 'new', pounds: 43, pence: 4250 },
+        { id: 'old', pounds: 35, pence: 3500 },
+      ])
+      // Updates: the pence win when they change; a pounds-only change is carried into the pence.
+      await db.$executeRawUnsafe(`UPDATE beaters SET day_rate = 60 WHERE id = 'b-new'`)
+      await db.$executeRawUnsafe(`UPDATE beaters SET day_rate_pence = 6150 WHERE id = 'b-old'`)
+      await db.$executeRawUnsafe(`UPDATE beater_bookings SET day_rate = 70 WHERE id = 'k-new'`)
+      await db.$executeRawUnsafe(`UPDATE beater_bookings SET day_rate_pence = 7050 WHERE id = 'k-old'`)
+      await db.$executeRawUnsafe(`UPDATE syndicates SET default_beater_rate = 50 WHERE id = 'new'`)
+      await db.$executeRawUnsafe(`UPDATE syndicates SET default_beater_rate_pence = 5125 WHERE id = 'old'`)
+      // A write that touches neither leaves both alone.
+      await db.$executeRawUnsafe(`UPDATE beaters SET name = 'Renamed' WHERE id = 'b-dft'`)
+      assert.deepEqual(await rates(db), [
+        { id: 'b-dft', pounds: 40, pence: 4000 },
+        { id: 'b-forty', pounds: 40, pence: 4000 },
+        { id: 'b-new', pounds: 60, pence: 6000 },
+        { id: 'b-old', pounds: 62, pence: 6150 },
+        { id: 'dft', pounds: 40, pence: 4000 },
+        { id: 'k-new', pounds: 70, pence: 7000 },
+        { id: 'k-nil', pounds: 0, pence: 0 },
+        { id: 'k-old', pounds: 71, pence: 7050 },
+        { id: 'new', pounds: 50, pence: 5000 },
+        { id: 'old', pounds: 51, pence: 5125 },
+      ])
+      // The floor holds on the pence too.
+      await assert.rejects(db.$executeRawUnsafe(`UPDATE beaters SET day_rate_pence = -1 WHERE id = 'b-dft'`), /beaters_day_rate_pence_check/)
+    })
+
+    it('through Prisma, a rate written in pence is what the old column shows too', async () => {
+      await resetDatabase(main)
+      const seeded = await seed(main)
+      const beater = await main.beater.create({ data: { syndicateId: seeded.a.syndicate.id, name: 'Penny', dayRatePence: 4250 } })
+      assert.deepEqual([beater.dayRatePence, beater.dayRate], [4250, 43])
+      const changed = await main.beater.update({ where: { id: beater.id }, data: { dayRatePence: 3999 } })
+      assert.deepEqual([changed.dayRatePence, changed.dayRate], [3999, 40])
+      await resetDatabase(main)
+    })
   })
 
   it('a season or shoot date outside 2000 to 2100 is refused by the database itself', async () => {
