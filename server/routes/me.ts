@@ -11,7 +11,7 @@
 
 import { Router } from 'express'
 import type { Deps } from '../deps.js'
-import { GUN_ROLES, handle, isLiveSubscription, userIdOf } from '../access.js'
+import { GUN_ROLES, handle, planSummary, userIdOf } from '../access.js'
 
 export type MembershipRole = 'CAPTAIN' | 'GUN'
 
@@ -23,11 +23,13 @@ const syndicateFields = {
   stripeSubscriptionStatus: true,
   planTier: true,
   subscriptionCurrentPeriodEnd: true,
+  disputeOpenedAt: true,
+  pastDueSince: true,
   defaultBeaterRate: true,
   pegRotationRule: true,
 } as const
 
-export function meRoutes({ prisma }: Deps): Router {
+export function meRoutes({ prisma, now }: Deps): Router {
   const router = Router()
 
   router.get('/', handle(async (req, res) => {
@@ -65,12 +67,7 @@ export function meRoutes({ prisma }: Deps): Router {
       seasonEnd: s.seasonEnd,
       defaultBeaterRate: s.defaultBeaterRate,
       pegRotationRule: s.pegRotationRule,
-      subscription: {
-        status: s.stripeSubscriptionStatus,
-        planTier: s.planTier,
-        isActive: isLiveSubscription(s.stripeSubscriptionStatus),
-        currentPeriodEnd: s.subscriptionCurrentPeriodEnd,
-      },
+      subscription: planSummary(s, now()),
     })
 
     res.json({

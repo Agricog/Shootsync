@@ -36,8 +36,10 @@ const STATUS_MAP: Record<Stripe.Subscription.Status, StripeSubscriptionStatus> =
 const PLAN_TIERS = new Set(['STARTER', 'STANDARD'])
 /** A subscription that still exists in Stripe (not ended), so a second one would be a double charge. */
 const LIVE: Array<StripeSubscriptionStatus> = ['ACTIVE', 'TRIALING', 'PAST_DUE', 'UNPAID']
+/** Dispute states in which the card issuer is still holding the money. */
+const OPEN_DISPUTE = new Set(['warning_needs_response', 'warning_under_review', 'needs_response', 'under_review'])
 
-export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
+export function stripeWebhookHandler({ prisma, stripe, config, alerts, now }: Deps) {
   /**
    * Fetch a subscription. Null if Stripe says it doesn't exist (deleted test data, or an
    * event from the other mode): that will never succeed, so it's logged rather than retried
@@ -49,7 +51,7 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
     } catch (err) {
       const e = err as { type?: string; code?: string }
       if (e.type === 'StripeInvalidRequestError' && e.code === 'resource_missing') {
-        console.error(`[stripe] subscription ${id} does not exist in this Stripe account; event ignored`)
+        alerts.alert('webhook', 'A subscription in a Stripe event does not exist in this Stripe account (deleted test data, or an event from the other mode); the event was ignored.', { subscription: id })
         return null
       }
       throw err
@@ -83,7 +85,7 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
   async function recordSubscription(syndicateId: string, subscription: Stripe.Subscription, metadataTier: string | undefined, startsNew: boolean) {
     const end = periodEnd(subscription)
     const planTier = tierOf(subscription, metadataTier)
-    if (!end) console.warn(`[stripe] subscription ${subscription.id} has no renewal date; status recorded without it`)
+    if (!end) alerts.alert('webhook', 'A subscription has no renewal date; its status was recorded without one.', { subscription: subscription.id })
     const result = await prisma.syndicate.updateMany({
       where: startsNew
         ? { id: syndicateId }
@@ -97,9 +99,17 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
       },
     })
     if (result.count === 0) {
-      console.warn(`[stripe] subscription ${subscription.id} not recorded: syndicate ${syndicateId} is unknown or on a different subscription`)
+      alerts.alert('billing', 'A subscription was not recorded: its syndicate is unknown or on a different subscription.', { subscription: subscription.id, syndicate: syndicateId })
+      return false
     }
-    return result.count > 0
+    // When the card first fails, note the moment: full use runs 14 days from here (planAccess).
+    // Any other status ends the episode, so the next failure starts its own two weeks.
+    if (subscription.status === 'past_due') {
+      await prisma.syndicate.updateMany({ where: { id: syndicateId, pastDueSince: null }, data: { pastDueSince: now() } })
+    } else {
+      await prisma.syndicate.updateMany({ where: { id: syndicateId, pastDueSince: { not: null } }, data: { pastDueSince: null } })
+    }
+    return true
   }
 
   async function handleEvent(event: Stripe.Event) {
@@ -113,7 +123,7 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
           // twice). But the amount must be the guest's fee, in pounds: anything else is said loudly.
           const owed = await prisma.guestGun.findUnique({ where: { id: session.metadata.guestId }, select: { dayFee: true } })
           if (owed && (session.amount_total !== owed.dayFee || session.currency !== 'gbp')) {
-            console.error(`[stripe] guest ${session.metadata.guestId} paid ${session.amount_total} ${session.currency} but the day fee is ${owed.dayFee} gbp (session ${session.id}): check it in Stripe and refund or collect the difference`)
+            alerts.alert('money', 'A guest paid a different amount from their day fee. Check it in Stripe and refund or collect the difference.', { guest: session.metadata.guestId, paid: session.amount_total, currency: session.currency, dayFeePence: owed.dayFee, session: session.id })
           }
           const recorded = await prisma.guestGun.updateMany({
             where: { id: session.metadata.guestId },
@@ -124,7 +134,7 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
           })
           if (recorded.count === 0) {
             // The guest was removed: the money arrived but there is no record to attach it to.
-            console.error(`[stripe] guest day fee paid for a guest who no longer exists (guest ${session.metadata.guestId}, session ${session.id}): refund it in Stripe`)
+            alerts.alert('money', 'A guest day fee was paid for a guest who no longer exists. Refund it in Stripe.', { guest: session.metadata.guestId, session: session.id, paid: session.amount_total })
           }
           console.log(`[stripe] guest day fee paid: guest ${session.metadata.guestId}`)
           return
@@ -143,10 +153,12 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
             // Checkout refuses a second plan, so this should never happen; if it does, say so loudly.
             const current = await prisma.syndicate.findUnique({ where: { id: syndicateId }, select: { stripeSubscriptionId: true, stripeSubscriptionStatus: true } })
             if (current?.stripeSubscriptionId && current.stripeSubscriptionId !== subscription.id && current.stripeSubscriptionStatus && LIVE.includes(current.stripeSubscriptionStatus)) {
-              console.error(`[stripe] syndicate ${syndicateId} now has two subscriptions: ${subscription.id} replaces ${current.stripeSubscriptionId}, which is still billing. Cancel and refund ${current.stripeSubscriptionId} in Stripe.`)
+              alerts.alert('billing', 'A syndicate now has two subscriptions: the new one replaces the old, which is still billing. Cancel and refund the old one in Stripe.', { syndicate: syndicateId, newSubscription: subscription.id, oldSubscription: current.stripeSubscriptionId })
             }
           }
           if (await recordSubscription(syndicateId, subscription, session.metadata.planTier, !ended)) {
+            // A new plan paid for is a payment arrived: a dispute hold ends.
+            if (!ended) await prisma.syndicate.updateMany({ where: { id: syndicateId }, data: { disputeOpenedAt: null } })
             console.log(`[stripe] subscription started: syndicate ${syndicateId} (${subscription.status})`)
           }
         }
@@ -166,8 +178,126 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
         return
       }
 
+      case 'invoice.paid': {
+        // Money has arrived for a subscription: whatever dispute was open, the account is paid.
+        // Only real money, and only a payment made after the dispute was opened: a late
+        // redelivery of the very invoice that was charged back, or a £0 invoice, lifts nothing.
+        const invoice = event.data.object as Stripe.Invoice
+        if (!(invoice.amount_paid > 0)) return
+        const syndicate = await syndicateOfCustomer(invoice.customer)
+        if (!syndicate) return
+        const cleared = await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: { lt: eventTime(event) } }, data: { disputeOpenedAt: null } })
+        if (cleared.count > 0) {
+          alerts.alert('billing', 'A syndicate that had a disputed payment has paid again; it is in full use again.', { syndicate: syndicate.id, invoice: invoice.id })
+        }
+        return
+      }
+
+      case 'charge.dispute.created': {
+        // A chargeback. The card issuer has taken the money back for now; someone must answer it
+        // in Stripe within the deadline. A guest's fee is the syndicate's money, so the captain is
+        // told through the owner; a subscription payment makes the syndicate read-only at once.
+        const dispute = event.data.object as Stripe.Dispute
+        const paymentIntent = idOf(dispute.payment_intent)
+        const guest = paymentIntent ? await prisma.guestGun.findFirst({ where: { stripePaymentId: paymentIntent }, select: { id: true, shootId: true } }) : null
+        if (guest) {
+          alerts.alert('dispute', 'A guest has disputed their day fee with their card issuer. Answer it in Stripe before the deadline and tell the captain.', { guest: guest.id, shoot: guest.shootId, dispute: dispute.id, amount: dispute.amount, reason: dispute.reason })
+          return
+        }
+        const syndicate = await syndicateOfCharge(dispute.charge)
+        if (syndicate) {
+          // What Stripe says now, not what the event said: a delivery retried after the dispute
+          // closed must not lock the syndicate again.
+          const status = (await fetchDispute(dispute.id))?.status ?? dispute.status
+          if (!OPEN_DISPUTE.has(status)) return
+          await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: null }, data: { disputeOpenedAt: eventTime(event) } })
+          alerts.alert('dispute', 'A syndicate has disputed a subscription payment with its card issuer. It is read-only until a payment arrives. Answer the dispute in Stripe before the deadline.', { syndicate: syndicate.id, dispute: dispute.id, amount: dispute.amount, reason: dispute.reason })
+          return
+        }
+        alerts.alert('dispute', 'A card dispute was opened on a payment ShootSync cannot match to a syndicate or a guest. Look it up in Stripe.', { dispute: dispute.id, charge: idOf(dispute.charge), amount: dispute.amount, reason: dispute.reason })
+        return
+      }
+
+      case 'charge.dispute.closed': {
+        const dispute = event.data.object as Stripe.Dispute
+        const syndicate = await syndicateOfCharge(dispute.charge)
+        if (dispute.status === 'won' || dispute.status === 'warning_closed') {
+          // The money stayed with ShootSync: nothing is owed, so the hold ends (unless a later
+          // dispute has since opened its own).
+          if (syndicate) await prisma.syndicate.updateMany({ where: { id: syndicate.id, disputeOpenedAt: { lte: eventTime(event) } }, data: { disputeOpenedAt: null } })
+          alerts.alert('dispute', 'A card dispute was closed in ShootSync’s favour.', { dispute: dispute.id, syndicate: syndicate?.id ?? null, status: dispute.status })
+          return
+        }
+        // Lost: the money is gone. The syndicate stays read-only until it pays again; decide in
+        // Stripe whether to cancel its subscription.
+        alerts.alert('dispute', 'A card dispute was lost: the money has gone. The syndicate stays read-only until a payment arrives. Decide in Stripe whether to cancel its subscription.', { dispute: dispute.id, syndicate: syndicate?.id ?? null, amount: dispute.amount, status: dispute.status })
+        return
+      }
+
+      case 'charge.refunded': {
+        // Money sent back from Stripe, by hand or by a dispute: the record must say so.
+        const charge = event.data.object as Stripe.Charge
+        const paymentIntent = idOf(charge.payment_intent)
+        const guest = paymentIntent ? await prisma.guestGun.findFirst({ where: { stripePaymentId: paymentIntent }, select: { id: true, paymentStatus: true } }) : null
+        if (guest) {
+          if (charge.refunded) {
+            const changed = await prisma.guestGun.updateMany({ where: { id: guest.id, paymentStatus: 'PAID' }, data: { paymentStatus: 'REFUNDED' } })
+            // A redelivery after the guest is already recorded as refunded says nothing new.
+            if (changed.count === 0) return
+            alerts.alert('money', 'A guest’s day fee paid by card has been refunded in full; the guest is now recorded as refunded.', { guest: guest.id, paymentIntent, charge: charge.id, refunded: charge.amount_refunded })
+          } else {
+            alerts.alert('money', 'A guest’s day fee paid by card has been partly refunded; the guest is still recorded as paid.', { guest: guest.id, paymentIntent, charge: charge.id, refunded: charge.amount_refunded, of: charge.amount })
+          }
+          return
+        }
+        const syndicate = await syndicateOfCharge(charge.id, charge)
+        alerts.alert('money', charge.refunded ? 'A payment has been refunded in full.' : 'A payment has been partly refunded.', { charge: charge.id, syndicate: syndicate?.id ?? null, refunded: charge.amount_refunded, of: charge.amount })
+        return
+      }
+
       default:
         return
+    }
+  }
+
+  /** When Stripe says the event happened: the same whenever it is delivered. */
+  function eventTime(event: Stripe.Event): Date {
+    return new Date(event.created * 1000)
+  }
+
+  async function fetchDispute(id: string): Promise<Stripe.Dispute | null> {
+    try {
+      return await stripe.disputes.retrieve(id)
+    } catch (err) {
+      const e = err as { type?: string; code?: string }
+      if (e.type === 'StripeInvalidRequestError' && e.code === 'resource_missing') return null
+      throw err
+    }
+  }
+
+  function idOf(ref: string | { id: string } | null | undefined): string | null {
+    return typeof ref === 'string' ? ref : ref?.id ?? null
+  }
+
+  async function syndicateOfCustomer(customer: Stripe.Invoice['customer'] | Stripe.Charge['customer']): Promise<{ id: string } | null> {
+    const customerId = idOf(customer as string | { id: string } | null)
+    return customerId ? prisma.syndicate.findFirst({ where: { stripeCustomerId: customerId }, select: { id: true } }) : null
+  }
+
+  /** The syndicate a charge belongs to, by the Stripe customer it was made for. */
+  async function syndicateOfCharge(ref: string | Stripe.Charge | null | undefined, loaded?: Stripe.Charge): Promise<{ id: string } | null> {
+    const charge = loaded ?? (typeof ref === 'string' ? await fetchCharge(ref) : ref)
+    return charge ? syndicateOfCustomer(charge.customer) : null
+  }
+
+  /** As fetchSubscription: a charge Stripe doesn't have is null (alerted by the caller), anything else throws so Stripe retries. */
+  async function fetchCharge(id: string): Promise<Stripe.Charge | null> {
+    try {
+      return await stripe.charges.retrieve(id)
+    } catch (err) {
+      const e = err as { type?: string; code?: string }
+      if (e.type === 'StripeInvalidRequestError' && e.code === 'resource_missing') return null
+      throw err
     }
   }
 
@@ -189,7 +319,7 @@ export function stripeWebhookHandler({ prisma, stripe, config }: Deps) {
       return res.json({ received: true })
     } catch (err) {
       // 500 makes Stripe retry the delivery.
-      console.error(`[stripe] failed to process ${event.type} ${event.id}:`, err)
+      alerts.report(err, `stripe webhook: ${event.type}`, { event: event.id })
       return res.status(500).json({ error: 'Webhook processing failed' })
     }
   }

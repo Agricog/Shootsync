@@ -9,6 +9,7 @@ import { ClerkProvider } from '@clerk/clerk-react'
 import App from './App'
 import SessionHygiene from './components/auth/SessionHygiene'
 import { installApiAuth } from './lib/session'
+import { installErrorReporting } from './utils/errorTracking'
 import './index.css'
 
 const clerkPubKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
@@ -19,6 +20,8 @@ if (!clerkPubKey) {
 
 // Attach the session token to every /api request before anything renders.
 installApiAuth()
+// Error reports, with personal data stripped, when a Sentry DSN is configured.
+installErrorReporting(import.meta.env.VITE_SENTRY_DSN, import.meta.env.VITE_RELEASE, import.meta.env.PROD)
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

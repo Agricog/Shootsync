@@ -17,6 +17,7 @@
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { verifyToken } from '@clerk/backend'
 import type { PrismaClient } from '@prisma/client'
+import type { Alerts } from './alerts.js'
 import { SESSION_ENDED_MESSAGES, absoluteLimitReached, touchSession, type SessionEndReason, type VerifiedSession } from './sessionPolicy.js'
 
 declare global {
@@ -37,12 +38,17 @@ export type TokenVerifier = (token: string) => Promise<VerifiedSession>
  * issued, plus the token's own age); when it doesn't, the server's own record of the session's
  * start still enforces the absolute limit (server/sessionPolicy.ts).
  */
+/** A token this server refuses: carries a reason like Clerk's own refusals, so it is never mistaken for an outage. */
+export function refusal(message: string): Error {
+  return Object.assign(new Error(message), { reason: 'token-invalid' })
+}
+
 export function sessionFromClaims(
   payload: { sub?: unknown; sid?: unknown; fva?: unknown; iat?: unknown },
   nowSeconds: number = Math.floor(Date.now() / 1000),
 ): VerifiedSession {
-  if (typeof payload.sub !== 'string' || !payload.sub) throw new Error('Token has no subject')
-  if (typeof payload.sid !== 'string' || !payload.sid) throw new Error('Token has no session')
+  if (typeof payload.sub !== 'string' || !payload.sub) throw refusal('Token has no subject')
+  if (typeof payload.sid !== 'string' || !payload.sid) throw refusal('Token has no session')
   const fva = Array.isArray(payload.fva) ? payload.fva[0] : undefined
   const issued = typeof payload.iat === 'number' && Number.isFinite(payload.iat) ? payload.iat : null
   const secondsSinceSignIn =
@@ -64,6 +70,7 @@ const INVITE_TOKEN = '[a-f0-9]{64}'
  */
 export const PUBLIC_ROUTES: ReadonlyArray<{ method: string; path: RegExp; reason: string }> = [
   { method: 'GET', path: /^\/health$/, reason: 'Uptime check' },
+  { method: 'POST', path: /^\/csp-report$/, reason: 'Browsers report what the content security policy would block; nothing is read back' },
   { method: 'POST', path: /^\/stripe\/webhook$/, reason: 'Stripe webhook, verified by signature' },
   { method: 'POST', path: /^\/subscriptions\/webhook$/, reason: 'Stripe webhook, verified by signature' },
   { method: 'GET', path: new RegExp(`^/guests/token/${INVITE_TOKEN}$`), reason: 'Guest opens invite link' },
@@ -89,7 +96,29 @@ function sessionEnded(res: Response, reason: SessionEndReason) {
   return res.status(401).json({ error: SESSION_ENDED_MESSAGES[reason], code: 'session_ended', reason })
 }
 
-export function authGate(verify: TokenVerifier, prisma: PrismaClient): RequestHandler {
+/**
+ * Clerk could not be asked: its signing keys failed to load (a Clerk outage or a network fault),
+ * as opposed to a token Clerk would refuse. The user hasn't done anything wrong, so they are told
+ * to try again in a moment rather than being signed out.
+ */
+/**
+ * Every refusal of a token is a Clerk TokenVerificationError with a string `reason` (and
+ * sessionFromClaims gives its own refusals one). Anything else is the road to Clerk failing:
+ * fetch failed, DNS, a timeout, an outage page where its keys should be. A key-loading reason
+ * is the same thing said by Clerk.
+ */
+const CLERK_UNREACHABLE = new Set(['jwk-remote-failed-to-load', 'jwk-failed-to-resolve'])
+export function clerkUnreachable(err: unknown): boolean {
+  const reason = (err as { reason?: unknown } | null)?.reason
+  if (typeof reason === 'string') return CLERK_UNREACHABLE.has(reason)
+  return true
+}
+
+/** One report a minute while Clerk is down, not one per request. */
+const REPORT_EVERY_MS = 60_000
+
+export function authGate(verify: TokenVerifier, prisma: PrismaClient, alerts?: Alerts): RequestHandler {
+  let lastOutageReport = 0
   return async (req: Request, res: Response, next: NextFunction) => {
     if (isPublicRoute(req.method, req.path)) {
       return next()
@@ -103,7 +132,14 @@ export function authGate(verify: TokenVerifier, prisma: PrismaClient): RequestHa
     let session: VerifiedSession
     try {
       session = await verify(token)
-    } catch {
+    } catch (err) {
+      if (clerkUnreachable(err)) {
+        if (Date.now() - lastOutageReport >= REPORT_EVERY_MS) {
+          lastOutageReport = Date.now()
+          alerts?.report(err, 'auth: sign-in service unreachable')
+        }
+        return res.status(503).json({ error: 'ShootSync couldn’t check your sign-in just now. Try again in a moment.' })
+      }
       return res.status(401).json({ error: 'Sign in required' })
     }
     if (absoluteLimitReached(session)) return sessionEnded(res, 'absolute')
@@ -112,7 +148,7 @@ export function authGate(verify: TokenVerifier, prisma: PrismaClient): RequestHa
       if (ended) return sessionEnded(res, ended)
     } catch (err) {
       // The database is down: nothing past this point could work either, and nothing is let through unchecked.
-      console.error('[auth] could not check session activity:', err)
+      alerts?.report(err, 'auth: session activity check')
       return res.status(503).json({ error: 'ShootSync had a problem checking your session. Try again in a moment.' })
     }
     req.auth = { userId: session.userId }

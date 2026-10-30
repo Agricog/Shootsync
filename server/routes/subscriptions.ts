@@ -7,7 +7,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import type Stripe from 'stripe'
 import type { Deps } from '../deps.js'
-import { HttpError, handle, isLiveSubscription, notFound, requireSyndicateAccess, userIdOf } from '../access.js'
+import { HttpError, handle, notFound, planSummary, requireSyndicateAccess, userIdOf } from '../access.js'
 
 const checkoutSchema = z.object({
   syndicateId: z.string().min(1),
@@ -22,7 +22,7 @@ const portalSchema = z.object({
 /** Subscriptions that are over: anything else (active, trialing, past due, unpaid, incomplete, paused) still counts. */
 const ENDED = new Set(['canceled', 'incomplete_expired'])
 
-export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
+export function subscriptionRoutes({ prisma, stripe, config, now, alerts }: Deps): Router {
   const router = Router()
 
   // POST /api/subscriptions/create-checkout
@@ -88,7 +88,7 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
         await stripe.checkout.sessions.expire(other.id)
       } catch (err) {
         // Most likely it was paid for this very moment. Don't offer a second page: close ours.
-        console.warn(`[stripe] could not close checkout ${other.id} for syndicate ${syndicateId}:`, err)
+        alerts.report(err, 'stripe: close an open checkout', { checkout: other.id, syndicate: syndicateId })
         await stripe.checkout.sessions.expire(session.id).catch(() => undefined)
         throw new HttpError(409, 'Another checkout for this syndicate is in progress. Try again in a minute.')
       }
@@ -122,16 +122,11 @@ export function subscriptionRoutes({ prisma, stripe, config }: Deps): Router {
 
     const syndicate = await prisma.syndicate.findUnique({
       where: { id: req.params.syndicateId },
-      select: { stripeSubscriptionStatus: true, planTier: true, subscriptionCurrentPeriodEnd: true },
+      select: { stripeSubscriptionStatus: true, planTier: true, subscriptionCurrentPeriodEnd: true, disputeOpenedAt: true, pastDueSince: true },
     })
     if (!syndicate) throw notFound()
 
-    res.json({
-      isActive: isLiveSubscription(syndicate.stripeSubscriptionStatus),
-      status: syndicate.stripeSubscriptionStatus,
-      planTier: syndicate.planTier,
-      currentPeriodEnd: syndicate.subscriptionCurrentPeriodEnd,
-    })
+    res.json(planSummary(syndicate, now()))
   }))
 
   return router

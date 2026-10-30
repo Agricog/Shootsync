@@ -14,6 +14,7 @@ import { PLANS, BILLING_TERMS } from '../src/config/plans.js'
 import { PUBLIC_ROUTES } from '../src/config/site.js'
 import { GUIDES, formatReviewed } from '../src/content/guides.js'
 import { PLAN_PRICES_PENCE } from '../server/plans.js'
+import { consoleAlerts } from '../server/alerts.js'
 import { createApp, currentCopy, londonToday } from '../server/app.js'
 import { londonDate } from '../src/utils/beaterPayCalculator.js'
 import { createTestStripe, testConfig, testVerifier } from './helpers.js'
@@ -93,7 +94,7 @@ describe('serving the built site', () => {
     writeFileSync(path.join(dir, 'robots.txt'), 'User-agent: *')
 
     const { stripe } = createTestStripe()
-    const app = createApp({ prisma: {} as PrismaClient, stripe, config: testConfig, verifyToken: testVerifier, staticDir: dir })
+    const app = createApp({ prisma: {} as PrismaClient, stripe, config: testConfig, verifyToken: testVerifier, staticDir: dir, alerts: consoleAlerts() })
     server = await new Promise((resolve) => {
       const s = app.listen(0, '127.0.0.1', () => resolve(s))
     })
@@ -172,7 +173,7 @@ describe('serving the copy of a page that is current today (Standard §05.7)', (
       })
     )
     const { stripe } = createTestStripe()
-    const app = createApp({ prisma: {} as PrismaClient, stripe, config: testConfig, verifyToken: testVerifier, staticDir: dir, today: () => today })
+    const app = createApp({ prisma: {} as PrismaClient, stripe, config: testConfig, verifyToken: testVerifier, staticDir: dir, today: () => today, alerts: consoleAlerts() })
     server = await new Promise((resolve) => {
       const s = app.listen(0, '127.0.0.1', () => resolve(s))
     })

@@ -31,6 +31,17 @@ describe('configuration', () => {
     assert.throws(() => loadConfig({ ...FULL_ENV, STRIPE_SECRET_KEY: '   ' }), ConfigError)
   })
 
+  it('in production, error reporting is not optional: SENTRY_DSN is required, and the deploy is named', () => {
+    assert.throws(
+      () => loadConfig({ ...FULL_ENV, NODE_ENV: 'production' }),
+      (err: unknown) => err instanceof ConfigError && err.missing.join(',') === 'SENTRY_DSN'
+    )
+    const config = loadConfig({ ...FULL_ENV, NODE_ENV: 'production', SENTRY_DSN: ' https://k@o.ingest.sentry.io/1 ', RAILWAY_GIT_COMMIT_SHA: 'abc123' })
+    assert.deepEqual([config.sentryDsn, config.release, config.isProduction], ['https://k@o.ingest.sentry.io/1', 'abc123', true])
+    // Locally it is optional: reports go to the console.
+    assert.deepEqual([loadConfig(FULL_ENV).sentryDsn, loadConfig(FULL_ENV).release], [null, 'local'])
+  })
+
   it('defaults the site address and allows only that origin', () => {
     const config = loadConfig(FULL_ENV)
     assert.equal(config.frontendUrl, 'https://shootsync.co.uk')

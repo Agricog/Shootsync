@@ -124,7 +124,7 @@ describe('which syndicate is on show', () => {
   const m = (id: string, role: Membership['role']): Membership => ({
     id, name: id, role, memberId: null, seasonStart: '2026-10-01', seasonEnd: '2027-02-01',
     defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
-    subscription: { status: null, planTier: null, isActive: false, currentPeriodEnd: null },
+    subscription: { status: null, planTier: null, isActive: false, reason: 'lapsed', currentPeriodEnd: null, readOnlyFrom: null },
   })
 
   it('the one chosen last time, if the user still belongs to it', () => {
@@ -147,11 +147,14 @@ describe('which syndicate is on show', () => {
 })
 
 describe('what the captain is told about the plan', () => {
-  const s = (status: string | null): Membership => ({
-    id: 'a', name: 'Beatrice', role: 'CAPTAIN', memberId: null, seasonStart: '', seasonEnd: '',
-    defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
-    subscription: { status, planTier: null, isActive: ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(status ?? ''), currentPeriodEnd: null },
-  })
+  const s = (status: string | null, extra: Partial<Membership['subscription']> = {}): Membership => {
+    const isActive = ['ACTIVE', 'TRIALING', 'PAST_DUE'].includes(status ?? '') && !extra.reason
+    return {
+      id: 'a', name: 'Beatrice', role: 'CAPTAIN', memberId: null, seasonStart: '', seasonEnd: '',
+      defaultBeaterRate: 40, pegRotationRule: 'FAIR_ROTATION',
+      subscription: { status, planTier: null, isActive, reason: isActive ? null : 'lapsed', currentPeriodEnd: null, readOnlyFrom: null, ...extra },
+    }
+  }
 
   it('nothing while the plan is in good standing', () => {
     assert.equal(planNotice(s('ACTIVE')), null)
@@ -162,7 +165,22 @@ describe('what the captain is told about the plan', () => {
     const notice = planNotice(s('PAST_DUE'))
     assert.equal(notice?.tone, 'warning')
     assert.equal(notice?.action, 'Update payment')
-    assert.match(notice?.text ?? '', /Beatrice didn’t go through\. Everything still works/)
+    assert.match(notice?.text ?? '', /Beatrice didn’t go through\. Everything still works for now while Stripe/)
+    const dated = planNotice(s('PAST_DUE', { readOnlyFrom: '2026-12-01T12:00:00.000Z' }))
+    assert.match(dated?.text ?? '', /Everything still works until 1 December 2026 while Stripe/)
+  })
+
+  it('a failed payment two weeks past the paid-up date is read-only, with the way back', () => {
+    const notice = planNotice(s('PAST_DUE', { reason: 'overdue' }))
+    assert.equal(notice?.tone, 'read-only')
+    assert.equal(notice?.action, 'Update payment')
+    assert.match(notice?.text ?? '', /more than two weeks overdue, so it’s read-only/)
+  })
+
+  it('a disputed payment is read-only whatever Stripe says the status is', () => {
+    const notice = planNotice(s('ACTIVE', { reason: 'dispute' }))
+    assert.equal(notice?.tone, 'read-only')
+    assert.match(notice?.text ?? '', /disputed with the card issuer/)
   })
 
   it('every other state is read-only, names the syndicate and gives the one thing to do', () => {

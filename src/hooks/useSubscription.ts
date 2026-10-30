@@ -6,6 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { apiRequest } from '../lib/api'
+import type { PlanState } from '../lib/membership'
 
 interface SubscriptionState {
   /** The syndicate this status belongs to. */
@@ -14,6 +15,8 @@ interface SubscriptionState {
   status: string | null
   planTier: 'STARTER' | 'STANDARD' | null
   currentPeriodEnd: string | null
+  reason: PlanState['reason']
+  readOnlyFrom: string | null
   /** Why the status couldn't be read, if it couldn't. Never taken to mean "not subscribed". */
   error: string | null
   fetching: boolean
@@ -25,16 +28,13 @@ const EMPTY: SubscriptionState = {
   status: null,
   planTier: null,
   currentPeriodEnd: null,
+  reason: null,
+  readOnlyFrom: null,
   error: null,
   fetching: false,
 }
 
-interface StatusResponse {
-  isActive: boolean
-  status: string | null
-  planTier: 'STARTER' | 'STANDARD' | null
-  currentPeriodEnd: string | null
-}
+type StatusResponse = PlanState
 
 export function useSubscription(syndicateId: string | null) {
   const [state, setState] = useState<SubscriptionState>(EMPTY)
@@ -50,6 +50,8 @@ export function useSubscription(syndicateId: string | null) {
         status: result.data.status,
         planTier: result.data.planTier,
         currentPeriodEnd: result.data.currentPeriodEnd,
+        reason: result.data.reason ?? null,
+        readOnlyFrom: result.data.readOnlyFrom ?? null,
         error: null,
         fetching: false,
       })
@@ -95,6 +97,8 @@ export function useSubscription(syndicateId: string | null) {
     status: state.status,
     planTier: state.planTier,
     currentPeriodEnd: state.currentPeriodEnd,
+    reason: state.reason,
+    readOnlyFrom: state.readOnlyFrom,
     error: state.error,
     loading,
     checkSubscription,

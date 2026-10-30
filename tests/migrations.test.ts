@@ -262,7 +262,8 @@ describe('migrations', () => {
     after(async () => {
       // Close first: if the clean-up below fails, an open server would keep the run alive forever.
       await server.close()
-      await main.$executeRawUnsafe(`DELETE FROM schema_migrations WHERE id = '${REQUIRED_MIGRATION}'`)
+      // Leave the database as the migrations built it, whatever this block did to it.
+      await main.$executeRawUnsafe(`INSERT INTO schema_migrations (id) VALUES ('${REQUIRED_MIGRATION}') ON CONFLICT DO NOTHING`)
     })
 
     it('fails the health check until the migration the code needs is recorded, without saying why', async () => {

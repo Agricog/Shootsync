@@ -189,6 +189,7 @@ export function guestRoutes({ prisma, today }: Deps): Router {
         waiverAcceptedAt: new Date(),
         waiverVersion: WAIVER_VERSION,
         waiverTextHash: hash,
+        waiverText: text,
         rsvpStatus: 'CONFIRMED',
       },
       select: guestInviteSelect,

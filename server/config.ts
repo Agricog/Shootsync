@@ -18,6 +18,10 @@ export interface AppConfig {
     STARTER: string
     STANDARD: string
   }
+  /** Sentry DSN for the server. Required in production: a product nobody is told about breaking is not a product. */
+  sentryDsn: string | null
+  /** What Sentry calls this deployment: Railway's commit SHA, or 'local'. */
+  release: string
 }
 
 const REQUIRED = [
@@ -44,7 +48,9 @@ function originOf(url: string): string {
 }
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  const missing = REQUIRED.filter((key) => !env[key] || env[key]!.trim() === '')
+  const isProduction = env.NODE_ENV === 'production'
+  const required = isProduction ? [...REQUIRED, 'SENTRY_DSN'] : [...REQUIRED]
+  const missing = required.filter((key) => !env[key] || env[key]!.trim() === '')
   if (missing.length > 0) {
     throw new ConfigError([...missing])
   }
@@ -60,7 +66,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const allowedOrigins = [...new Set([frontendUrl, ...extraOrigins])]
 
   return {
-    isProduction: env.NODE_ENV === 'production',
+    isProduction,
     frontendUrl,
     allowedOrigins,
     clerkSecretKey: env.CLERK_SECRET_KEY!.trim(),
@@ -70,5 +76,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       STARTER: env.STRIPE_PRICE_STARTER!.trim(),
       STANDARD: env.STRIPE_PRICE_STANDARD!.trim(),
     },
+    sentryDsn: env.SENTRY_DSN?.trim() || null,
+    release: env.RAILWAY_GIT_COMMIT_SHA?.trim() || 'local',
   }
 }

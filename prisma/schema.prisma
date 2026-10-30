@@ -28,6 +28,10 @@ model Syndicate {
   stripePriceId              String?  @map("stripe_price_id")
   stripeSubscriptionStatus   StripeSubscriptionStatus? @map("stripe_subscription_status")
   subscriptionCurrentPeriodEnd DateTime? @map("subscription_current_period_end")
+  /// A card dispute (chargeback) is open on a payment: read-only until a payment arrives (migration 0005).
+  disputeOpenedAt            DateTime? @map("dispute_opened_at")
+  /// When the card first failed this time round: full use for 14 days from here (migration 0005).
+  pastDueSince               DateTime? @map("past_due_since")
   planTier                   PlanTier? @map("plan_tier")
   
   defaultBeaterRate   Int      @default(40) @map("default_beater_rate")
@@ -175,6 +179,8 @@ model GuestGun {
   /// exact words shown, including the syndicate's own clauses. Migration 0004.
   waiverVersion         String?  @map("waiver_version")
   waiverTextHash        String?  @map("waiver_text_hash")
+  /// The exact words accepted, kept whole: a hash alone can't be read back once a syndicate edits its clauses (migration 0005).
+  waiverText            String?  @map("waiver_text")
   rsvpStatus            RsvpStatus @default(PENDING) @map("rsvp_status")
   inviteToken           String?  @unique @map("invite_token")
   notes                 String?

@@ -13,6 +13,8 @@ import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import { Prisma, type PrismaClient } from '@prisma/client'
 import { ZodError } from 'zod'
 import { validationResponse } from './validation.js'
+import { errorReference, type Alerts } from './alerts.js'
+import { SUPPORT_EMAIL } from './site.js'
 
 export class HttpError extends Error {
   constructor(public readonly status: number, message: string) {
@@ -28,7 +30,14 @@ export function handle(
   fn: (req: Request, res: Response) => Promise<unknown>
 ): RequestHandler {
   return (req: Request, res: Response, next: NextFunction) => {
-    fn(req, res).catch(next)
+    // The route pattern (never the IDs in the URL) is noted here, while the router still knows it,
+    // for the error report.
+    const route = `${req.method} ${req.baseUrl}${req.route?.path ?? ''}`
+    fn(req, res).catch((err) => {
+      // A frozen error object can't take the note; the report then names no route, nothing worse.
+      try { if (err instanceof Object) (err as { route?: string }).route = route } catch { /* frozen */ }
+      next(err)
+    })
   }
 }
 
@@ -49,8 +58,12 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
   if (err instanceof SyntaxError && 'body' in (err as object)) {
     return res.status(400).json({ error: 'That request could not be read. Reload the page and try again.' })
   }
-  console.error(`[api] ${req.method} ${req.path} failed:`, err)
-  return res.status(500).json({ error: 'ShootSync had a problem with that. Try again in a moment.' })
+  // Reported with a reference the user can quote; the path is the route pattern, never the IDs in it.
+  const alerts = req.app?.locals?.alerts as Alerts | undefined
+  const route = (err as { route?: string } | null)?.route ?? `${req.method} ${req.baseUrl ?? ''}${req.route?.path ?? ''}`
+  const reference = alerts ? alerts.report(err, route) : errorReference()
+  if (!alerts) console.error(`[error ${reference}] ${route}:`, err instanceof Error ? `${err.name}: ${err.message}` : String(err))
+  return res.status(500).json({ error: `ShootSync had a problem with that. Try again in a moment; if it keeps happening, email ${SUPPORT_EMAIL} quoting ${reference}.`, reference })
 }
 
 /** The signed-in user. The auth gate guarantees this on protected routes. */
@@ -80,9 +93,68 @@ export const GUN_ROLES = ['CAPTAIN', 'GUN', 'HYBRID'] as const
  */
 const LIVE_SUBSCRIPTION_STATES = new Set(['ACTIVE', 'TRIALING', 'PAST_DUE'])
 
-export function isLiveSubscription(status: string | null | undefined): boolean {
-  return status != null && LIVE_SUBSCRIPTION_STATES.has(status)
+/** How long a failed card keeps full use after it first failed, while Stripe retries it. */
+export const PAST_DUE_GRACE_DAYS = 14
+const DAY_MS = 24 * 60 * 60 * 1000
+
+export interface PlanFields {
+  stripeSubscriptionStatus: string | null
+  subscriptionCurrentPeriodEnd: Date | null
+  disputeOpenedAt: Date | null
+  pastDueSince: Date | null
 }
+
+export interface PlanAccess {
+  /** Changes are accepted. */
+  live: boolean
+  /** Why not, when not: the message the captain sees. */
+  reason: 'dispute' | 'overdue' | 'lapsed' | null
+  /** While live on a failed card: the day it becomes read-only unless a payment arrives. */
+  readOnlyFrom: Date | null
+}
+
+/**
+ * Whether a syndicate can be changed, from its plan:
+ *   - a disputed payment (chargeback) makes it read-only at once, until a payment arrives;
+ *   - a failed card (PAST_DUE) keeps full use for PAST_DUE_GRACE_DAYS after it first failed
+ *     (not after the paid-up date: Stripe moves that on when it raises the renewal invoice,
+ *     before the card is tried), then read-only: nobody gets more than two weeks' unpaid use;
+ *   - ACTIVE and TRIALING are live; everything else is read-only.
+ */
+export function planAccess(plan: PlanFields, now: Date): PlanAccess {
+  if (plan.disputeOpenedAt) return { live: false, reason: 'dispute', readOnlyFrom: null }
+  const status = plan.stripeSubscriptionStatus
+  if (status === 'PAST_DUE') {
+    const since = plan.pastDueSince
+    const readOnlyFrom = since ? new Date(since.getTime() + PAST_DUE_GRACE_DAYS * DAY_MS) : null
+    if (readOnlyFrom && now.getTime() >= readOnlyFrom.getTime()) return { live: false, reason: 'overdue', readOnlyFrom }
+    return { live: true, reason: null, readOnlyFrom }
+  }
+  if (status != null && LIVE_SUBSCRIPTION_STATES.has(status)) return { live: true, reason: null, readOnlyFrom: null }
+  return { live: false, reason: 'lapsed', readOnlyFrom: null }
+}
+
+/** What the browser is told about a plan: the same rule, with the dates it needs to explain itself. */
+export function planSummary(plan: PlanFields & { planTier: string | null }, now: Date) {
+  const access = planAccess(plan, now)
+  return {
+    status: plan.stripeSubscriptionStatus,
+    planTier: plan.planTier,
+    isActive: access.live,
+    /** Why it isn't active, when it isn't: 'dispute' | 'overdue' | 'lapsed'. */
+    reason: access.reason,
+    currentPeriodEnd: plan.subscriptionCurrentPeriodEnd,
+    /** While a failed card is being retried: the day the syndicate becomes read-only. */
+    readOnlyFrom: access.readOnlyFrom,
+  }
+}
+
+/** The clock the app was given (tests fix it); real time otherwise. */
+export function nowOf(req: Request): Date {
+  const clock = req.app?.locals?.now as (() => Date) | undefined
+  return clock ? clock() : new Date()
+}
+
 
 export interface AccessOptions {
   /**
@@ -96,6 +168,14 @@ export interface AccessOptions {
 export const LAPSED_CAPTAIN_MESSAGE =
   'This syndicate is read-only until its plan is active. Choose a plan, or update your payment details, in Settings. Everything you have recorded is still here.'
 const LAPSED_MEMBER_MESSAGE = 'This syndicate is read-only until its captain renews the plan.'
+export const OVERDUE_CAPTAIN_MESSAGE =
+  'The payment for this syndicate is more than two weeks overdue, so it is read-only. Update your card under Settings and everything opens up again.'
+export const DISPUTED_CAPTAIN_MESSAGE =
+  `A payment for this syndicate has been disputed with the card issuer, so it is read-only until that is settled and a payment has arrived. Email ${SUPPORT_EMAIL} if this is unexpected.`
+const PLAN_MESSAGES: Record<'captain' | 'member', Record<NonNullable<PlanAccess['reason']>, string>> = {
+  captain: { lapsed: LAPSED_CAPTAIN_MESSAGE, overdue: OVERDUE_CAPTAIN_MESSAGE, dispute: DISPUTED_CAPTAIN_MESSAGE },
+  member: { lapsed: LAPSED_MEMBER_MESSAGE, overdue: LAPSED_MEMBER_MESSAGE, dispute: LAPSED_MEMBER_MESSAGE },
+}
 
 /**
  * Who may act on a syndicate, and whether they may change anything.
@@ -120,7 +200,7 @@ export async function requireSyndicateAccess(
 
   const syndicate = await prisma.syndicate.findUnique({
     where: { id: syndicateId },
-    select: { id: true, captainClerkId: true, status: true, stripeSubscriptionStatus: true },
+    select: { id: true, captainClerkId: true, status: true, stripeSubscriptionStatus: true, subscriptionCurrentPeriodEnd: true, disputeOpenedAt: true, pastDueSince: true },
   })
   if (!syndicate || syndicate.status !== 'ACTIVE') throw notFound()
 
@@ -133,8 +213,9 @@ export async function requireSyndicateAccess(
   if (!isCaptain && !(level === 'member' && member)) throw notFound()
 
   const isWrite = req.method !== 'GET' && req.method !== 'HEAD'
-  if (isWrite && !options.allowLapsed && !isLiveSubscription(syndicate.stripeSubscriptionStatus)) {
-    throw new HttpError(402, isCaptain ? LAPSED_CAPTAIN_MESSAGE : LAPSED_MEMBER_MESSAGE)
+  if (isWrite && !options.allowLapsed) {
+    const plan = planAccess(syndicate, nowOf(req))
+    if (!plan.live && plan.reason) throw new HttpError(402, PLAN_MESSAGES[isCaptain ? 'captain' : 'member'][plan.reason])
   }
 
   return { syndicateId, isCaptain, memberId: member?.id ?? null }

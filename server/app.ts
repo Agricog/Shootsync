@@ -26,15 +26,57 @@ import { subscriptionRoutes } from './routes/subscriptions.js'
 import { meRoutes } from './routes/me.js'
 import { stripeWebhookHandler } from './routes/stripeWebhook.js'
 
-export interface AppOptions extends Omit<Deps, 'today'> {
+export interface AppOptions extends Omit<Deps, 'today' | 'now'> {
   verifyToken: TokenVerifier
   /** Built frontend to serve (production). Omitted in tests. */
   staticDir?: string
   /** Today's UK date, "YYYY-MM-DD". Picks which dated copy of a prerendered page to serve. Tests pass their own. */
   today?: () => string
+  /** The current moment. Tests pass their own; given `today` alone, it is midday UK on that date. */
+  now?: () => Date
 }
 
 const WEBHOOK_PATHS = ['/api/stripe/webhook', '/api/subscriptions/webhook']
+
+/**
+ * What the app loads from where. Clerk serves sign-in from its own origin (a production
+ * instance on clerk.shootsync.co.uk, a development one on *.clerk.accounts.dev) and uses
+ * Cloudflare's bot check; Stripe Checkout and the billing portal are full-page redirects, so no
+ * Stripe script runs here. Browser error reports go to Sentry.
+ */
+export const CSP_DIRECTIVES: Record<string, string[]> = {
+  'default-src': ["'self'"],
+  'script-src': ["'self'", 'https://clerk.shootsync.co.uk', 'https://*.clerk.accounts.dev', 'https://challenges.cloudflare.com', 'https://*.protect.clerk.com'],
+  'connect-src': ["'self'", 'https://clerk.shootsync.co.uk', 'https://*.clerk.accounts.dev', 'https://*.protect.clerk.com', 'https://*.ingest.sentry.io', 'https://*.ingest.us.sentry.io', 'https://*.ingest.de.sentry.io'],
+  'frame-src': ['https://clerk.shootsync.co.uk', 'https://*.clerk.accounts.dev', 'https://challenges.cloudflare.com', 'https://*.protect.clerk.com'],
+  'img-src': ["'self'", 'data:', 'https://img.clerk.com'],
+  'style-src': ["'self'", "'unsafe-inline'"],
+  'font-src': ["'self'", 'data:'],
+  // Clerk refreshes the session from a worker it creates as a blob URL.
+  'worker-src': ["'self'", 'blob:'],
+  'manifest-src': ["'self'"],
+  'object-src': ["'none'"],
+  'base-uri': ["'self'"],
+  'form-action': ["'self'"],
+  'frame-ancestors': ["'none'"],
+  'report-uri': ['/api/csp-report'],
+}
+
+/** One log line from a browser's CSP report (either report format), or null if it isn't one. */
+export function cspReportLine(body: unknown): string | null {
+  const report = (body as { 'csp-report'?: Record<string, unknown> } | null)?.['csp-report']
+    ?? (Array.isArray(body) ? (body[0] as { body?: Record<string, unknown> } | undefined)?.body : undefined)
+  if (!report || typeof report !== 'object') return null
+  const directive = report['effective-directive'] ?? report['violated-directive'] ?? report.effectiveDirective
+  const blocked = report['blocked-uri'] ?? report.blockedURL
+  const where = report['document-uri'] ?? report.documentURL
+  if (typeof directive !== 'string' || typeof blocked !== 'string') return null
+  // One line, bounded: a report is untrusted input and must not write what it likes into the log.
+  const clean = (value: string, max: number) => value.replace(/[^\x20-\x7e]+/g, ' ').slice(0, max)
+  const origin = (value: string) => { try { return new URL(value).origin } catch { return clean(value, 80) } }
+  const page = (value: unknown) => { try { return new URL(String(value)).pathname.replace(/[a-f0-9]{64}/g, ':token') } catch { return '?' } }
+  return `${clean(directive, 40)} blocked ${origin(blocked)} on ${typeof where === 'string' ? page(where) : '?'}`
+}
 
 /** Today's date in the UK, "YYYY-MM-DD". Content dates change at UK midnight, not UTC. */
 export function londonToday(now: Date = new Date()): string {
@@ -86,16 +128,23 @@ export function currentCopy(copies: PrerenderedCopy[], today: string): Prerender
 }
 
 export function createApp(options: AppOptions) {
-  const { verifyToken, staticDir, today = londonToday, ...rest } = options
-  const deps: Deps = { ...rest, today }
+  const { verifyToken, staticDir, ...rest } = options
+  const now = options.now ?? (options.today ? () => new Date(`${options.today!()}T12:00:00Z`) : () => new Date())
+  const today = options.today ?? (() => londonToday(now()))
+  const deps: Deps = { ...rest, today, now }
   const app = express()
+  // Shared with the access checks and the error handler, which run outside any route's deps.
+  app.locals.now = now
+  app.locals.alerts = deps.alerts
 
   // Railway terminates TLS in front of the app; trust its one proxy hop so req.ip is the client.
   app.set('trust proxy', 1)
   app.disable('x-powered-by')
 
-  // CSP is still off: it needs the Clerk and Stripe origins confirmed in a browser first (OPEN-ITEMS).
+  // A content security policy, in report-only mode first: browsers report what it would have
+  // blocked to /api/csp-report, and the log shows what to allow before it is enforced (runbook).
   app.use(helmet({ contentSecurityPolicy: false }))
+  app.use(helmet.contentSecurityPolicy({ reportOnly: true, useDefaults: false, directives: CSP_DIRECTIVES }))
   app.use(cors({ origin: deps.config.allowedOrigins, credentials: false }))
 
   // Stripe needs the raw body to verify its signature, so the webhook is mounted before JSON parsing.
@@ -119,6 +168,15 @@ export function createApp(options: AppOptions) {
     applies: (req: Request) => !isPublicRoute(req.method, req.path),
   }))
 
+  // Browsers' reports of what the policy above would have blocked (public, so behind the public
+  // rate limit above). One line each, nothing personal: the directive, the blocked origin and
+  // the page's path. Read them in Railway's logs.
+  app.post('/api/csp-report', express.json({ type: ['application/csp-report', 'application/reports+json'], limit: '20kb' }), (req, res) => {
+    const line = cspReportLine(req.body)
+    if (line) console.warn(`[csp] ${line}`)
+    res.status(204).end()
+  })
+
   // API responses hold account data: never let a browser or proxy cache them.
   app.use('/api', (_req, res, next) => {
     res.set('Cache-Control', 'no-store')
@@ -137,7 +195,7 @@ export function createApp(options: AppOptions) {
     res.json({ status: 'ok', timestamp: new Date().toISOString() })
   }))
 
-  app.use('/api', authGate(verifyToken, deps.prisma))
+  app.use('/api', authGate(verifyToken, deps.prisma, deps.alerts))
 
   // The browser's word that a signed-in user is still busy on a page that isn't saving anything
   // (server/sessionPolicy.ts). The auth gate above has already recorded the activity.

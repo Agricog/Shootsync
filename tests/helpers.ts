@@ -12,8 +12,9 @@ import { PrismaClient } from '@prisma/client'
 import Stripe from 'stripe'
 import { createApp } from '../server/app.js'
 import type { AppConfig } from '../server/config.js'
-import { sessionFromClaims, type TokenVerifier } from '../server/auth.js'
+import { refusal, sessionFromClaims, type TokenVerifier } from '../server/auth.js'
 import { waiverHash, waiverText } from '../server/waiver.js'
+import { consoleAlerts, type AlertKind } from '../server/alerts.js'
 
 export const TEST_WEBHOOK_SECRET = 'whsec_test_shootsync'
 
@@ -25,7 +26,13 @@ export const testConfig: AppConfig = {
   stripeSecretKey: 'sk_test_unused',
   stripeWebhookSecret: TEST_WEBHOOK_SECRET,
   stripePriceIds: { STARTER: 'price_starter_test', STANDARD: 'price_standard_test' },
+  sentryDsn: null,
+  release: 'test',
 }
+
+/** Alerts raised by the server under test, so a test can assert that a human would be told. */
+export type RecordedAlert = { kind: AlertKind; message: string; details: Record<string, unknown> }
+export type RecordedReport = { reference: string; context: string; details: Record<string, unknown>; error: unknown }
 
 /**
  * "test-token.<userId>" signs in as <userId>, in session sess_<userId>, signed in a minute ago.
@@ -35,7 +42,7 @@ export const testConfig: AppConfig = {
  */
 export const testVerifier: TokenVerifier = async (token) => {
   const match = /^test-token\.(user_[A-Za-z0-9_]+)(?:\.(\d+|nofva))?$/.exec(token)
-  if (!match) throw new Error('invalid token')
+  if (!match) throw refusal('invalid token')
   const iat = Math.floor(Date.now() / 1000)
   const fva = match[2] === 'nofva' ? undefined : [match[2] === undefined ? 1 : Number(match[2]), -1]
   return sessionFromClaims({ sub: match[1], sid: `sess_${match[1]}`, fva, iat }, iat)
@@ -78,10 +85,25 @@ export interface StripeCalls {
 export const stripeMissing = (what: string) => Object.assign(new Error(`No such ${what}`), { type: 'StripeInvalidRequestError', code: 'resource_missing' })
 
 /** A real Stripe SDK instance (so webhook signatures are verified for real) with its network calls stubbed. */
-export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscriptions: Map<string, Stripe.Subscription> } {
+export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscriptions: Map<string, Stripe.Subscription>; charges: Map<string, Stripe.Charge>; disputes: Map<string, Stripe.Dispute> } {
   const stripe = new Stripe('sk_test_unused', { apiVersion: '2023-10-16' })
   const calls: StripeCalls = { checkoutCreates: [], checkoutIdempotencyKeys: [], customersCreated: [], openSessions: [], expired: [], expireFails: false }
   const subscriptions = new Map<string, Stripe.Subscription>()
+  const charges = new Map<string, Stripe.Charge>()
+  // Disputes Stripe knows about; one not listed is "missing", so the handler falls back to the event.
+  const disputes = new Map<string, Stripe.Dispute>()
+  const disputesApi = stripe.disputes as unknown as Record<string, unknown>
+  disputesApi.retrieve = async (id: string) => {
+    const dispute = disputes.get(id)
+    if (!dispute) throw stripeMissing('dispute')
+    return dispute
+  }
+  const chargesApi = stripe.charges as unknown as Record<string, unknown>
+  chargesApi.retrieve = async (id: string) => {
+    const charge = charges.get(id)
+    if (!charge) throw stripeMissing('charge')
+    return charge
+  }
 
   const sessions = stripe.checkout.sessions as unknown as Record<string, unknown>
   // Like Stripe, a repeated idempotency key returns the session made the first time, as it is now.
@@ -135,11 +157,15 @@ export function createTestStripe(): { stripe: Stripe; calls: StripeCalls; subscr
     data: [...subscriptions.values()].filter((x) => (x as unknown as { customer?: string }).customer === params.customer),
   })
 
-  return { stripe, calls, subscriptions }
+  return { stripe, calls, subscriptions, charges, disputes }
 }
 
 export interface TestServer {
   baseUrl: string
+  /** Every alert the server raised: what a human would have been told. */
+  alerts: RecordedAlert[]
+  /** Every unexpected failure the server reported, with the reference its user was given. */
+  reports: RecordedReport[]
   close: () => Promise<void>
 }
 
@@ -151,13 +177,17 @@ export interface TestServer {
 export const TEST_TODAY = '2026-11-14'
 
 export async function startTestServer(prisma: PrismaClient, stripe: Stripe, verifyToken: TokenVerifier = testVerifier, today: () => string = () => TEST_TODAY): Promise<TestServer> {
-  const app = createApp({ prisma, stripe, config: testConfig, verifyToken, today })
+  const alerts: RecordedAlert[] = []
+  const reports: RecordedReport[] = []
+  const app = createApp({ prisma, stripe, config: testConfig, verifyToken, today, alerts: consoleAlerts(alerts, reports) })
   const server: Server = await new Promise((resolve) => {
     const s = app.listen(0, '127.0.0.1', () => resolve(s))
   })
   const { port } = server.address() as AddressInfo
   return {
     baseUrl: `http://127.0.0.1:${port}`,
+    alerts,
+    reports,
     close: () => new Promise((resolve, reject) => server.close((err) => (err ? reject(err) : resolve()))),
   }
 }
@@ -279,7 +309,7 @@ export async function seed(prisma: PrismaClient) {
 
 /** Every route registered on the app, read from Express itself, so a new route can't be missed. */
 export function registeredRoutes(prisma: PrismaClient, stripe: Stripe): Array<{ method: string; path: string }> {
-  const app = createApp({ prisma, stripe, config: testConfig, verifyToken: testVerifier })
+  const app = createApp({ prisma, stripe, config: testConfig, verifyToken: testVerifier, alerts: consoleAlerts() })
   const routes: Array<{ method: string; path: string }> = []
 
   const walk = (stack: any[], prefix: string) => {

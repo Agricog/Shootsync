@@ -18,6 +18,7 @@ import Card from '../../components/common/Card'
 import Button, { ButtonLink } from '../../components/common/Button'
 import LoadingSpinner from '../../components/common/LoadingSpinner'
 import { PLANS } from '../../config/plans'
+import { SITE } from '../../config/site'
 import { settingsPayload, toForm, validateSettings, type SettingsForm as Form, type SyndicateSettings as Syndicate } from '../../utils/syndicateSettings'
 
 
@@ -116,6 +117,9 @@ export default function Settings() {
   }
 
   const plan = PLANS.find((p) => p.tier === subscription.planTier)
+  const readOnlyFrom = subscription.readOnlyFrom
+    ? new Date(subscription.readOnlyFrom).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+    : null
   const renews = subscription.currentPeriodEnd
     ? new Date(subscription.currentPeriodEnd).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
     : null
@@ -262,8 +266,14 @@ export default function Settings() {
                 <p className="text-slate-300">Checking your plan…</p>
               ) : subscription.error ? (
                 <p role="alert" className="text-red-300">Couldn’t check your plan just now. {subscription.error}</p>
+              ) : subscription.reason === 'dispute' ? (
+                <p className="text-amber-200">A payment has been disputed with the card issuer, so the syndicate is read-only until that is settled and a payment has arrived. Email {SITE.email} if this is unexpected.</p>
+              ) : subscription.reason === 'overdue' ? (
+                <p className="text-amber-200">Your payment is more than two weeks overdue, so the syndicate is read-only. Update your card and pay the open invoice under Manage billing, and everything opens up again.</p>
               ) : subscription.status === 'PAST_DUE' ? (
-                <p className="text-amber-200">Your last payment didn’t go through. Everything still works while Stripe tries your card again: update it under Manage billing.</p>
+                <p className="text-amber-200">
+                  Your last payment didn’t go through. Everything still works{readOnlyFrom ? ` until ${readOnlyFrom}` : ' for now'} while Stripe tries your card again: update it under Manage billing.
+                </p>
               ) : subscription.status === 'UNPAID' ? (
                 <p className="text-amber-200">Payments have failed and Stripe has stopped trying, so the syndicate is read-only. Update your card and pay the open invoice under Manage billing.</p>
               ) : subscription.isActive ? (

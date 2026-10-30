@@ -16,13 +16,22 @@ export interface Membership {
   /** Whole pounds: what a new beater starts on. */
   defaultBeaterRate: number
   pegRotationRule: 'FAIR_ROTATION' | 'RANDOM' | 'MANUAL'
-  subscription: {
-    status: string | null
-    planTier: 'STARTER' | 'STANDARD' | null
-    isActive: boolean
-    currentPeriodEnd: string | null
-  }
+  subscription: PlanState
 }
+
+/** The plan as the server describes it (server/access.ts planSummary). */
+export interface PlanState {
+  status: string | null
+  planTier: 'STARTER' | 'STANDARD' | null
+  isActive: boolean
+  /** Why it isn't active, when it isn't. */
+  reason: 'dispute' | 'overdue' | 'lapsed' | null
+  currentPeriodEnd: string | null
+  /** While a failed card is being retried: the day the syndicate becomes read-only. */
+  readOnlyFrom: string | null
+}
+
+const longDate = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
 /**
  * The syndicate to show: the one chosen last time on this device if the user still belongs
@@ -62,13 +71,21 @@ export interface PlanNotice {
 /** What the captain needs to know about the plan of the syndicate on show, if anything. */
 export function planNotice(syndicate: Membership): PlanNotice | null {
   const { name, subscription } = syndicate
+  if (subscription.reason === 'dispute') {
+    return { tone: 'read-only', text: `A payment for ${name} has been disputed with the card issuer, so it’s read-only until that is settled and a payment has arrived. Everything is still here to view and export.`, action: 'Manage billing' }
+  }
+  if (subscription.reason === 'overdue') {
+    return { tone: 'read-only', text: `The payment for ${name} is more than two weeks overdue, so it’s read-only. Update your card and pay the open invoice under Update payment, and everything opens up again.`, action: 'Update payment' }
+  }
   switch (subscription.status) {
     case 'ACTIVE':
     case 'TRIALING':
       return null
-    case 'PAST_DUE':
-      // Still fully usable while Stripe retries the card (server/access.ts).
-      return { tone: 'warning', text: `The last payment for ${name} didn’t go through. Everything still works while Stripe tries your card again over the next few days. Update your card to keep it that way.`, action: 'Update payment' }
+    case 'PAST_DUE': {
+      // Still fully usable while Stripe retries the card, until readOnlyFrom (server/access.ts).
+      const until = subscription.readOnlyFrom ? ` until ${longDate(subscription.readOnlyFrom)}` : ' for now'
+      return { tone: 'warning', text: `The last payment for ${name} didn’t go through. Everything still works${until} while Stripe tries your card again. Update your card to keep it that way.`, action: 'Update payment' }
+    }
     case null:
       return { tone: 'read-only', text: `Choose a plan to start using ${name}. Until then you can look around, but nothing can be saved.`, action: 'Choose a plan' }
     case 'UNPAID':

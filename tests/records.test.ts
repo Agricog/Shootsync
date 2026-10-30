@@ -25,11 +25,20 @@ type Seeded = Awaited<ReturnType<typeof seed>>
 describe('the guest acknowledgement text', () => {
   it('is an acknowledgement of ordinary risk, never a release from negligence', () => {
     const text = waiverText(null)
-    assert.match(text, /does not cover harm caused by anyone’s negligence/)
+    assert.match(text, /does not mean accepting harm caused by anyone’s negligence, and nothing here excuses anyone from liability/)
     assert.match(text, /Nothing in this acknowledgement limits anyone’s liability for death or personal injury caused by negligence/)
-    assert.doesNotMatch(text, /release|hold harmless|heirs|gross negligence/i)
+    assert.doesNotMatch(text, /release|hold harmless|heirs|gross negligence|indemnif|waive/i)
+    // Section 11A, Firearms Act 1968 (as inserted by the Policing and Crime Act 2017), stated in full.
+    assert.match(text, /section 11A of the Firearms Act 1968/)
+    for (const condition of ['private premises', 'aged 18 or over', 'holds a shotgun certificate', 'right to allow others to shoot game or vermin there', 'written authority', 'presence of the lender', 'conditions on the lender’s certificate']) {
+      assert.ok(text.includes(condition), condition)
+    }
+    // No consent to treatment by tick-box, and the emergency contact knows they are named.
+    assert.doesNotMatch(text, /emergency treatment/)
+    assert.match(text, /who knows I have named them/)
+    assert.match(text, /held by the syndicate to run the shoot day and keep its records, using ShootSync as its service provider/)
     assert.ok(WAIVER_CLAUSES.length >= 6)
-    assert.match(WAIVER_VERSION, /^uk-\d{4}-\d{2}$/)
+    assert.match(WAIVER_VERSION, /^uk-\d{4}-\d{2}(\.\d+)?$/)
   })
 
   it('carries the syndicate’s own clauses under the standard text, and the hash changes with them', () => {
@@ -86,6 +95,8 @@ describe('records and the day, on the server', () => {
       const row = await prisma.guestGun.findUniqueOrThrow({ where: { id: data.a.guest.id } })
       assert.equal(row.waiverVersion, WAIVER_VERSION)
       assert.equal(row.waiverTextHash, waiverHash(waiverText('No ground game.')))
+      // The words themselves are kept, so they can be read back after the syndicate edits its clauses.
+      assert.equal(row.waiverText, waiverText('No ground game.'))
       assert.equal(row.waiverAccepted, true)
     })
 

@@ -221,31 +221,22 @@ describe('guest guard rails, on the server', () => {
       return fetch(`${server.baseUrl}/api/stripe/webhook`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': signature }, body })
     }
 
-    /** Runs fn with console.error recorded. */
-    async function errorsDuring(fn: () => Promise<unknown>): Promise<string[]> {
-      const original = console.error
-      const lines: string[] = []
-      console.error = (...args: unknown[]) => { lines.push(args.join(' ')) }
-      try {
-        await fn()
-      } finally {
-        console.error = original
-      }
-      return lines
-    }
-
     it('the right amount is recorded quietly', async () => {
-      const errors = await errorsDuring(async () => assert.equal((await paid(5000)).status, 200))
-      assert.deepEqual(errors, [])
+      server.alerts.length = 0
+      assert.equal((await paid(5000)).status, 200)
+      assert.deepEqual(server.alerts, [])
       assert.equal((await guestRow()).paymentStatus, 'PAID')
     })
 
     for (const [amount, currency] of [[4000, 'gbp'], [5000, 'eur']] as const) {
-      it(`${amount} ${currency} is still recorded as paid (so they can't pay twice), and logged to be put right`, async () => {
-        const errors = await errorsDuring(async () => assert.equal((await paid(amount, currency)).status, 200))
+      it(`${amount} ${currency} is still recorded as paid (so they can't pay twice), and the owner is alerted to put it right`, async () => {
+        server.alerts.length = 0
+        assert.equal((await paid(amount, currency)).status, 200)
         assert.equal((await guestRow()).paymentStatus, 'PAID')
-        assert.equal(errors.length, 1)
-        assert.match(errors[0], new RegExp(`paid ${amount} ${currency} but the day fee is 5000 gbp`))
+        assert.equal(server.alerts.length, 1)
+        assert.equal(server.alerts[0].kind, 'money')
+        assert.match(server.alerts[0].message, /different amount from their day fee/)
+        assert.deepEqual(server.alerts[0].details, { guest: data.a.guest.id, paid: amount, currency, dayFeePence: 5000, session: 'cs_test_amount' })
       })
     }
   })

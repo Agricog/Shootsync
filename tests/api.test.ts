@@ -107,6 +107,7 @@ describe('API', () => {
         PUBLIC_ROUTES.map((r) => `${r.method} ${r.path.source}`),
         [
           'GET ^\\/health$',
+          'POST ^\\/csp-report$',
           'POST ^\\/stripe\\/webhook$',
           'POST ^\\/subscriptions\\/webhook$',
           'GET ^\\/guests\\/token\\/[a-f0-9]{64}$',
@@ -595,8 +596,8 @@ describe('API', () => {
       assert.equal(row?.subscriptionCurrentPeriodEnd?.getTime(), 1_850_000_000_000)
     })
 
-    it('if a second plan is ever paid for, it says so loudly, naming the one to refund', async (t) => {
-      const errors = t.mock.method(console, 'error', () => undefined)
+    it('if a second plan is ever paid for, it says so loudly, naming the one to refund', async () => {
+      server.alerts.length = 0
       await prisma.syndicate.update({ where: { id: data.a.syndicate.id }, data: { stripeSubscriptionId: 'sub_first', stripeSubscriptionStatus: 'ACTIVE' } })
       // A redelivered checkout for the plan it's already on is not an alarm.
       stripeSub('sub_first', 'active')
@@ -605,7 +606,7 @@ describe('API', () => {
         data: { object: { id: 'cs_test_first', object: 'checkout.session', mode: 'subscription', subscription: 'sub_first', metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' } } },
       })
       assert.equal(await post('/api/stripe/webhook', again.body, again.signature), 200)
-      assert.equal(errors.mock.callCount(), 0)
+      assert.equal(server.alerts.length, 0)
 
       stripeSub('sub_second', 'active')
       const { body, signature } = signed({
@@ -613,7 +614,10 @@ describe('API', () => {
         data: { object: { id: 'cs_test_second', object: 'checkout.session', mode: 'subscription', subscription: 'sub_second', metadata: { syndicateId: data.a.syndicate.id, planTier: 'STANDARD' } } },
       })
       assert.equal(await post('/api/stripe/webhook', body, signature), 200)
-      assert.ok(errors.mock.calls.some((c) => String(c.arguments[0]).includes('Cancel and refund sub_first')))
+      const alert = server.alerts.find((a) => a.kind === 'billing')
+      assert.match(alert?.message ?? '', /two subscriptions.*Cancel and refund the old one in Stripe/)
+      assert.equal(alert?.details.oldSubscription, 'sub_first')
+      assert.equal(alert?.details.newSubscription, 'sub_second')
       assert.equal((await syndicateA())?.stripeSubscriptionId, 'sub_second')
     })
 
