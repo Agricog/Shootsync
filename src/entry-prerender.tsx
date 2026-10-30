@@ -14,7 +14,7 @@
 
 import type { ComponentType } from 'react'
 import { renderToString } from 'react-dom/server'
-import { StaticRouter } from 'react-router-dom/server'
+import { StaticRouter } from 'react-router-dom'
 import { HelmetProvider, type HelmetServerState } from 'react-helmet-async'
 import Landing from './pages/public/Landing'
 import Features from './pages/public/Features'

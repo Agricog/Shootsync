@@ -34,7 +34,7 @@
     "react": "18.3.1",
     "react-dom": "18.3.1",
     "react-helmet-async": "2.0.5",
-    "react-router-dom": "6.30.6",
+    "react-router-dom": "7.18.5",
     "stripe": "14.25.0",
     "zod": "4.6.7"
   },
