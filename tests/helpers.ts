@@ -33,6 +33,7 @@ export const testConfig: AppConfig = {
   sentryDsn: null,
   release: 'test',
   bankKeys: { current: TEST_BANK_KEY, previous: null },
+  resendApiKey: null,
 }
 
 /** Alerts raised by the server under test, so a test can assert that a human would be told. */
@@ -227,6 +228,7 @@ export async function call(server: TestServer, path: string, options: CallOption
 }
 
 const TABLES = [
+  'deletion_warnings',
   'activity_logs',
   'bag_records',
   'beater_bookings',

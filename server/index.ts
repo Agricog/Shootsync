@@ -16,6 +16,9 @@ import { PLAN_PRICES_PENCE, type PlanTierKey } from './plans.js'
 import { REQUIRED_MIGRATION, requireSchema } from './schemaVersion.js'
 import { sealOutstandingBankDetails, wrongKey } from './bankBackfill.js'
 import { runRetention } from './retention.js'
+import { clerkCaptainEmail, runDeletionWarnings } from './deletionWarnings.js'
+import { MAIL_FROM, resendMailer } from './mailer.js'
+import { createClerkClient } from '@clerk/backend'
 import { keyId } from './bankCrypto.js'
 
 let config: AppConfig
@@ -92,6 +95,12 @@ if (bankBoot?.unreadable.length) {
   alerts.alert('config', 'Some beaters’ bank details are sealed with a key this server does not have, or have been altered. Restore the previous BANK_DETAILS_KEY as BANK_DETAILS_KEY_PREVIOUS, or ask those beaters for their details again.', { beaters: bankBoot.unreadable.join(',') })
 }
 
+// Email (server/mailer.ts): required in production (server/config.ts), so a production server
+// always has one. The captain's address comes from Clerk at the moment of sending.
+const mailer = config.resendApiKey ? resendMailer(config.resendApiKey) : null
+const clerk = createClerkClient({ secretKey: config.clerkSecretKey })
+const captainEmail = clerkCaptainEmail((id) => clerk.users.getUser(id))
+
 const server = app.listen(PORT, () => {
   // Boot log is a verification point (Standard §19.10): it names what this process will accept.
   console.log(`[boot] ShootSync API listening on ${PORT}`)
@@ -104,13 +113,25 @@ const server = app.listen(PORT, () => {
       ? `[boot] Bank details: sealed (key ${keyId(config.bankKeys!.current)}); ${bankBoot.sealed} sealed now, ${bankBoot.resealed} moved to the current key, ${bankBoot.halfCleared} half-entered cleared, ${bankBoot.unreadable.length} unreadable`
       : '[boot] Bank details: no BANK_DETAILS_KEY, so none can be saved'
   )
+  console.log(mailer ? `[boot] Email: Resend, from ${MAIL_FROM}` : '[boot] Email: no RESEND_API_KEY, so no email is sent (deletion warnings are off)')
   void checkStripePrices()
 })
 
 // Retention (server/retention.ts): records past their time are removed every hour, starting a
 // minute after boot. One server runs it at a time; a failed run is reported and tried next hour.
 const RETENTION_EVERY_MS = 60 * 60 * 1000
+/** A run still going when the next is due (a slow provider, a long backlog) is left to finish. */
+let retentionRunning = false
 async function retentionRun() {
+  if (retentionRunning) return
+  retentionRunning = true
+  try {
+    await retentionAndWarnings()
+  } finally {
+    retentionRunning = false
+  }
+}
+async function retentionAndWarnings() {
   try {
     // Anything written readable by older code during a deploy's overlap is sealed within the hour.
     if (config.bankKeys) {
@@ -125,6 +146,17 @@ async function retentionRun() {
     }
   } catch (err) {
     alerts.report(err, 'retention run')
+  }
+  // Then the warnings for what is coming up (server/deletionWarnings.ts). Its own try, so a
+  // retention failure never stops a warning going, nor the reverse.
+  if (!mailer) return
+  try {
+    const warned = await runDeletionWarnings(prisma, { mailer, captainEmail, alerts, siteUrl: config.frontendUrl })
+    if (warned.sent || warned.noEmail || warned.failed) {
+      console.log(`[warnings] deletion warnings: ${warned.sent} sent, ${warned.noEmail} with no address, ${warned.failed} failed`)
+    }
+  } catch (err) {
+    alerts.report(err, 'deletion warnings run')
   }
 }
 const retentionFirst = setTimeout(() => void retentionRun(), 60 * 1000)

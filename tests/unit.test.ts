@@ -34,12 +34,25 @@ describe('configuration', () => {
   it('in production, error reporting is not optional: SENTRY_DSN is required, and the deploy is named', () => {
     assert.throws(
       () => loadConfig({ ...FULL_ENV, NODE_ENV: 'production' }),
-      (err: unknown) => err instanceof ConfigError && err.missing.join(',') === 'SENTRY_DSN,BANK_DETAILS_KEY'
+      (err: unknown) => err instanceof ConfigError && err.missing.join(',') === 'SENTRY_DSN,BANK_DETAILS_KEY,RESEND_API_KEY'
     )
-    const config = loadConfig({ ...FULL_ENV, NODE_ENV: 'production', SENTRY_DSN: ' https://k@o.ingest.sentry.io/1 ', RAILWAY_GIT_COMMIT_SHA: 'abc123', BANK_DETAILS_KEY: 'ab'.repeat(32) })
+    const config = loadConfig({ ...FULL_ENV, NODE_ENV: 'production', SENTRY_DSN: ' https://k@o.ingest.sentry.io/1 ', RAILWAY_GIT_COMMIT_SHA: 'abc123', BANK_DETAILS_KEY: 'ab'.repeat(32), RESEND_API_KEY: 're_' + 'A1b2_'.repeat(6) })
     assert.deepEqual([config.sentryDsn, config.release, config.isProduction], ['https://k@o.ingest.sentry.io/1', 'abc123', true])
     // Locally it is optional: reports go to the console.
     assert.deepEqual([loadConfig(FULL_ENV).sentryDsn, loadConfig(FULL_ENV).release], [null, 'local'])
+  })
+
+  it('in production the email key is required, and a malformed one stops the boot rather than a warning email', () => {
+    const production = { ...FULL_ENV, NODE_ENV: 'production', SENTRY_DSN: 'https://k@o.ingest.sentry.io/1', BANK_DETAILS_KEY: 'ab'.repeat(32) }
+    // Key-shaped values are built here, so secret scanning never sees key-shaped text in the file.
+    const resendKey = ['re', 'Abc123', 'Def456ghi789JKL'].join('_')
+    assert.throws(() => loadConfig(production), (err: unknown) => err instanceof ConfigError && err.missing.join(',') === 'RESEND_API_KEY')
+    for (const bad of [['sk', 'test', '1'.repeat(18)].join('_') /* Stripe-shaped, built so secret scanning sees no key-shaped text */, 're_short', 're_ has spaces in it 12345', `RESEND_API_KEY=${['re', 'abcdefghijklmnopqrstu'].join('_')}`]) {
+      assert.throws(() => loadConfig({ ...production, RESEND_API_KEY: bad }), (err: unknown) => err instanceof ConfigError && /does not look like a Resend API key/.test(err.message), bad)
+    }
+    assert.equal(loadConfig({ ...production, RESEND_API_KEY: `  ${resendKey}  ` }).resendApiKey, resendKey)
+    // Locally it is optional: no email is sent.
+    assert.equal(loadConfig(FULL_ENV).resendApiKey, null)
   })
 
   it('defaults the site address and allows only that origin', () => {

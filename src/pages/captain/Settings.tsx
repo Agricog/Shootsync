@@ -24,6 +24,7 @@ import { minimumWageNote, parseDayRate } from '../../utils/dayRate'
 import { useUnsavedWork } from '../../lib/unsavedWork'
 import { londonDate } from '../../utils/beaterPayCalculator'
 import { formatLongDate } from '../../utils/dateHelpers'
+import { deletionWarningText } from '../../config/retention'
 
 
 const label = 'block text-sm font-medium text-slate-300 mb-1'
@@ -286,7 +287,7 @@ export default function Settings() {
               {subscription.deletionDate && (
                 <p className="mt-2 text-amber-200">
                   Unless a plan is started, everything for this syndicate is deleted on{' '}
-                  {formatLongDate(subscription.deletionDate)}. Download it before then.
+                  {formatLongDate(subscription.deletionDate)}. Download it before then. We’ll also email you {deletionWarningText()} before.
                 </p>
               )}
               <p className="mt-2 text-sm text-slate-400">

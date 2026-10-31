@@ -9,9 +9,9 @@
 import Seo from '../../components/public/Seo'
 import LegalPage from '../../components/public/LegalPage'
 import { SITE } from '../../config/site'
-import { RETENTION } from '../../config/retention'
+import { RETENTION, deletionWarningText } from '../../config/retention'
 
-const UPDATED = '30 October 2026'
+const UPDATED = '31 October 2026'
 const { operator, email } = SITE
 
 export default function Privacy() {
@@ -96,6 +96,7 @@ export default function Privacy() {
                   <li><strong>Neon</strong>: the database where syndicate records are stored.</li>
                   <li><strong>Railway</strong>: hosting for the ShootSync application.</li>
                   <li><strong>Sentry</strong> (Functional Software, Inc.): error reports, stored in the EU (Frankfurt). Reports are stripped of personal data before they leave ShootSync.</li>
+                  <li><strong>Resend</strong>: sends the emails ShootSync sends to captains (such as the warning before a syndicate’s records are deleted). It receives the captain’s email address and the message, and nothing else, and keeps its own record of each email it sends, in the United States.</li>
                 </ul>
                 <p>
                   Some of these providers are based in, or use services in, the United States. Where personal
@@ -122,7 +123,7 @@ export default function Privacy() {
                   <li><strong>A beater’s bank details,</strong> once they have stopped beating for the syndicate: {RETENTION.bankDetailsDaysAfterLastPayment} days after their last payment is settled.</li>
                   <li><strong>Contact details of members and beaters who have left:</strong> {RETENTION.leaverMonths} months after they leave. Their name stays only on payment records that must still be kept, and goes when those do.</li>
                   <li><strong>The game book</strong> (shoot days, drives, bags and pegs): for as long as the syndicate uses ShootSync.</li>
-                  <li><strong>A syndicate that leaves ShootSync:</strong> everything is deleted {RETENTION.syndicateDaysAfterPlanEnds} days after its plan ends (or, if no plan was ever started, {RETENTION.syndicateDaysAfterPlanEnds} days after it was set up). Until then the syndicate stays in the app, read-only, the captain can download all of it, and the app shows the date. After that, keeping records for tax is the syndicate’s own responsibility, from its download.</li>
+                  <li><strong>A syndicate that leaves ShootSync:</strong> everything is deleted {RETENTION.syndicateDaysAfterPlanEnds} days after its plan ends (or, if no plan was ever started, {RETENTION.syndicateDaysAfterPlanEnds} days after it was set up). Until then the syndicate stays in the app, read-only, the captain can download all of it, and the app shows the date. We also email the captain {deletionWarningText()} before. After that, keeping records for tax is the syndicate’s own responsibility, from its download.</li>
                   <li><strong>Sign-in session records:</strong> {RETENTION.sessionDays} days, longer than any sign-in can last, so an ended session can never be used again.</li>
                 </ul>
               </>

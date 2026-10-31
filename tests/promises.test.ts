@@ -1,6 +1,8 @@
 /**
  * Every word on a page is true (the owner's mantra: a premium product makes no claim it can't
- * keep). ShootSync sends no email, notifies nobody, and keeps nothing for later while offline.
+ * keep). ShootSync notifies nobody and keeps nothing for later while offline. The one email it
+ * sends is the captain's warning before their syndicate's records are deleted (from batch 10a,
+ * server/deletionWarnings.ts); nothing else, so no other sentence may promise an email.
  * Until it does, no shipped text may say otherwise. This reads every string and every piece of
  * page text in the browser code and the static pages, so a false promise fails the build.
  *

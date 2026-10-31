@@ -52,6 +52,7 @@ model Syndicate {
   memberPayments      MemberPayment[]
   beaterBookings      BeaterBooking[]
   activityLogs        ActivityLog[]
+  deletionWarnings    DeletionWarning[]
 
   @@index([captainClerkId])
   @@map("syndicates")
@@ -340,6 +341,29 @@ model ActivityLog {
   @@index([syndicateId, timestamp])
   @@index([syndicateId, targetId])
   @@map("activity_logs")
+}
+
+/// Each email warning that a syndicate's records are about to be deleted (server/deletionWarnings.ts,
+/// migration 0008). One per syndicate, deletion date and warning, so none is sent twice. No personal data.
+model DeletionWarning {
+  id            String   @id @default(cuid())
+  syndicateId   String   @map("syndicate_id")
+  /// The deletion date the warning was about. A plan started and ended again gives a new one.
+  deletionDueAt DateTime @map("deletion_due_at")
+  /// 30, 7 or 1.
+  daysBefore    Int      @map("days_before")
+  /// 'pending' (claimed, being sent), 'sent', 'no_email' (the captain's account had no address;
+  /// alerted) or 'superseded' (never confirmed, replaced by a more urgent warning).
+  outcome       String
+  /// When this server took the claim. A 'pending' claim older than a few minutes is taken again.
+  claimedAt     DateTime @map("claimed_at")
+  /// When Resend accepted it. Set exactly when the outcome is 'sent'.
+  sentAt        DateTime? @map("sent_at")
+
+  syndicate     Syndicate @relation(fields: [syndicateId], references: [id], onDelete: Cascade)
+
+  @@unique([syndicateId, deletionDueAt, daysBefore])
+  @@map("deletion_warnings")
 }
 
 // ============================================

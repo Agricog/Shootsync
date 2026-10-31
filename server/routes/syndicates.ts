@@ -1,7 +1,7 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import type { Deps } from '../deps.js'
-import { dateString } from '../validation.js'
+import { dateString, HIDDEN_CHARACTERS } from '../validation.js'
 import { HttpError, handle, notFound, requireSyndicateAccess, syndicateSelect, userIdOf, withoutCaptainOnlyFields } from '../access.js'
 import { addAuditDetails, noteAuditContext, noteAuditTarget } from '../audit.js'
 import { buildSyndicateExport } from '../syndicateExport.js'
@@ -13,7 +13,8 @@ const SUBSCRIPTION_ENDED = new Set(['CANCELLED'])
 
 // The captain is always the signed-in user. A captainClerkId sent by the browser is ignored.
 const createSyndicateSchema = z.object({
-  name: z.string().trim().min(1).max(100),
+  // One line: it heads every page and the subject of every email ShootSync sends about it.
+  name: z.string().trim().min(1).max(100).refine((name) => !HIDDEN_CHARACTERS.test(name), 'The name must be on one line, with no hidden characters.'),
   seasonStart: dateString.transform((s) => new Date(s)),
   seasonEnd: dateString.transform((s) => new Date(s)),
   defaultBeaterRatePence: dayRatePence.optional(),

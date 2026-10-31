@@ -140,3 +140,11 @@ export const dateString = z
     const year = Number(s.slice(0, 4))
     return year >= 2000 && year <= 2100
   }, 'Enter the date with a four-digit year, like 2026')
+
+/**
+ * Line breaks, control characters and the invisible characters that can reverse or disguise text
+ * (bidi marks and overrides, zero-width spaces, soft hyphens, invisible operators, interlinear
+ * annotation). Emoji joiners, the non-joiner some scripts need, and the tags in the Scottish and
+ * Welsh flags are allowed. Used to keep names that appear in email subjects on one honest line.
+ */
+export const HIDDEN_CHARACTERS = /[\p{Cc}\u00AD\u061C\u180E\u200B\u200E\u200F\u202A-\u202E\u2028\u2029\u2060-\u2064\u2066-\u2069\uFEFF\uFFF9-\uFFFB]/u

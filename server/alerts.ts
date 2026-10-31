@@ -19,6 +19,7 @@ export type AlertKind =
   | 'dispute'      // a card dispute (chargeback) opened
   | 'config'       // the deployment disagrees with Stripe or the website
   | 'webhook'      // a Stripe event could not be processed
+  | 'email'        // an email the product promises could not be sent
 
 export interface Alerts {
   /** Something a human must act on. `details` holds IDs and amounts only. */

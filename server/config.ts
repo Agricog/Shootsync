@@ -7,6 +7,7 @@
  */
 
 import { parseBankKey, type BankKeys } from './bankCrypto.js'
+import { isResendKey } from './mailer.js'
 
 export interface AppConfig {
   isProduction: boolean
@@ -29,6 +30,12 @@ export interface AppConfig {
    * one (a local run), bank details can't be saved, rather than being saved readable.
    */
   bankKeys: BankKeys | null
+  /**
+   * Resend API key for the emails ShootSync sends (server/mailer.ts). Required in production: the
+   * privacy notice promises captains a warning before their records are deleted. Locally, none is
+   * sent and the run says so.
+   */
+  resendApiKey: string | null
 }
 
 const REQUIRED = [
@@ -56,7 +63,7 @@ function originOf(url: string): string {
 
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const isProduction = env.NODE_ENV === 'production'
-  const required = isProduction ? [...REQUIRED, 'SENTRY_DSN', 'BANK_DETAILS_KEY'] : [...REQUIRED]
+  const required = isProduction ? [...REQUIRED, 'SENTRY_DSN', 'BANK_DETAILS_KEY', 'RESEND_API_KEY'] : [...REQUIRED]
   const missing = required.filter((key) => !env[key] || env[key]!.trim() === '')
   if (missing.length > 0) {
     throw new ConfigError([...missing])
@@ -72,6 +79,12 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     bankKeys = current ? { current, previous } : null
   } catch (err) {
     throw new ConfigError(['BANK_DETAILS_KEY'], (err as Error).message)
+  }
+
+  // A key with a fixed shape is checked at boot: a paste gone wrong stops the deploy, not a warning email.
+  const resendApiKey = env.RESEND_API_KEY?.trim() || null
+  if (resendApiKey && !isResendKey(resendApiKey)) {
+    throw new ConfigError(['RESEND_API_KEY'], 'RESEND_API_KEY does not look like a Resend API key (it starts re_). Copy it again from Resend, API keys.')
   }
 
   const extraOrigins = (env.ALLOWED_ORIGINS ?? '')
@@ -96,5 +109,6 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     sentryDsn: env.SENTRY_DSN?.trim() || null,
     release: env.RAILWAY_GIT_COMMIT_SHA?.trim() || 'local',
     bankKeys,
+    resendApiKey,
   }
 }

@@ -74,6 +74,9 @@ const CHECKS = [
   'beaters.beaters_day_rate_pence_check',
   'beater_bookings.beater_bookings_day_rate_pence_check',
   'syndicates.syndicates_default_beater_rate_pence_check',
+  'deletion_warnings.deletion_warnings_days_before_check',
+  'deletion_warnings.deletion_warnings_outcome_check',
+  'deletion_warnings.deletion_warnings_sent_at_check',
 ]
 
 /** Every column, constraint, index and enum value in the public schema, as sortable lines. */

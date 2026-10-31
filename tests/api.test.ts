@@ -158,6 +158,21 @@ describe('API', () => {
       assert.equal(res.status, 400)
     })
 
+    it('a name must be on one line with no hidden characters; flags and emoji are fine', async () => {
+      const season = { seasonStart: '2026-10-01', seasonEnd: '2027-02-01' }
+      for (const name of [`Hill${String.fromCodePoint(10)}top`, `Hill${String.fromCodePoint(0x202e)}top`, `Hill${String.fromCodePoint(0x200b)}top`]) {
+        const res = await call(server, '/api/syndicates', { method: 'POST', as: CAPTAIN_A, body: { name, ...season } })
+        assert.equal(res.status, 400, JSON.stringify(name))
+        assert.match(JSON.stringify(res.json), /one line, with no hidden characters/)
+      }
+      const renamed = await call(server, `/api/syndicates/${data.a.syndicate.id}`, { method: 'PATCH', as: CAPTAIN_A, body: { name: `A${String.fromCodePoint(13)}B` } })
+      assert.equal(renamed.status, 400)
+      const wales = String.fromCodePoint(0x1f3f4, 0xe0067, 0xe0062, 0xe0077, 0xe006c, 0xe0073, 0xe007f)
+      const ok = await call(server, '/api/syndicates', { method: 'POST', as: CAPTAIN_A, body: { name: `Dragon ${wales}`, ...season } })
+      assert.equal(ok.status, 201)
+      assert.equal(ok.json.name, `Dragon ${wales}`)
+    })
+
     it('a captain cannot hand their syndicate to someone else', async () => {
       await call(server, `/api/syndicates/${data.a.syndicate.id}`, {
         method: 'PATCH', as: CAPTAIN_A, body: { captainClerkId: CAPTAIN_B },

@@ -34,6 +34,8 @@ export const RETENTION = {
   bankDetailsDaysAfterLastPayment: 90,
   leaverMonths: 12,
   syndicateDaysAfterPlanEnds: 90,
+  /** Days before that deletion the captain is emailed (server/deletionWarnings.ts). Largest first. */
+  deletionWarningDays: [30, 7, 1],
   sessionDays: KEEP_SESSION_ROWS_DAYS,
 } as const
 
